@@ -1,4 +1,4 @@
-import type { UserPublic } from "./user";
+import type { UserPublic } from "./user.js";
 
 // Auth
 export interface LoginRequest {
