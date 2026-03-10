@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import type { Env } from "../config/env.js";
-import { AGENT_SYSTEM_PROMPT, requiresApproval } from "./agentTools.js";
+import { AGENT_SYSTEM_PROMPT, CHAT_SYSTEM_PROMPT, requiresApproval } from "./agentTools.js";
 import type { AgentUsage, ToolCallSummary } from "@ailancers/shared-types";
 import type { StreamCallbacks, AgentCallbacks, AgentResult } from "./ClaudeProxyService.js";
 
@@ -154,7 +154,10 @@ export class OpenAIProxyService {
       const stream = await this.client.chat.completions.create({
         model,
         max_tokens: this.maxTokens,
-        messages: messages.map((m) => ({ role: m.role, content: m.content })),
+        messages: [
+          { role: "system", content: CHAT_SYSTEM_PROMPT },
+          ...messages.map((m) => ({ role: m.role, content: m.content })),
+        ],
         stream: true,
       });
 

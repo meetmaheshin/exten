@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { Env } from "../config/env.js";
-import { AGENT_TOOL_DEFINITIONS, AGENT_SYSTEM_PROMPT, requiresApproval } from "./agentTools.js";
+import { AGENT_TOOL_DEFINITIONS, AGENT_SYSTEM_PROMPT, CHAT_SYSTEM_PROMPT, requiresApproval } from "./agentTools.js";
 import type { AgentUsage, ToolCallSummary } from "@ailancers/shared-types";
 
 // Pricing per million tokens (as of Feb 2026)
@@ -57,6 +57,7 @@ export class ClaudeProxyService {
       const stream = this.client.messages.stream({
         model,
         max_tokens: this.maxTokens,
+        system: CHAT_SYSTEM_PROMPT,
         messages,
       });
 
