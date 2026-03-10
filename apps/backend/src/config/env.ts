@@ -15,12 +15,12 @@ const envSchema = z.object({
 
   ANTHROPIC_API_KEY: z.string().default(""),
   ANTHROPIC_DEFAULT_MODEL: z.string().default("claude-sonnet-4-6"),
-  ANTHROPIC_MAX_TOKENS: z.coerce.number().default(4096),
+  ANTHROPIC_MAX_TOKENS: z.coerce.number().default(16384),
 
   // OpenAI (optional — leave empty to disable)
   OPENAI_API_KEY: z.string().default(""),
   OPENAI_DEFAULT_MODEL: z.string().default("gpt-4o"),
-  OPENAI_MAX_TOKENS: z.coerce.number().default(4096),
+  OPENAI_MAX_TOKENS: z.coerce.number().default(16384),
 
   // Agent mode settings
   AGENT_MAX_TOKENS: z.coerce.number().default(16384),

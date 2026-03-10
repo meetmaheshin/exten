@@ -13,11 +13,10 @@ export class ApprovalService {
       return true;
     }
 
-    const detail = this.formatDetail(toolName, toolInput);
-    const label = this.toolLabel(toolName);
+    const { title, detail } = this.formatApproval(toolName, toolInput);
 
-    const result = await vscode.window.showWarningMessage(
-      `Claude wants to: ${label}`,
+    const result = await vscode.window.showInformationMessage(
+      title,
       { modal: true, detail },
       "Allow",
       "Allow All This Session",
@@ -37,29 +36,57 @@ export class ApprovalService {
     this.sessionAutoApproved.clear();
   }
 
-  private toolLabel(toolName: string): string {
+  private formatApproval(
+    toolName: string,
+    toolInput: Record<string, unknown>
+  ): { title: string; detail: string } {
     switch (toolName) {
-      case "write_file":
-        return "Write a file";
-      case "edit_file":
-        return "Edit a file";
-      case "run_terminal":
-        return "Run a terminal command";
+      case "write_file": {
+        const path = toolInput.path as string || "unknown";
+        const content = toolInput.content as string || "";
+        const lines = content.split("\n").length;
+        return {
+          title: `AI Agent — Create / Overwrite File`,
+          detail: [
+            `File:  ${path}`,
+            `Lines: ${lines}`,
+            "",
+            "Preview:",
+            content.slice(0, 600),
+          ].join("\n"),
+        };
+      }
+      case "edit_file": {
+        const path = toolInput.path as string || "unknown";
+        const oldText = toolInput.old_text as string || "";
+        const newText = toolInput.new_text as string || "";
+        return {
+          title: `AI Agent — Edit File: ${path}`,
+          detail: [
+            "Find:",
+            oldText.slice(0, 400),
+            "",
+            "Replace with:",
+            newText.slice(0, 400),
+          ].join("\n"),
+        };
+      }
+      case "run_terminal": {
+        const cmd = toolInput.command as string || "";
+        const cwd = toolInput.cwd as string;
+        return {
+          title: `AI Agent — Run Command`,
+          detail: [
+            `$ ${cmd}`,
+            ...(cwd ? [`Directory: ${cwd}`] : []),
+          ].join("\n"),
+        };
+      }
       default:
-        return toolName;
-    }
-  }
-
-  private formatDetail(toolName: string, toolInput: Record<string, unknown>): string {
-    switch (toolName) {
-      case "write_file":
-        return `Create/overwrite: ${toolInput.path}\n\nContent preview:\n${(toolInput.content as string || "").slice(0, 500)}`;
-      case "edit_file":
-        return `File: ${toolInput.path}\n\nReplace:\n${(toolInput.old_text as string || "").slice(0, 300)}\n\nWith:\n${(toolInput.new_text as string || "").slice(0, 300)}`;
-      case "run_terminal":
-        return `Command: ${toolInput.command}\n${toolInput.cwd ? `Directory: ${toolInput.cwd}` : ""}`;
-      default:
-        return JSON.stringify(toolInput, null, 2).slice(0, 500);
+        return {
+          title: `AI Agent — ${toolName}`,
+          detail: JSON.stringify(toolInput, null, 2).slice(0, 500),
+        };
     }
   }
 }
