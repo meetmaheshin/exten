@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm install)",
+      "Bash(npx pnpm rebuild esbuild)",
+      "Bash(pnpm add dotenv)",
+      "Bash(pnpm run build)",
+      "Bash(pnpm --filter backend run typecheck)",
+      "Bash(wc -l /d/exten/apps/extension/src/*.ts /d/exten/apps/backend/src/*.ts /d/exten/apps/dashboard/src/**/*.tsx)",
+      "Bash(npx tsc:*)",
+      "Bash(find /d/exten -name .env* -type f)",
+      "Bash(find /d/exten/apps/extension/webview/src -type f -name *.tsx -o -name *.ts)",
+      "Bash(find /d/exten/apps/backend/src -name *agentTools* -o -name *agent*)",
+      "Bash(grep -E \"\\\\.\\(ts|js\\)$\")",
+      "Bash(find /d/exten -path */shared-types/src/* -type f)",
+      "Bash(pnpm add:*)",
+      "Bash(node _gen_icon.js)",
+      "Bash(node -e \"const fs=require\\(''fs''\\); const b=fs.readFileSync\\(''D:/exten/apps/extension/resources/icon.png''\\); console.log\\(''Size:'', b.length, ''bytes''\\); console.log\\(''PNG signature valid:'', b[0]===137 && b[1]===80 && b[2]===78 && b[3]===71\\); const w=b.readUInt32BE\\(16\\); const h=b.readUInt32BE\\(20\\); console.log\\(''Dimensions:'', w, ''x'', h\\);\")",
+      "Bash(npx vite:*)",
+      "Bash(node esbuild.config.mjs)",
+      "Bash(npx @vscode/vsce package --no-dependencies)",
+      "Bash(ls d:/exten/apps/backend/drizzle.config.*)",
+      "Bash(DATABASE_URL=\"postgresql://fake:fake@localhost:5432/fake\" npx drizzle-kit generate)",
+      "Bash(DATABASE_URL=\"postgresql://fake:fake@localhost:5432/fake\" npx drizzle-kit generate --config=drizzle.config.ts)",
+      "Bash(npx drizzle-kit:*)",
+      "Bash(node --import tsx node_modules/.bin/drizzle-kit generate)",
+      "Bash(gh auth:*)"
+    ]
+  }
+}

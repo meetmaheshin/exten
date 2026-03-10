@@ -1,0 +1,121 @@
+{
+  "name": "ailancers-code",
+  "displayName": "Ailancers Code",
+  "description": "AI coding agent that reads, writes, and edits your code — with time tracking, screen capture, and team analytics — powered by Claude",
+  "version": "0.1.0",
+  "publisher": "ailancers",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ailancers/ailancers-code"
+  },
+  "homepage": "https://github.com/ailancers/ailancers-code#readme",
+  "bugs": {
+    "url": "https://github.com/ailancers/ailancers-code/issues"
+  },
+  "icon": "resources/icon.png",
+  "galleryBanner": {
+    "color": "#1e1e2e",
+    "theme": "dark"
+  },
+  "keywords": ["ai", "claude", "chat", "coding-agent", "time-tracking", "team", "activity", "screenshot", "analytics"],
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": ["Programming Languages", "Machine Learning", "Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ailancers-sidebar",
+          "title": "Ailancers Code",
+          "icon": "resources/sidebar-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "ailancers-sidebar": [
+        {
+          "type": "webview",
+          "id": "ailancers.chatView",
+          "name": "AI Chat"
+        }
+      ]
+    },
+    "commands": [
+      { "command": "ailancers.login", "title": "Ailancers: Login" },
+      { "command": "ailancers.logout", "title": "Ailancers: Logout" },
+      { "command": "ailancers.openChat", "title": "Ailancers: Open Chat" },
+      { "command": "ailancers.toggleAgentMode", "title": "Ailancers: Toggle Agent Mode" },
+      { "command": "ailancers.toggleTracking", "title": "Ailancers: Toggle Activity Tracking" },
+      { "command": "ailancers.newConversation", "title": "Ailancers: New Conversation" },
+      { "command": "ailancers.captureScreen", "title": "Ailancers: Capture Screenshot Now" },
+      { "command": "ailancers.openActivityDashboard", "title": "Ailancers: Open Activity Dashboard" }
+    ],
+    "configuration": {
+      "title": "Ailancers Code",
+      "properties": {
+        "ailancers.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:3000",
+          "description": "Backend server URL"
+        },
+        "ailancers.idleTimeoutSeconds": {
+          "type": "number",
+          "default": 300,
+          "description": "Seconds of inactivity before marking as idle"
+        },
+        "ailancers.telemetryIntervalSeconds": {
+          "type": "number",
+          "default": 60,
+          "description": "How often to send telemetry batches (seconds)"
+        },
+        "ailancers.trackingEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable/disable activity tracking"
+        },
+        "ailancers.screenCaptureEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable periodic screen captures for activity verification"
+        },
+        "ailancers.screenCaptureIntervalSeconds": {
+          "type": "number",
+          "default": 300,
+          "description": "Interval between automatic screen captures (seconds)"
+        },
+        "ailancers.screenCaptureMaxLocal": {
+          "type": "number",
+          "default": 50,
+          "description": "Maximum local screenshots to keep before auto-cleanup"
+        },
+        "ailancers.screenCaptureBlurSensitive": {
+          "type": "boolean",
+          "default": false,
+          "description": "Blur potentially sensitive areas in screenshots"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build:webview": "cd webview && npm run build",
+    "build:extension": "node esbuild.config.mjs",
+    "build": "npm run build:webview && npm run build:extension",
+    "dev": "node esbuild.config.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "package": "vsce package --no-dependencies",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@ailancers/shared-types": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.96.0",
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.7.0"
+  }
+}

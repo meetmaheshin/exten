@@ -1,0 +1,12 @@
+.vscode/**
+src/**
+webview/**
+node_modules/**
+!dist/**
+!resources/**
+!package.json
+!LICENSE
+tsconfig.json
+esbuild.config.mjs
+*.map
+.gitignore

@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "lib": ["ES2022"]
+  },
+  "include": ["src"],
+  "exclude": ["webview"],
+  "references": [{ "path": "../../packages/shared-types" }]
+}
