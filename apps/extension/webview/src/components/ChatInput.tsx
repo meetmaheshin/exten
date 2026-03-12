@@ -68,11 +68,32 @@ export function ChatInput({
             disabled={isStreaming}
             title="Select AI model"
           >
-            {availableModels.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
-              </option>
-            ))}
+            {(() => {
+              const codeModels = availableModels.filter((m) => m.category === "code");
+              const chatModels = availableModels.filter((m) => m.category === "chat");
+              const reasoningModels = availableModels.filter((m) => m.category === "reasoning");
+              const uncategorized = availableModels.filter((m) => !m.category);
+              return (
+                <>
+                  {codeModels.length > 0 && (
+                    <optgroup label="Code">
+                      {codeModels.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                    </optgroup>
+                  )}
+                  {chatModels.length > 0 && (
+                    <optgroup label="Chat">
+                      {chatModels.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                    </optgroup>
+                  )}
+                  {reasoningModels.length > 0 && (
+                    <optgroup label="Reasoning">
+                      {reasoningModels.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                    </optgroup>
+                  )}
+                  {uncategorized.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                </>
+              );
+            })()}
           </select>
         )}
         <span className="input-controls-spacer" />

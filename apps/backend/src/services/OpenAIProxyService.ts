@@ -4,12 +4,15 @@ import { AGENT_SYSTEM_PROMPT, CHAT_SYSTEM_PROMPT, requiresApproval } from "./age
 import type { AgentUsage, ToolCallSummary } from "@ailancers/shared-types";
 import type { StreamCallbacks, AgentCallbacks, AgentResult } from "./ClaudeProxyService.js";
 
-// Pricing per million tokens (as of Feb 2026)
+// Pricing per million tokens (as of Mar 2026)
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
   "gpt-4o": { input: 2.5, output: 10.0 },
   "gpt-4o-mini": { input: 0.15, output: 0.6 },
-  "gpt-4-turbo": { input: 10.0, output: 30.0 },
+  "gpt-4.1": { input: 2.0, output: 8.0 },
+  "gpt-4.1-mini": { input: 0.4, output: 1.6 },
+  "o4-mini": { input: 1.1, output: 4.4 },
   "o3-mini": { input: 1.1, output: 4.4 },
+  "codex-mini-latest": { input: 1.5, output: 6.0 },
 };
 
 // Convert our Anthropic tool definitions to OpenAI format
@@ -127,9 +130,15 @@ const OPENAI_TOOL_DEFINITIONS: OpenAI.ChatCompletionTool[] = [
   },
 ];
 
+/** Check if a model uses the Responses API instead of Chat Completions */
+function isResponsesApiModel(model: string): boolean {
+  return model.includes("codex") || model.startsWith("gpt-5");
+}
+
 export class OpenAIProxyService {
   private client: OpenAI;
   private defaultModel: string;
+  private codingModel: string;
   private maxTokens: number;
   private agentMaxTokens: number;
   private agentMaxTurns: number;
@@ -137,9 +146,15 @@ export class OpenAIProxyService {
   constructor(env: Env) {
     this.client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
     this.defaultModel = env.OPENAI_DEFAULT_MODEL;
+    this.codingModel = env.OPENAI_CODING_MODEL || "";
     this.maxTokens = env.OPENAI_MAX_TOKENS;
     this.agentMaxTokens = env.AGENT_MAX_TOKENS;
     this.agentMaxTurns = env.AGENT_MAX_TURNS;
+  }
+
+  /** Get the coding model (for agent mode) — falls back to default if not set */
+  getCodingModel(): string {
+    return this.codingModel || this.defaultModel;
   }
 
   async streamChat(
@@ -151,6 +166,11 @@ export class OpenAIProxyService {
     const startTime = Date.now();
 
     try {
+      // Use Responses API for codex/gpt-5 models
+      if (isResponsesApiModel(model)) {
+        return await this.streamChatResponses(model, messages, callbacks, options);
+      }
+
       const stream = await this.client.chat.completions.create({
         model,
         max_tokens: this.maxTokens,
@@ -188,12 +208,64 @@ export class OpenAIProxyService {
     }
   }
 
+  /** Stream chat using OpenAI Responses API (for codex/gpt-5 models) */
+  private async streamChatResponses(
+    model: string,
+    messages: Array<{ role: "user" | "assistant"; content: string }>,
+    callbacks: StreamCallbacks,
+    options?: { model?: string; abortSignal?: AbortSignal }
+  ) {
+    const startTime = Date.now();
+
+    try {
+      // Build input from conversation history
+      const input = messages.map((m) => ({
+        role: m.role as "user" | "assistant",
+        content: m.content,
+      }));
+
+      const stream = await this.client.responses.create({
+        model,
+        instructions: CHAT_SYSTEM_PROMPT,
+        input,
+        stream: true,
+      });
+
+      let fullText = "";
+
+      for await (const event of stream) {
+        if (options?.abortSignal?.aborted) break;
+
+        if (event.type === "response.output_text.delta") {
+          const delta = (event as { delta?: string }).delta;
+          if (delta) {
+            fullText += delta;
+            callbacks.onDelta(delta);
+          }
+        }
+      }
+
+      const inputTokens = Math.ceil(messages.reduce((acc, m) => acc + m.content.length, 0) / 4);
+      const outputTokens = Math.ceil(fullText.length / 4);
+      const costUsd = this.calculateCost(model, inputTokens, outputTokens);
+
+      callbacks.onEnd({ inputTokens, outputTokens, costUsd, fullText });
+
+      return { inputTokens, outputTokens, costUsd, latencyMs: Date.now() - startTime };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      callbacks.onError(message);
+      throw err;
+    }
+  }
+
   async runAgentLoop(
     conversationMessages: Array<{ role: string; content: string }>,
     callbacks: AgentCallbacks,
     options?: { model?: string; abortSignal?: AbortSignal; budgetRemainingUsd?: number }
   ): Promise<AgentResult> {
-    const model = options?.model || this.defaultModel;
+    // For agent/coding mode, prefer the dedicated coding model
+    const model = this.codingModel || options?.model || this.defaultModel;
 
     const msgs: OpenAI.ChatCompletionMessageParam[] = [
       { role: "system", content: AGENT_SYSTEM_PROMPT },

@@ -20,6 +20,7 @@ const envSchema = z.object({
   // OpenAI (optional — leave empty to disable)
   OPENAI_API_KEY: z.string().default(""),
   OPENAI_DEFAULT_MODEL: z.string().default("gpt-4o"),
+  OPENAI_CODING_MODEL: z.string().default(""),  // e.g. "codex-mini-latest" or "gpt-4.1" — used for agent/coding mode
   OPENAI_MAX_TOKENS: z.coerce.number().default(16384),
 
   // Agent mode settings

@@ -69,6 +69,7 @@ export interface AvailableModel {
   id: string;
   name: string;
   provider: AIProvider;
+  category?: "code" | "chat" | "reasoning";
 }
 
 export interface ToolCallDisplay {

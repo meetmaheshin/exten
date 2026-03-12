@@ -10,16 +10,24 @@ export interface AvailableModel {
   id: string;
   name: string;
   provider: AIProvider;
+  category: "code" | "chat" | "reasoning";
 }
 
 /** All known models — only models whose provider key is configured will be available */
 const ALL_MODELS: AvailableModel[] = [
-  { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6", provider: "anthropic" },
-  { id: "claude-opus-4-6", name: "Claude Opus 4.6", provider: "anthropic" },
-  { id: "claude-haiku-4-5", name: "Claude Haiku 4.5", provider: "anthropic" },
-  { id: "gpt-4o", name: "GPT-4o", provider: "openai" },
-  { id: "gpt-4o-mini", name: "GPT-4o Mini", provider: "openai" },
-  { id: "o3-mini", name: "o3-mini", provider: "openai" },
+  // Anthropic
+  { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6", provider: "anthropic", category: "code" },
+  { id: "claude-opus-4-6", name: "Claude Opus 4.6", provider: "anthropic", category: "code" },
+  { id: "claude-haiku-4-5", name: "Claude Haiku 4.5", provider: "anthropic", category: "chat" },
+  // OpenAI — Code-optimized
+  { id: "codex-mini-latest", name: "Codex Mini (Code)", provider: "openai", category: "code" },
+  { id: "gpt-4.1", name: "GPT-4.1 (Code)", provider: "openai", category: "code" },
+  { id: "gpt-4.1-mini", name: "GPT-4.1 Mini", provider: "openai", category: "chat" },
+  // OpenAI — Chat / Reasoning
+  { id: "gpt-4o", name: "GPT-4o", provider: "openai", category: "chat" },
+  { id: "gpt-4o-mini", name: "GPT-4o Mini", provider: "openai", category: "chat" },
+  { id: "o4-mini", name: "o4-mini (Reasoning)", provider: "openai", category: "reasoning" },
+  { id: "o3-mini", name: "o3-mini (Reasoning)", provider: "openai", category: "reasoning" },
 ];
 
 /**
@@ -54,7 +62,7 @@ export class AIService {
   /** Detect provider from model ID */
   private getProvider(model?: string): AIProvider {
     const m = model || this.defaultModel;
-    if (m.startsWith("gpt-") || m.startsWith("o1-") || m.startsWith("o3-")) {
+    if (m.startsWith("gpt-") || m.startsWith("o1-") || m.startsWith("o3-") || m.startsWith("o4-") || m.includes("codex")) {
       return "openai";
     }
     return "anthropic";
