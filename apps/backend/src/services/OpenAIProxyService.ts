@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import type { Env } from "../config/env.js";
-import { AGENT_SYSTEM_PROMPT, QA_SYSTEM_PROMPT, CHAT_SYSTEM_PROMPT, requiresApproval } from "./agentTools.js";
+import { AGENT_SYSTEM_PROMPT, QA_SYSTEM_PROMPT, DESIGN_REVIEW_SYSTEM_PROMPT, CHAT_SYSTEM_PROMPT, requiresApproval } from "./agentTools.js";
 import type { AgentUsage, ToolCallSummary } from "@ailancers/shared-types";
 import type { StreamCallbacks, AgentCallbacks, AgentResult } from "./ClaudeProxyService.js";
 
@@ -312,7 +312,9 @@ export class OpenAIProxyService {
     // (Responses API doesn't support tool_choice/tools the same way yet)
     const agentModel = isResponsesApiModel(model) ? this.defaultModel : model;
 
-    const systemPrompt = options?.agentType === "qa" ? QA_SYSTEM_PROMPT : AGENT_SYSTEM_PROMPT;
+    const systemPrompt = options?.agentType === "qa" ? QA_SYSTEM_PROMPT
+      : options?.agentType === "design" ? DESIGN_REVIEW_SYSTEM_PROMPT
+      : AGENT_SYSTEM_PROMPT;
 
     const msgs: OpenAI.ChatCompletionMessageParam[] = [
       { role: "system", content: systemPrompt },

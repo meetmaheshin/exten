@@ -37,7 +37,7 @@ export interface ToolCallSummary {
 
 // ─── WebSocket Protocol: Client → Server ───
 
-export type AgentType = "coder" | "qa";
+export type AgentType = "coder" | "qa" | "design";
 
 export interface WsAgentMessage {
   type: "agent_message";

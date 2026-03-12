@@ -686,6 +686,12 @@ body {
   color: var(--vscode-charts-blue, #4e9af0);
 }
 
+.agent-status-bar.agent-status-design {
+  background: rgba(198, 120, 221, 0.15);
+  border-top-color: rgba(198, 120, 221, 0.3);
+  color: var(--vscode-charts-purple, #c678dd);
+}
+
 .agent-status-label {
   font-weight: 700;
 }

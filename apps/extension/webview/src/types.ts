@@ -3,7 +3,7 @@ export type OutgoingMessage =
   | { type: "getAuthState" }
   | { type: "login" }
   | { type: "sendMessage"; conversationId: string; content: string; model?: string }
-  | { type: "sendAgentMessage"; conversationId: string; content: string; model?: string; agentType?: "coder" | "qa" }
+  | { type: "sendAgentMessage"; conversationId: string; content: string; model?: string; agentType?: "coder" | "qa" | "design" }
   | { type: "cancelStream"; conversationId: string }
   | { type: "loadConversations" }
   | { type: "loadModels" }
