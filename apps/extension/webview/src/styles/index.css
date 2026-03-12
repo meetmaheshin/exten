@@ -503,9 +503,46 @@ body {
   opacity: 0.85;
 }
 
+/* ========== Agent Activity Feed ========== */
+.agent-activity {
+  margin: 8px 0;
+  padding: 10px 12px;
+  background: var(--vscode-editor-background);
+  border: 1px solid var(--vscode-widget-border, rgba(255,255,255,0.08));
+  border-radius: 8px;
+  border-left: 3px solid var(--vscode-charts-yellow, #cca700);
+}
+
+.agent-activity-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--vscode-charts-yellow, #cca700);
+}
+
+.agent-activity-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--vscode-charts-yellow, #cca700);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
 /* ========== Tool Call Display ========== */
 .tool-calls-group {
   margin: 4px 0 8px 0;
+}
+
+.agent-activity .tool-calls-group {
+  margin: 0;
 }
 
 .tool-call {

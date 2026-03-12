@@ -47,20 +47,28 @@ export function MessageList({ messages, isStreaming, streamingContent, activeToo
           )}
         </div>
       ))}
-      {/* Show active tool calls during streaming */}
-      {isStreaming && activeToolCalls.length > 0 && (
-        <div className="tool-calls-group active">
-          {activeToolCalls.map((tc) => (
-            <ToolCallDisplay key={tc.toolCallId} toolCall={tc} />
-          ))}
-        </div>
-      )}
+      {/* Show streaming content if any */}
       {isStreaming && streamingContent && (
         <MessageBubble
           message={{ role: "assistant", content: streamingContent }}
           isStreaming
         />
       )}
+      {/* Show active tool calls during streaming — inline in chat */}
+      {isStreaming && activeToolCalls.length > 0 && (
+        <div className="agent-activity">
+          <div className="agent-activity-header">
+            <span className="agent-activity-dot" />
+            <span>Agent is working...</span>
+          </div>
+          <div className="tool-calls-group active">
+            {activeToolCalls.map((tc) => (
+              <ToolCallDisplay key={tc.toolCallId} toolCall={tc} />
+            ))}
+          </div>
+        </div>
+      )}
+      {/* Show a working indicator when streaming but no content yet and no tool calls */}
       {isStreaming && !streamingContent && activeToolCalls.length === 0 && (
         <div className="message">
           <div className="message-header">
