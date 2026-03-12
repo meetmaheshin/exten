@@ -26,6 +26,8 @@ interface AppState {
   // Model selection
   availableModels: AvailableModel[];
   selectedModel: string;
+  defaultChatModel: string;
+  defaultCodingModel: string;
 }
 
 type Action =
@@ -42,7 +44,7 @@ type Action =
   | { type: "SET_PENDING"; content: string }
   | { type: "TOGGLE_CONVERSATIONS" }
   | { type: "TOGGLE_AGENT_MODE" }
-  | { type: "SET_MODELS"; models: AvailableModel[] }
+  | { type: "SET_MODELS"; models: AvailableModel[]; defaults?: { chatModel: string; codingModel: string } }
   | { type: "SET_SELECTED_MODEL"; model: string }
   // Agent actions
   | { type: "AGENT_TURN_START"; turnNumber: number }
@@ -65,6 +67,8 @@ const initialState: AppState = {
   agentUsage: null,
   availableModels: [],
   selectedModel: "",
+  defaultChatModel: "",
+  defaultCodingModel: "",
 };
 
 function reducer(state: AppState, action: Action): AppState {
@@ -141,10 +145,26 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, pendingMessage: action.content };
     case "TOGGLE_CONVERSATIONS":
       return { ...state, showConversations: !state.showConversations };
-    case "TOGGLE_AGENT_MODE":
-      return { ...state, agentMode: !state.agentMode };
-    case "SET_MODELS":
-      return { ...state, availableModels: action.models, selectedModel: state.selectedModel || action.models[0]?.id || "" };
+    case "TOGGLE_AGENT_MODE": {
+      const newAgentMode = !state.agentMode;
+      // Auto-switch to the right model for the mode
+      const autoModel = newAgentMode
+        ? (state.defaultCodingModel || state.selectedModel)
+        : (state.defaultChatModel || state.selectedModel);
+      return { ...state, agentMode: newAgentMode, selectedModel: autoModel };
+    }
+    case "SET_MODELS": {
+      const chatDefault = action.defaults?.chatModel || action.models[0]?.id || "";
+      const codeDefault = action.defaults?.codingModel || action.models[0]?.id || "";
+      const autoModel = state.agentMode ? codeDefault : chatDefault;
+      return {
+        ...state,
+        availableModels: action.models,
+        selectedModel: state.selectedModel || autoModel,
+        defaultChatModel: chatDefault,
+        defaultCodingModel: codeDefault,
+      };
+    }
     case "SET_SELECTED_MODEL":
       return { ...state, selectedModel: action.model };
 
@@ -270,7 +290,7 @@ export function App() {
         dispatch({ type: "AGENT_COMPLETE", usage: msg.totalUsage });
         break;
       case "modelsLoaded":
-        dispatch({ type: "SET_MODELS", models: msg.models });
+        dispatch({ type: "SET_MODELS", models: msg.models, defaults: msg.defaults });
         break;
     }
   }, []);

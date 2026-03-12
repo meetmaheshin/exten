@@ -69,9 +69,10 @@ export async function buildApp(env: Env, db: Database) {
   const authService = new AuthService(db, env);
   const aiService = new AIService(env);
 
-  // Model discovery endpoint
+  // Model discovery endpoint — includes recommended defaults per mode
   app.get("/api/models", async () => ({
     models: aiService.getAvailableModels(),
+    defaults: aiService.getDefaultModels(),
   }));
 
   // Routes

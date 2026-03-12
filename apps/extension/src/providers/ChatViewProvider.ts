@@ -58,8 +58,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
         case "loadModels": {
           try {
-            const result = await this.apiClient.get<{ models: unknown[] }>("/api/models");
-            this.postToWebview({ type: "modelsLoaded", models: result.models });
+            const result = await this.apiClient.get<{ models: unknown[]; defaults?: { chatModel: string; codingModel: string } }>("/api/models");
+            this.postToWebview({ type: "modelsLoaded", models: result.models, defaults: result.defaults });
           } catch {
             // Models endpoint unavailable — send empty
             this.postToWebview({ type: "modelsLoaded", models: [] });

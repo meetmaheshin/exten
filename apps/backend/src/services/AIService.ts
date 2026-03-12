@@ -61,6 +61,16 @@ export class AIService {
     });
   }
 
+  /** Get recommended default models for each mode */
+  getDefaultModels(): { chatModel: string; codingModel: string } {
+    return {
+      chatModel: this.defaultModel,  // gpt-4o or claude-sonnet
+      codingModel: this.openaiEnabled && this.openai
+        ? this.openai.getCodingModel()
+        : this.defaultModel,
+    };
+  }
+
   /** Detect provider from model ID */
   private getProvider(model?: string): AIProvider {
     const m = model || this.defaultModel;
