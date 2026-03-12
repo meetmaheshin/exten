@@ -49,13 +49,14 @@ export class ChatService {
   }
 
   /** Send an agent-mode message — Claude can use tools */
-  sendAgentMessage(conversationId: string, content: string, callback: StreamCallback, model?: string): void {
+  sendAgentMessage(conversationId: string, content: string, callback: StreamCallback, model?: string, agentType?: "coder" | "qa"): void {
     this.streamCallbacks.set(conversationId, callback);
     this.wsClient.send({
       type: "agent_message",
       conversationId,
       content,
       model,
+      agentType,
     });
   }
 

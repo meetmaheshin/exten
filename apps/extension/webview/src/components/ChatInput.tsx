@@ -6,14 +6,16 @@ interface ChatInputProps {
   onCancel: () => void;
   isStreaming: boolean;
   agentMode: boolean;
+  agentType: "coder" | "qa";
   onToggleAgentMode: () => void;
+  onSetAgentType: (type: "coder" | "qa") => void;
   availableModels: AvailableModel[];
   selectedModel: string;
   onModelChange: (model: string) => void;
 }
 
 export function ChatInput({
-  onSend, onCancel, isStreaming, agentMode, onToggleAgentMode,
+  onSend, onCancel, isStreaming, agentMode, agentType, onToggleAgentMode, onSetAgentType,
   availableModels, selectedModel, onModelChange,
 }: ChatInputProps) {
   const [value, setValue] = useState("");
@@ -44,9 +46,9 @@ export function ChatInput({
   };
 
   const placeholder = isStreaming
-    ? "AI is working..."
+    ? (agentType === "qa" ? "QA Agent is reviewing..." : "AI is working...")
     : agentMode
-      ? "Ask AI to code something..."
+      ? (agentType === "qa" ? "Run QA review on your code..." : "Ask AI to code something...")
       : "Ask me anything...";
 
   return (
@@ -60,6 +62,26 @@ export function ChatInput({
         >
           {agentMode ? "\u26A1 Agent" : "\u{1F4AC} Chat"}
         </button>
+        {agentMode && (
+          <div className="agent-type-toggle">
+            <button
+              className={`agent-type-btn ${agentType === "coder" ? "active" : ""}`}
+              onClick={() => onSetAgentType("coder")}
+              disabled={isStreaming}
+              title="Coding agent: writes and edits code"
+            >
+              Code
+            </button>
+            <button
+              className={`agent-type-btn ${agentType === "qa" ? "active" : ""}`}
+              onClick={() => onSetAgentType("qa")}
+              disabled={isStreaming}
+              title="QA agent: reviews code for bugs & improvements"
+            >
+              QA
+            </button>
+          </div>
+        )}
         {availableModels.length > 0 && (
           <select
             className="model-select"

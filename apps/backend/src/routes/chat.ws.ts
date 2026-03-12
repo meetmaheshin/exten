@@ -366,7 +366,7 @@ export function chatWsRoute(
                 });
               },
             },
-            { model: msg.model, abortSignal: ac.signal }
+            { model: msg.model, abortSignal: ac.signal, agentType: msg.agentType }
           );
 
         } catch (err) {

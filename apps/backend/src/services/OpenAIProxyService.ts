@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import type { Env } from "../config/env.js";
-import { AGENT_SYSTEM_PROMPT, CHAT_SYSTEM_PROMPT, requiresApproval } from "./agentTools.js";
+import { AGENT_SYSTEM_PROMPT, QA_SYSTEM_PROMPT, CHAT_SYSTEM_PROMPT, requiresApproval } from "./agentTools.js";
 import type { AgentUsage, ToolCallSummary } from "@ailancers/shared-types";
 import type { StreamCallbacks, AgentCallbacks, AgentResult } from "./ClaudeProxyService.js";
 
@@ -303,7 +303,7 @@ export class OpenAIProxyService {
   async runAgentLoop(
     conversationMessages: Array<{ role: string; content: string }>,
     callbacks: AgentCallbacks,
-    options?: { model?: string; abortSignal?: AbortSignal; budgetRemainingUsd?: number }
+    options?: { model?: string; abortSignal?: AbortSignal; budgetRemainingUsd?: number; agentType?: string }
   ): Promise<AgentResult> {
     // For agent/coding mode, prefer the dedicated coding model
     const model = this.codingModel || options?.model || this.defaultModel;
@@ -312,8 +312,10 @@ export class OpenAIProxyService {
     // (Responses API doesn't support tool_choice/tools the same way yet)
     const agentModel = isResponsesApiModel(model) ? this.defaultModel : model;
 
+    const systemPrompt = options?.agentType === "qa" ? QA_SYSTEM_PROMPT : AGENT_SYSTEM_PROMPT;
+
     const msgs: OpenAI.ChatCompletionMessageParam[] = [
-      { role: "system", content: AGENT_SYSTEM_PROMPT },
+      { role: "system", content: systemPrompt },
       ...conversationMessages.map((m) => ({
         role: m.role as "user" | "assistant",
         content: m.content,

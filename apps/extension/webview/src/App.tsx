@@ -20,6 +20,7 @@ interface AppState {
   pendingMessage: string | null;
   // Agent mode state
   agentMode: boolean;
+  agentType: "coder" | "qa";
   agentTurnNumber: number;
   agentToolCalls: ToolCallDisplay[];
   agentUsage: AgentUsage | null;
@@ -44,6 +45,7 @@ type Action =
   | { type: "SET_PENDING"; content: string }
   | { type: "TOGGLE_CONVERSATIONS" }
   | { type: "TOGGLE_AGENT_MODE" }
+  | { type: "SET_AGENT_TYPE"; agentType: "coder" | "qa" }
   | { type: "SET_MODELS"; models: AvailableModel[]; defaults?: { chatModel: string; codingModel: string } }
   | { type: "SET_SELECTED_MODEL"; model: string }
   // Agent actions
@@ -62,6 +64,7 @@ const initialState: AppState = {
   showConversations: false,
   pendingMessage: null,
   agentMode: true, // Default to agent mode
+  agentType: "coder" as const,
   agentTurnNumber: 0,
   agentToolCalls: [],
   agentUsage: null,
@@ -151,8 +154,10 @@ function reducer(state: AppState, action: Action): AppState {
       const autoModel = newAgentMode
         ? (state.defaultCodingModel || state.selectedModel)
         : (state.defaultChatModel || state.selectedModel);
-      return { ...state, agentMode: newAgentMode, selectedModel: autoModel };
+      return { ...state, agentMode: newAgentMode, agentType: "coder", selectedModel: autoModel };
     }
+    case "SET_AGENT_TYPE":
+      return { ...state, agentType: action.agentType, agentMode: true };
     case "SET_MODELS": {
       const chatDefault = action.defaults?.chatModel || action.models[0]?.id || "";
       const codeDefault = action.defaults?.codingModel || action.models[0]?.id || "";
@@ -239,9 +244,10 @@ export function App() {
         conversationId: state.currentConversationId,
         content,
         model: state.selectedModel || undefined,
+        ...(state.agentMode ? { agentType: state.agentType } : {}),
       });
     }
-  }, [state.pendingMessage, state.currentConversationId, state.agentMode, state.selectedModel]);
+  }, [state.pendingMessage, state.currentConversationId, state.agentMode, state.agentType, state.selectedModel]);
 
   const handleMessage = useCallback((msg: IncomingMessage) => {
     switch (msg.type) {
@@ -314,6 +320,7 @@ export function App() {
       conversationId: state.currentConversationId,
       content,
       model: state.selectedModel || undefined,
+      ...(state.agentMode ? { agentType: state.agentType } : {}),
     });
   };
 
@@ -376,6 +383,7 @@ export function App() {
             toolCallCount={state.agentToolCalls.length}
             usage={state.agentUsage}
             isActive={state.isStreaming && state.agentMode && state.agentTurnNumber > 0}
+            agentType={state.agentType}
             onCancel={handleCancel}
           />
           <ChatInput
@@ -383,7 +391,9 @@ export function App() {
             onCancel={handleCancel}
             isStreaming={state.isStreaming}
             agentMode={state.agentMode}
+            agentType={state.agentType}
             onToggleAgentMode={handleToggleAgentMode}
+            onSetAgentType={(t) => dispatch({ type: "SET_AGENT_TYPE", agentType: t })}
             availableModels={state.availableModels}
             selectedModel={state.selectedModel}
             onModelChange={handleModelChange}

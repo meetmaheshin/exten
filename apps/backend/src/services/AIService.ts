@@ -107,7 +107,7 @@ export class AIService {
   async runAgentLoop(
     conversationMessages: Anthropic.MessageParam[] | Array<{ role: string; content: string }>,
     callbacks: AgentCallbacks,
-    options?: { model?: string; abortSignal?: AbortSignal; budgetRemainingUsd?: number }
+    options?: { model?: string; abortSignal?: AbortSignal; budgetRemainingUsd?: number; agentType?: string }
   ): Promise<AgentResult> {
     const provider = this.getProvider(options?.model);
 

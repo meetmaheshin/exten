@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { Env } from "../config/env.js";
-import { AGENT_TOOL_DEFINITIONS, AGENT_SYSTEM_PROMPT, CHAT_SYSTEM_PROMPT, requiresApproval } from "./agentTools.js";
+import { AGENT_TOOL_DEFINITIONS, AGENT_SYSTEM_PROMPT, QA_SYSTEM_PROMPT, CHAT_SYSTEM_PROMPT, requiresApproval } from "./agentTools.js";
 import type { AgentUsage, ToolCallSummary } from "@ailancers/shared-types";
 
 // Pricing per million tokens (as of Feb 2026)
@@ -103,9 +103,10 @@ export class ClaudeProxyService {
   async runAgentLoop(
     conversationMessages: Anthropic.MessageParam[],
     callbacks: AgentCallbacks,
-    options?: { model?: string; abortSignal?: AbortSignal; budgetRemainingUsd?: number }
+    options?: { model?: string; abortSignal?: AbortSignal; budgetRemainingUsd?: number; agentType?: string }
   ): Promise<AgentResult> {
     const model = options?.model || this.defaultModel;
+    const systemPrompt = options?.agentType === "qa" ? QA_SYSTEM_PROMPT : AGENT_SYSTEM_PROMPT;
     const msgs: Anthropic.MessageParam[] = [...conversationMessages];
 
     const totalUsage: AgentUsage = {
@@ -134,7 +135,7 @@ export class ClaudeProxyService {
         const response = await this.client.messages.create({
           model,
           max_tokens: this.agentMaxTokens,
-          system: AGENT_SYSTEM_PROMPT,
+          system: systemPrompt,
           tools: AGENT_TOOL_DEFINITIONS,
           messages: msgs,
         });

@@ -353,6 +353,39 @@ body {
   border-color: rgba(204, 167, 0, 0.4);
 }
 
+.agent-type-toggle {
+  display: inline-flex;
+  border: 1px solid var(--vscode-widget-border, rgba(255,255,255,0.1));
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.agent-type-btn {
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.agent-type-btn:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.agent-type-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.agent-type-btn.active {
+  background: rgba(204, 167, 0, 0.25);
+  color: var(--vscode-charts-yellow, #cca700);
+}
+
 .model-select {
   padding: 3px 6px;
   font-size: 11px;
@@ -608,6 +641,16 @@ body {
   color: var(--vscode-charts-yellow, #cca700);
   font-size: 11px;
   font-weight: 500;
+}
+
+.agent-status-bar.agent-status-qa {
+  background: rgba(78, 154, 240, 0.15);
+  border-top-color: rgba(78, 154, 240, 0.3);
+  color: var(--vscode-charts-blue, #4e9af0);
+}
+
+.agent-status-label {
+  font-weight: 700;
 }
 
 .agent-status-info {
