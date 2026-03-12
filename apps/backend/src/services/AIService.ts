@@ -20,14 +20,16 @@ const ALL_MODELS: AvailableModel[] = [
   { id: "claude-opus-4-6", name: "Claude Opus 4.6", provider: "anthropic", category: "code" },
   { id: "claude-haiku-4-5", name: "Claude Haiku 4.5", provider: "anthropic", category: "chat" },
   // OpenAI — Code-optimized
-  { id: "codex-mini-latest", name: "Codex Mini (Code)", provider: "openai", category: "code" },
-  { id: "gpt-4.1", name: "GPT-4.1 (Code)", provider: "openai", category: "code" },
-  { id: "gpt-4.1-mini", name: "GPT-4.1 Mini", provider: "openai", category: "chat" },
-  // OpenAI — Chat / Reasoning
+  { id: "gpt-5.3-codex", name: "GPT-5.3 Codex", provider: "openai", category: "code" },
+  { id: "codex-mini-latest", name: "Codex Mini", provider: "openai", category: "code" },
+  { id: "gpt-4.1", name: "GPT-4.1", provider: "openai", category: "code" },
+  { id: "gpt-4.1-mini", name: "GPT-4.1 Mini", provider: "openai", category: "code" },
+  // OpenAI — Chat
   { id: "gpt-4o", name: "GPT-4o", provider: "openai", category: "chat" },
   { id: "gpt-4o-mini", name: "GPT-4o Mini", provider: "openai", category: "chat" },
-  { id: "o4-mini", name: "o4-mini (Reasoning)", provider: "openai", category: "reasoning" },
-  { id: "o3-mini", name: "o3-mini (Reasoning)", provider: "openai", category: "reasoning" },
+  // OpenAI — Reasoning
+  { id: "o4-mini", name: "o4-mini", provider: "openai", category: "reasoning" },
+  { id: "o3-mini", name: "o3-mini", provider: "openai", category: "reasoning" },
 ];
 
 /**

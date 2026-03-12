@@ -13,9 +13,15 @@ const MODEL_PRICING: Record<string, { input: number; output: number }> = {
   "o4-mini": { input: 1.1, output: 4.4 },
   "o3-mini": { input: 1.1, output: 4.4 },
   "codex-mini-latest": { input: 1.5, output: 6.0 },
+  "gpt-5.3-codex": { input: 2.0, output: 8.0 },
 };
 
-// Convert our Anthropic tool definitions to OpenAI format
+/** Check if a model uses the Responses API instead of Chat Completions */
+function isResponsesApiModel(model: string): boolean {
+  return model.includes("codex") || model.startsWith("gpt-5");
+}
+
+// Convert our tool definitions to OpenAI Chat Completions format
 const OPENAI_TOOL_DEFINITIONS: OpenAI.ChatCompletionTool[] = [
   {
     type: "function",
@@ -130,11 +136,6 @@ const OPENAI_TOOL_DEFINITIONS: OpenAI.ChatCompletionTool[] = [
   },
 ];
 
-/** Check if a model uses the Responses API instead of Chat Completions */
-function isResponsesApiModel(model: string): boolean {
-  return model.includes("codex") || model.startsWith("gpt-5");
-}
-
 export class OpenAIProxyService {
   private client: OpenAI;
   private defaultModel: string;
@@ -157,59 +158,24 @@ export class OpenAIProxyService {
     return this.codingModel || this.defaultModel;
   }
 
+  // ─── Chat Mode — Chat Completions API (gpt-4o, gpt-4.1, etc.) ──────────
   async streamChat(
     messages: Array<{ role: "user" | "assistant"; content: string }>,
     callbacks: StreamCallbacks,
     options?: { model?: string; abortSignal?: AbortSignal }
   ) {
     const model = options?.model || this.defaultModel;
-    const startTime = Date.now();
 
-    try {
-      // Use Responses API for codex/gpt-5 models
-      if (isResponsesApiModel(model)) {
-        return await this.streamChatResponses(model, messages, callbacks, options);
-      }
-
-      const stream = await this.client.chat.completions.create({
-        model,
-        max_tokens: this.maxTokens,
-        messages: [
-          { role: "system", content: CHAT_SYSTEM_PROMPT },
-          ...messages.map((m) => ({ role: m.role, content: m.content })),
-        ],
-        stream: true,
-      });
-
-      let fullText = "";
-
-      for await (const chunk of stream) {
-        if (options?.abortSignal?.aborted) break;
-
-        const delta = chunk.choices[0]?.delta?.content;
-        if (delta) {
-          fullText += delta;
-          callbacks.onDelta(delta);
-        }
-      }
-
-      // OpenAI streaming doesn't give exact token counts in stream — estimate
-      const inputTokens = Math.ceil(messages.reduce((acc, m) => acc + m.content.length, 0) / 4);
-      const outputTokens = Math.ceil(fullText.length / 4);
-      const costUsd = this.calculateCost(model, inputTokens, outputTokens);
-
-      callbacks.onEnd({ inputTokens, outputTokens, costUsd, fullText });
-
-      return { inputTokens, outputTokens, costUsd, latencyMs: Date.now() - startTime };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      callbacks.onError(message);
-      throw err;
+    // Route: codex/gpt-5 models → Responses API, everything else → Chat Completions
+    if (isResponsesApiModel(model)) {
+      return this.streamChatResponsesApi(model, messages, callbacks, options);
     }
+
+    return this.streamChatCompletionsApi(model, messages, callbacks, options);
   }
 
-  /** Stream chat using OpenAI Responses API (for codex/gpt-5 models) */
-  private async streamChatResponses(
+  /** Chat Completions API — for gpt-4o, gpt-4.1, o3-mini, etc. */
+  private async streamChatCompletionsApi(
     model: string,
     messages: Array<{ role: "user" | "assistant"; content: string }>,
     callbacks: StreamCallbacks,
@@ -218,37 +184,45 @@ export class OpenAIProxyService {
     const startTime = Date.now();
 
     try {
-      // Build input from conversation history
-      const input = messages.map((m) => ({
-        role: m.role as "user" | "assistant",
-        content: m.content,
-      }));
-
-      const stream = await this.client.responses.create({
+      const stream = await this.client.chat.completions.create({
         model,
-        instructions: CHAT_SYSTEM_PROMPT,
-        input,
+        max_tokens: this.maxTokens,
+        messages: [
+          { role: "system", content: CHAT_SYSTEM_PROMPT },
+          ...messages.map((m) => ({ role: m.role, content: m.content })),
+        ],
         stream: true,
+        stream_options: { include_usage: true },
       });
 
       let fullText = "";
+      let inputTokens = 0;
+      let outputTokens = 0;
 
-      for await (const event of stream) {
+      for await (const chunk of stream) {
         if (options?.abortSignal?.aborted) break;
 
-        if (event.type === "response.output_text.delta") {
-          const delta = (event as { delta?: string }).delta;
+        // Text content
+        if (chunk.choices?.length) {
+          const delta = chunk.choices[0]?.delta?.content;
           if (delta) {
             fullText += delta;
             callbacks.onDelta(delta);
           }
         }
+
+        // Usage info (last chunk with stream_options)
+        if (chunk.usage) {
+          inputTokens = chunk.usage.prompt_tokens ?? 0;
+          outputTokens = chunk.usage.completion_tokens ?? 0;
+        }
       }
 
-      const inputTokens = Math.ceil(messages.reduce((acc, m) => acc + m.content.length, 0) / 4);
-      const outputTokens = Math.ceil(fullText.length / 4);
-      const costUsd = this.calculateCost(model, inputTokens, outputTokens);
+      // Fallback estimate if usage not returned
+      if (!inputTokens) inputTokens = Math.ceil(messages.reduce((acc, m) => acc + m.content.length, 0) / 4);
+      if (!outputTokens) outputTokens = Math.ceil(fullText.length / 4);
 
+      const costUsd = this.calculateCost(model, inputTokens, outputTokens);
       callbacks.onEnd({ inputTokens, outputTokens, costUsd, fullText });
 
       return { inputTokens, outputTokens, costUsd, latencyMs: Date.now() - startTime };
@@ -259,6 +233,73 @@ export class OpenAIProxyService {
     }
   }
 
+  /** Responses API — for codex/gpt-5 models. Uses "developer" role instead of "system". */
+  private async streamChatResponsesApi(
+    model: string,
+    messages: Array<{ role: "user" | "assistant"; content: string }>,
+    callbacks: StreamCallbacks,
+    options?: { model?: string; abortSignal?: AbortSignal }
+  ) {
+    const startTime = Date.now();
+
+    try {
+      // Responses API uses "developer" role instead of "system"
+      const input: Array<{ role: string; content: string }> = [
+        { role: "developer", content: CHAT_SYSTEM_PROMPT },
+        ...messages.map((m) => ({ role: m.role, content: m.content })),
+      ];
+
+      const stream = await this.client.responses.create({
+        model,
+        input: input as any,
+        stream: true,
+      });
+
+      let fullText = "";
+      let inputTokens = 0;
+      let outputTokens = 0;
+
+      for await (const event of stream) {
+        if (options?.abortSignal?.aborted) break;
+
+        const eventType = (event as any).type as string;
+
+        // Text chunks
+        if (eventType === "response.output_text.delta") {
+          const delta = (event as any).delta as string;
+          if (delta) {
+            fullText += delta;
+            callbacks.onDelta(delta);
+          }
+        }
+
+        // Stream completed — extract usage
+        if (eventType === "response.completed") {
+          const response = (event as any).response;
+          if (response?.usage) {
+            inputTokens = response.usage.input_tokens ?? 0;
+            outputTokens = response.usage.output_tokens ?? 0;
+          }
+        }
+      }
+
+      // Fallback estimate
+      if (!inputTokens) inputTokens = Math.ceil(messages.reduce((acc, m) => acc + m.content.length, 0) / 4);
+      if (!outputTokens) outputTokens = Math.ceil(fullText.length / 4);
+
+      const costUsd = this.calculateCost(model, inputTokens, outputTokens);
+      callbacks.onEnd({ inputTokens, outputTokens, costUsd, fullText });
+
+      return { inputTokens, outputTokens, costUsd, latencyMs: Date.now() - startTime };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      callbacks.onError(message);
+      throw err;
+    }
+  }
+
+  // ─── Agent Mode — Uses coding model for code generation ──────────────────
+
   async runAgentLoop(
     conversationMessages: Array<{ role: string; content: string }>,
     callbacks: AgentCallbacks,
@@ -266,6 +307,10 @@ export class OpenAIProxyService {
   ): Promise<AgentResult> {
     // For agent/coding mode, prefer the dedicated coding model
     const model = this.codingModel || options?.model || this.defaultModel;
+
+    // If coding model uses Responses API, fall back to Chat Completions model for agent loop
+    // (Responses API doesn't support tool_choice/tools the same way yet)
+    const agentModel = isResponsesApiModel(model) ? this.defaultModel : model;
 
     const msgs: OpenAI.ChatCompletionMessageParam[] = [
       { role: "system", content: AGENT_SYSTEM_PROMPT },
@@ -298,7 +343,7 @@ export class OpenAIProxyService {
 
       try {
         const response = await this.client.chat.completions.create({
-          model,
+          model: agentModel,
           max_tokens: this.agentMaxTokens,
           messages: msgs,
           tools: OPENAI_TOOL_DEFINITIONS,
@@ -311,7 +356,7 @@ export class OpenAIProxyService {
         // Accumulate usage
         const turnInput = response.usage?.prompt_tokens ?? 0;
         const turnOutput = response.usage?.completion_tokens ?? 0;
-        const turnCost = this.calculateCost(model, turnInput, turnOutput);
+        const turnCost = this.calculateCost(agentModel, turnInput, turnOutput);
         totalUsage.inputTokens += turnInput;
         totalUsage.outputTokens += turnOutput;
         totalUsage.costUsd += turnCost;
