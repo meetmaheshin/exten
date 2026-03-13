@@ -7,7 +7,7 @@ import { MessageList } from "./components/MessageList";
 import { ChatInput } from "./components/ChatInput";
 import { ConversationList } from "./components/ConversationList";
 import { AgentStatusBar } from "./components/AgentStatusBar";
-import type { ChatMessage, Conversation, IncomingMessage, TokenUsage, AgentUsage, ToolCallDisplay, AvailableModel } from "./types";
+import type { ChatMessage, Conversation, IncomingMessage, TokenUsage, AgentUsage, ToolCallDisplay, AvailableModel, PendingApproval } from "./types";
 
 interface AppState {
   authenticated: boolean;
@@ -29,6 +29,8 @@ interface AppState {
   selectedModel: string;
   defaultChatModel: string;
   defaultCodingModel: string;
+  // Inline tool approvals
+  pendingApprovals: PendingApproval[];
 }
 
 type Action =
@@ -52,7 +54,10 @@ type Action =
   | { type: "AGENT_TURN_START"; turnNumber: number }
   | { type: "TOOL_CALL_STARTED"; toolCallId: string; toolName: string; toolInput: Record<string, unknown> }
   | { type: "TOOL_CALL_COMPLETED"; toolCallId: string }
-  | { type: "AGENT_COMPLETE"; usage: AgentUsage };
+  | { type: "AGENT_COMPLETE"; usage: AgentUsage }
+  // Approval actions
+  | { type: "ADD_PENDING_APPROVAL"; approval: PendingApproval }
+  | { type: "REMOVE_PENDING_APPROVAL"; toolCallId: string };
 
 const initialState: AppState = {
   authenticated: false,
@@ -72,6 +77,7 @@ const initialState: AppState = {
   selectedModel: "",
   defaultChatModel: "",
   defaultCodingModel: "",
+  pendingApprovals: [],
 };
 
 function reducer(state: AppState, action: Action): AppState {
@@ -199,6 +205,17 @@ function reducer(state: AppState, action: Action): AppState {
         ...state,
         agentUsage: action.usage,
         isStreaming: false,
+        pendingApprovals: [],
+      };
+    case "ADD_PENDING_APPROVAL":
+      return {
+        ...state,
+        pendingApprovals: [...state.pendingApprovals, action.approval],
+      };
+    case "REMOVE_PENDING_APPROVAL":
+      return {
+        ...state,
+        pendingApprovals: state.pendingApprovals.filter((a) => a.toolCallId !== action.toolCallId),
       };
     default:
       return state;
@@ -289,6 +306,17 @@ export function App() {
           toolInput: msg.toolInput,
         });
         break;
+      case "tool_approval_request":
+        dispatch({
+          type: "ADD_PENDING_APPROVAL",
+          approval: {
+            toolCallId: msg.toolCallId,
+            toolName: msg.toolName,
+            toolInput: msg.toolInput,
+            conversationId: msg.conversationId,
+          },
+        });
+        break;
       case "tool_result_ack":
         dispatch({ type: "TOOL_CALL_COMPLETED", toolCallId: msg.toolCallId });
         break;
@@ -353,6 +381,11 @@ export function App() {
     dispatch({ type: "SET_SELECTED_MODEL", model });
   };
 
+  const handleApprovalDecision = (toolCallId: string, decision: "allow" | "allowAll" | "deny") => {
+    dispatch({ type: "REMOVE_PENDING_APPROVAL", toolCallId });
+    vscode.current.postMessage({ type: "toolApprovalResponse", toolCallId, decision });
+  };
+
   return (
     <div className="app">
       <ChatToolbar
@@ -377,6 +410,8 @@ export function App() {
             isStreaming={state.isStreaming}
             streamingContent={state.streamingContent}
             activeToolCalls={state.isStreaming ? state.agentToolCalls : []}
+            pendingApprovals={state.pendingApprovals}
+            onApprovalDecision={handleApprovalDecision}
           />
           <AgentStatusBar
             turnNumber={state.agentTurnNumber}

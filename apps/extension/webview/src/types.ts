@@ -8,7 +8,8 @@ export type OutgoingMessage =
   | { type: "loadConversations" }
   | { type: "loadModels" }
   | { type: "newConversation" }
-  | { type: "loadMessages"; conversationId: string };
+  | { type: "loadMessages"; conversationId: string }
+  | { type: "toolApprovalResponse"; toolCallId: string; decision: "allow" | "allowAll" | "deny" };
 
 /** Messages FROM the extension host TO the webview */
 export type IncomingMessage =
@@ -23,6 +24,7 @@ export type IncomingMessage =
   | { type: "messagesLoaded"; data: { conversation: Conversation; messages: ChatMessage[] } }
   // Agent mode messages
   | { type: "tool_call"; conversationId: string; toolCallId: string; toolName: string; toolInput: Record<string, unknown>; requiresApproval: boolean }
+  | { type: "tool_approval_request"; conversationId: string; toolCallId: string; toolName: string; toolInput: Record<string, unknown> }
   | { type: "tool_result_ack"; conversationId: string; toolCallId: string }
   | { type: "agent_turn_start"; conversationId: string; turnNumber: number }
   | { type: "agent_complete"; conversationId: string; totalUsage: AgentUsage }
@@ -79,4 +81,11 @@ export interface ToolCallDisplay {
   status: "pending" | "running" | "completed" | "error" | "denied";
   result?: string;
   isError?: boolean;
+}
+
+export interface PendingApproval {
+  toolCallId: string;
+  toolName: string;
+  toolInput: Record<string, unknown>;
+  conversationId: string;
 }

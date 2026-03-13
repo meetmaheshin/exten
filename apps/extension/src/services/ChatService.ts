@@ -9,6 +9,10 @@ type StreamCallback = (message: WsServerMessage) => void;
 export class ChatService {
   private currentConversationId: string | null = null;
   private streamCallbacks: Map<string, StreamCallback> = new Map();
+  /** Pending inline approval promises keyed by toolCallId */
+  private pendingApprovals: Map<string, { resolve: (decision: "allow" | "allowAll" | "deny") => void }> = new Map();
+  /** Tools auto-approved for the rest of the session via "Allow All" */
+  private sessionAutoApproved = new Set<string>();
 
   constructor(
     private apiClient: ApiClient,
@@ -19,10 +23,20 @@ export class ChatService {
     this.wsClient.onMessage((msg) => this.handleWsMessage(msg));
   }
 
+  /** Called by ChatViewProvider when webview sends an approval decision */
+  resolveApproval(toolCallId: string, decision: "allow" | "allowAll" | "deny"): void {
+    const pending = this.pendingApprovals.get(toolCallId);
+    if (pending) {
+      pending.resolve(decision);
+      this.pendingApprovals.delete(toolCallId);
+    }
+  }
+
   async createConversation(projectId?: string): Promise<Conversation> {
     const conv = await this.apiClient.post<Conversation>("/api/chat/conversations", { projectId });
     this.currentConversationId = conv.id;
     this.approvalService.resetSession();
+    this.sessionAutoApproved.clear();
     return conv;
   }
 
@@ -78,11 +92,29 @@ export class ChatService {
 
       const { toolCallId, toolName, toolInput, requiresApproval } = message;
 
-      // Check approval for destructive tools
-      if (requiresApproval) {
-        const approved = await this.approvalService.requestApproval(toolName, toolInput);
-        if (!approved) {
-          // User denied — send error result back to backend
+      // Check approval for destructive tools — use inline webview approval
+      if (requiresApproval && !this.sessionAutoApproved.has(toolName)) {
+        // Send approval request to webview
+        if (callback) {
+          callback({
+            type: "tool_approval_request",
+            conversationId,
+            toolCallId,
+            toolName,
+            toolInput,
+          } as unknown as WsServerMessage);
+        }
+
+        // Wait for user decision from webview
+        const decision = await new Promise<"allow" | "allowAll" | "deny">((resolve) => {
+          this.pendingApprovals.set(toolCallId, { resolve });
+        });
+
+        if (decision === "allowAll") {
+          this.sessionAutoApproved.add(toolName);
+        }
+
+        if (decision === "deny") {
           this.wsClient.send({
             type: "tool_result",
             conversationId,

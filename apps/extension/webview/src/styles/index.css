@@ -310,27 +310,115 @@ body {
 /* ========== Input area ========== */
 .input-area {
   flex-shrink: 0;
-  padding: 10px 12px 12px;
+  padding: 8px 10px 10px;
   border-top: 1px solid var(--vscode-panel-border, var(--vscode-widget-border));
   background: var(--vscode-sideBar-background);
 }
 
+/* Textarea + send button row (now on top) */
+.input-wrapper {
+  display: flex;
+  gap: 6px;
+  align-items: flex-end;
+  margin-bottom: 6px;
+}
+
+.input-wrapper textarea {
+  flex: 1;
+  padding: 8px 10px;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-input-border, rgba(255,255,255,0.12));
+  border-radius: 8px;
+  font-family: var(--vscode-font-family);
+  font-size: 13px;
+  line-height: 1.4;
+  resize: none;
+  min-height: 38px;
+  max-height: 150px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.input-wrapper textarea:focus {
+  border-color: var(--vscode-focusBorder);
+}
+
+.input-wrapper textarea::placeholder {
+  color: var(--vscode-input-placeholderForeground);
+}
+
+.send-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  flex-shrink: 0;
+  font-size: 15px;
+  transition: background 0.15s;
+}
+
+.send-btn:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
+.send-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.send-btn.agent-send {
+  background: var(--vscode-charts-yellow, #cca700);
+  color: #000;
+}
+
+.send-btn.agent-send:hover {
+  background: #ddb800;
+}
+
+.cancel-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: var(--vscode-errorForeground, #f44747);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  flex-shrink: 0;
+  font-size: 13px;
+  transition: opacity 0.15s;
+}
+
+.cancel-btn:hover {
+  opacity: 0.85;
+}
+
+/* Controls row (below textarea) */
 .input-controls {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 8px;
+  gap: 5px;
+  flex-wrap: wrap;
 }
 
 .mode-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 10px;
-  font-size: 11px;
+  gap: 3px;
+  padding: 2px 8px;
+  font-size: 10px;
   font-weight: 600;
   border: 1px solid var(--vscode-widget-border, rgba(255,255,255,0.1));
-  border-radius: 12px;
+  border-radius: 10px;
   cursor: pointer;
   background: transparent;
   color: var(--vscode-descriptionForeground);
@@ -361,7 +449,7 @@ body {
 }
 
 .agent-type-btn {
-  padding: 2px 8px;
+  padding: 2px 7px;
   font-size: 10px;
   font-weight: 600;
   border: none;
@@ -386,17 +474,20 @@ body {
   color: var(--vscode-charts-yellow, #cca700);
 }
 
+.input-controls-spacer {
+  flex: 1;
+}
+
 .model-select {
-  padding: 3px 6px;
-  font-size: 11px;
+  padding: 2px 4px;
+  font-size: 10px;
   background: var(--vscode-input-background);
   color: var(--vscode-input-foreground);
   border: 1px solid var(--vscode-widget-border, rgba(255,255,255,0.1));
   border-radius: 6px;
   cursor: pointer;
   outline: none;
-  flex-shrink: 1;
-  min-width: 0;
+  max-width: 120px;
 }
 
 .model-select:focus {
@@ -408,99 +499,11 @@ body {
   cursor: not-allowed;
 }
 
-.input-controls-spacer {
-  flex: 1;
-}
-
 .input-hint {
-  font-size: 10px;
+  font-size: 9px;
   color: var(--vscode-descriptionForeground);
   white-space: nowrap;
-}
-
-.input-wrapper {
-  display: flex;
-  gap: 8px;
-  align-items: flex-end;
-}
-
-.input-wrapper textarea {
-  flex: 1;
-  padding: 10px 12px;
-  background: var(--vscode-input-background);
-  color: var(--vscode-input-foreground);
-  border: 1px solid var(--vscode-input-border, rgba(255,255,255,0.1));
-  border-radius: 8px;
-  font-family: var(--vscode-font-family);
-  font-size: 13px;
-  line-height: 1.4;
-  resize: none;
-  min-height: 40px;
-  max-height: 150px;
-  outline: none;
-  transition: border-color 0.15s;
-}
-
-.input-wrapper textarea:focus {
-  border-color: var(--vscode-focusBorder);
-}
-
-.input-wrapper textarea::placeholder {
-  color: var(--vscode-input-placeholderForeground);
-}
-
-.send-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  background: var(--vscode-button-background);
-  color: var(--vscode-button-foreground);
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-  flex-shrink: 0;
-  font-size: 16px;
-  transition: background 0.15s;
-}
-
-.send-btn:hover {
-  background: var(--vscode-button-hoverBackground);
-}
-
-.send-btn:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
-}
-
-.send-btn.agent-send {
-  background: var(--vscode-charts-yellow, #cca700);
-  color: #000;
-}
-
-.send-btn.agent-send:hover {
-  background: #ddb800;
-}
-
-.cancel-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  background: var(--vscode-errorForeground, #f44747);
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-  flex-shrink: 0;
-  font-size: 14px;
-  transition: opacity 0.15s;
-}
-
-.cancel-btn:hover {
-  opacity: 0.85;
+  opacity: 0.7;
 }
 
 /* ========== Agent Activity Feed ========== */
@@ -739,42 +742,116 @@ body {
   align-items: center;
   justify-content: center;
   height: 100vh;
-  gap: 16px;
-  padding: 32px;
+  gap: 20px;
+  padding: 24px 20px;
   text-align: center;
 }
 
-.login-icon {
-  font-size: 48px;
-  opacity: 0.6;
+.login-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.login-logo {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--vscode-charts-yellow, #cca700), var(--vscode-charts-orange, #d18616));
+  color: #000;
+  font-size: 24px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  letter-spacing: -1px;
 }
 
 .login-title {
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 700;
+  color: var(--vscode-foreground);
 }
 
-.login-subtitle {
-  font-size: 12px;
+.login-version {
+  font-size: 11px;
   color: var(--vscode-descriptionForeground);
+  letter-spacing: 0.3px;
+}
+
+.login-features {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
   max-width: 260px;
-  line-height: 1.6;
+}
+
+.login-feature {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--vscode-editor-background);
+  border: 1px solid var(--vscode-widget-border, rgba(255,255,255,0.06));
+  text-align: left;
+}
+
+.login-feature-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+  width: 24px;
+  text-align: center;
+}
+
+.login-feature-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.login-feature-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--vscode-foreground);
+}
+
+.login-feature-desc {
+  font-size: 10px;
+  color: var(--vscode-descriptionForeground);
+  line-height: 1.3;
 }
 
 .login-btn {
-  padding: 10px 32px;
+  width: 100%;
+  max-width: 260px;
+  padding: 10px 24px;
   background: var(--vscode-button-background);
   color: var(--vscode-button-foreground);
   border: none;
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
   font-size: 13px;
   font-weight: 600;
-  transition: background 0.15s;
+  transition: background 0.15s, transform 0.1s;
 }
 
 .login-btn:hover {
   background: var(--vscode-button-hoverBackground);
+  transform: translateY(-1px);
+}
+
+.login-btn:active {
+  transform: translateY(0);
+}
+
+.login-footer {
+  font-size: 10px;
+  color: var(--vscode-descriptionForeground);
+  opacity: 0.6;
 }
 
 /* ========== Empty state ========== */
@@ -798,6 +875,111 @@ body {
   font-size: 13px;
   color: var(--vscode-descriptionForeground);
   line-height: 1.6;
+}
+
+/* ========== Inline Tool Approval Cards ========== */
+.approval-card {
+  margin: 8px 0;
+  padding: 12px;
+  background: var(--vscode-editor-background);
+  border: 1px solid rgba(204, 167, 0, 0.4);
+  border-left: 3px solid var(--vscode-charts-yellow, #cca700);
+  border-radius: 8px;
+  animation: fadeIn 0.15s ease-in;
+}
+
+.approval-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.approval-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.approval-label {
+  color: var(--vscode-charts-yellow, #cca700);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.approval-title {
+  color: var(--vscode-foreground);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.approval-detail {
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  background: var(--vscode-textCodeBlock-background, rgba(0, 0, 0, 0.2));
+  border-radius: 4px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  line-height: 1.4;
+  max-height: 150px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--vscode-foreground);
+}
+
+.approval-detail-line {
+  min-height: 1em;
+}
+
+.approval-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.approval-btn {
+  padding: 4px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid var(--vscode-widget-border, rgba(255,255,255,0.1));
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.approval-btn-allow {
+  background: rgba(137, 209, 133, 0.2);
+  color: var(--vscode-charts-green, #89d185);
+  border-color: rgba(137, 209, 133, 0.4);
+}
+
+.approval-btn-allow:hover {
+  background: rgba(137, 209, 133, 0.35);
+}
+
+.approval-btn-allow-all {
+  background: rgba(78, 154, 240, 0.2);
+  color: var(--vscode-charts-blue, #4e9af0);
+  border-color: rgba(78, 154, 240, 0.4);
+}
+
+.approval-btn-allow-all:hover {
+  background: rgba(78, 154, 240, 0.35);
+}
+
+.approval-btn-deny {
+  background: rgba(244, 71, 71, 0.2);
+  color: var(--vscode-errorForeground, #f44747);
+  border-color: rgba(244, 71, 71, 0.4);
+}
+
+.approval-btn-deny:hover {
+  background: rgba(244, 71, 71, 0.35);
 }
 
 /* ========== Scrollbar ========== */

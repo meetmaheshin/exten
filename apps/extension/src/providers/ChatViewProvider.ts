@@ -67,6 +67,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           }
           break;
         }
+        case "toolApprovalResponse": {
+          this.chatService.resolveApproval(msg.toolCallId, msg.decision);
+          break;
+        }
         case "cancelStream": {
           this.chatService.cancelStream(msg.conversationId);
           break;

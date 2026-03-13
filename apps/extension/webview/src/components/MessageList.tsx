@@ -1,23 +1,26 @@
 import { useEffect, useRef } from "react";
 import { MessageBubble } from "./MessageBubble";
 import { ToolCallDisplay } from "./ToolCallDisplay";
-import type { ChatMessage, ToolCallDisplay as ToolCallData } from "../types";
+import { ApprovalCard } from "./ApprovalCard";
+import type { ChatMessage, ToolCallDisplay as ToolCallData, PendingApproval } from "../types";
 
 interface MessageListProps {
   messages: ChatMessage[];
   isStreaming: boolean;
   streamingContent: string;
   activeToolCalls?: ToolCallData[];
+  pendingApprovals?: PendingApproval[];
+  onApprovalDecision?: (toolCallId: string, decision: "allow" | "allowAll" | "deny") => void;
 }
 
-export function MessageList({ messages, isStreaming, streamingContent, activeToolCalls = [] }: MessageListProps) {
+export function MessageList({ messages, isStreaming, streamingContent, activeToolCalls = [], pendingApprovals = [], onApprovalDecision }: MessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom when new messages arrive or during streaming
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length, streamingContent, activeToolCalls.length]);
+  }, [messages.length, streamingContent, activeToolCalls.length, pendingApprovals.length]);
 
   if (messages.length === 0 && !isStreaming) {
     return (
@@ -68,8 +71,8 @@ export function MessageList({ messages, isStreaming, streamingContent, activeToo
           </div>
         </div>
       )}
-      {/* Show a working indicator when streaming but no content yet and no tool calls */}
-      {isStreaming && !streamingContent && activeToolCalls.length === 0 && (
+      {/* Show a working indicator when streaming but no content yet and no tool calls and no approvals */}
+      {isStreaming && !streamingContent && activeToolCalls.length === 0 && pendingApprovals.length === 0 && (
         <div className="message">
           <div className="message-header">
             <span className="message-role assistant">AI</span>
@@ -77,6 +80,14 @@ export function MessageList({ messages, isStreaming, streamingContent, activeToo
           <div className="message-body assistant streaming-cursor">&nbsp;</div>
         </div>
       )}
+      {/* Show pending approval cards inline */}
+      {pendingApprovals.map((approval) => (
+        <ApprovalCard
+          key={approval.toolCallId}
+          approval={approval}
+          onDecision={onApprovalDecision || (() => {})}
+        />
+      ))}
       <div ref={bottomRef} />
     </div>
   );

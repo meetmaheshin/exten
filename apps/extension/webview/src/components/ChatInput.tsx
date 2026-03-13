@@ -53,6 +53,33 @@ export function ChatInput({
 
   return (
     <div className="input-area">
+      {/* Row 1: Textarea with send button */}
+      <div className="input-wrapper">
+        <textarea
+          ref={textareaRef}
+          value={value}
+          onChange={handleInput}
+          onKeyDown={handleKeyDown}
+          placeholder={placeholder}
+          disabled={isStreaming}
+          rows={1}
+        />
+        {isStreaming ? (
+          <button className="cancel-btn" onClick={onCancel} title="Stop generation">
+            &#9632;
+          </button>
+        ) : (
+          <button
+            className={`send-btn ${agentMode ? "agent-send" : ""}`}
+            onClick={handleSend}
+            disabled={!value.trim()}
+            title={agentMode ? "Send as agent (Enter)" : "Send message (Enter)"}
+          >
+            {agentMode ? "\u26A1" : "\u2191"}
+          </button>
+        )}
+      </div>
+      {/* Row 2: Controls below textarea */}
       <div className="input-controls">
         <button
           className={`mode-toggle ${agentMode ? "mode-agent" : "mode-chat"}`}
@@ -90,6 +117,7 @@ export function ChatInput({
             </button>
           </div>
         )}
+        <span className="input-controls-spacer" />
         {availableModels.length > 0 && (
           <select
             className="model-select"
@@ -126,35 +154,9 @@ export function ChatInput({
             })()}
           </select>
         )}
-        <span className="input-controls-spacer" />
         <span className="input-hint">
-          {isStreaming ? "Stop to cancel" : "Enter \u2191  Shift+Enter \u21B5"}
+          {isStreaming ? "Stop" : "Enter \u2191"}
         </span>
-      </div>
-      <div className="input-wrapper">
-        <textarea
-          ref={textareaRef}
-          value={value}
-          onChange={handleInput}
-          onKeyDown={handleKeyDown}
-          placeholder={placeholder}
-          disabled={isStreaming}
-          rows={1}
-        />
-        {isStreaming ? (
-          <button className="cancel-btn" onClick={onCancel} title="Stop generation">
-            &#9632;
-          </button>
-        ) : (
-          <button
-            className={`send-btn ${agentMode ? "agent-send" : ""}`}
-            onClick={handleSend}
-            disabled={!value.trim()}
-            title={agentMode ? "Send as agent (Enter)" : "Send message (Enter)"}
-          >
-            {agentMode ? "\u26A1" : "\u2191"}
-          </button>
-        )}
       </div>
     </div>
   );

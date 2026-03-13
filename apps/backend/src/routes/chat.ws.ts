@@ -1,11 +1,11 @@
 import type { FastifyInstance } from "fastify";
 import type WebSocket from "ws";
 import type { RawData } from "ws";
-import { eq, asc } from "drizzle-orm";
+import { eq, asc, sql } from "drizzle-orm";
 import type { AuthService } from "../services/AuthService.js";
 import type { AIService } from "../services/AIService.js";
 import type { Database } from "../config/database.js";
-import { messages, conversations } from "../models/index.js";
+import { messages, conversations, aiUsageDaily } from "../models/index.js";
 import type { WsClientMessage, WsServerMessage } from "@ailancers/shared-types";
 
 /** Simple sliding-window rate limiter for AI requests per user */
@@ -44,6 +44,87 @@ interface PendingToolCall {
   resolve: (value: { result: string; isError: boolean }) => void;
   reject: (reason: Error) => void;
   timeoutId: ReturnType<typeof setTimeout>;
+}
+
+/**
+ * Record AI usage in ai_usage_daily — one row per user+project+date.
+ * Uses SELECT-then-INSERT/UPDATE to handle NULL projectId correctly
+ * (PostgreSQL unique constraints treat NULL != NULL in ON CONFLICT).
+ */
+async function recordAiUsage(
+  db: Database,
+  opts: {
+    userId: string;
+    projectId: string | null;
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+    costUsd: number;
+  }
+) {
+  const today = new Date().toISOString().slice(0, 10);
+  const modelKey = opts.model || "unknown";
+
+  try {
+    // Find existing row using IS NOT DISTINCT FROM (handles NULL correctly)
+    const existing = await db.execute(sql`
+      SELECT id, model_breakdown
+      FROM ai_usage_daily
+      WHERE user_id = ${opts.userId}
+        AND project_id IS NOT DISTINCT FROM ${opts.projectId}
+        AND date = ${today}
+      LIMIT 1
+    `);
+
+    if (existing.length > 0) {
+      // Update existing row
+      const row = existing[0] as { id: string; model_breakdown: Record<string, unknown> | null };
+      const breakdown = (row.model_breakdown || {}) as Record<string, { requests: number; inputTokens: number; outputTokens: number; costUsd: number }>;
+      const prev = breakdown[modelKey];
+      breakdown[modelKey] = {
+        requests: (prev?.requests || 0) + 1,
+        inputTokens: (prev?.inputTokens || 0) + opts.inputTokens,
+        outputTokens: (prev?.outputTokens || 0) + opts.outputTokens,
+        costUsd: (prev?.costUsd || 0) + opts.costUsd,
+      };
+
+      await db.execute(sql`
+        UPDATE ai_usage_daily SET
+          total_requests = total_requests + 1,
+          total_input_tokens = total_input_tokens + ${opts.inputTokens},
+          total_output_tokens = total_output_tokens + ${opts.outputTokens},
+          total_cost_usd = total_cost_usd + ${opts.costUsd},
+          model_breakdown = ${JSON.stringify(breakdown)}::jsonb
+        WHERE id = ${row.id}
+      `);
+    } else {
+      // Insert new row
+      const breakdown = {
+        [modelKey]: {
+          requests: 1,
+          inputTokens: opts.inputTokens,
+          outputTokens: opts.outputTokens,
+          costUsd: opts.costUsd,
+        },
+      };
+
+      await db
+        .insert(aiUsageDaily)
+        .values({
+          userId: opts.userId,
+          projectId: opts.projectId,
+          date: today,
+          totalRequests: 1,
+          totalInputTokens: opts.inputTokens,
+          totalOutputTokens: opts.outputTokens,
+          totalCostUsd: String(opts.costUsd),
+          modelBreakdown: breakdown,
+        });
+    }
+  } catch (err) {
+    // Non-critical — log but don't break the chat flow
+    console.error("[ai_usage_daily] Failed to record usage:", err);
+  }
 }
 
 export function chatWsRoute(
@@ -123,6 +204,14 @@ export function chatWsRoute(
         abortControllers.set(msg.conversationId, ac);
 
         try {
+          // Look up projectId for usage tracking
+          const [conv] = await db
+            .select({ projectId: conversations.projectId })
+            .from(conversations)
+            .where(eq(conversations.id, msg.conversationId))
+            .limit(1);
+          const projectId = conv?.projectId ?? null;
+
           // Save user message
           await db
             .insert(messages)
@@ -183,6 +272,16 @@ export function chatWsRoute(
                 })
                 .where(eq(messages.id, assistantMsg.id));
 
+              // Record in ai_usage_daily
+              await recordAiUsage(db, {
+                userId,
+                projectId,
+                model: msg.model || "default",
+                inputTokens: result.inputTokens,
+                outputTokens: result.outputTokens,
+                costUsd: result.costUsd,
+              });
+
               send(socket, {
                 type: "stream_end",
                 conversationId: msg.conversationId,
@@ -227,7 +326,14 @@ export function chatWsRoute(
         abortControllers.set(msg.conversationId, ac);
 
         try {
-          // Update conversation mode to agent
+          // Update conversation mode to agent & get projectId
+          const [convRow] = await db
+            .select({ projectId: conversations.projectId })
+            .from(conversations)
+            .where(eq(conversations.id, msg.conversationId))
+            .limit(1);
+          const agentProjectId = convRow?.projectId ?? null;
+
           await db
             .update(conversations)
             .set({ mode: "agent" })
@@ -338,6 +444,16 @@ export function chatWsRoute(
                     toolCalls: result.toolCalls.length > 0 ? JSON.stringify(result.toolCalls) : null,
                   })
                   .where(eq(messages.id, assistantMsg.id));
+
+                // Record in ai_usage_daily
+                await recordAiUsage(db, {
+                  userId,
+                  projectId: agentProjectId,
+                  model: msg.model || "default",
+                  inputTokens: result.usage.inputTokens,
+                  outputTokens: result.usage.outputTokens,
+                  costUsd: result.usage.costUsd,
+                });
 
                 send(socket, {
                   type: "stream_end",
