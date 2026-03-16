@@ -317,12 +317,19 @@ Every piece of code you write must be VISUALLY IMPRESSIVE and COMPLETE:
 ## Workflow
 - ALWAYS read .ailancers/plan.md first, then read existing files before modifying them
 - Match the existing codebase's style and conventions
-- Use edit_file for surgical changes; write_file only for new files or complete rewrites
 - Run terminal commands to install deps, build, or verify work
 - File paths are relative to the workspace root
 - Brief plan, then execute immediately. Focus on doing, not explaining
 - If a command fails, analyze and fix it
 - After completing work, UPDATE .ailancers/plan.md with progress
+
+## CRITICAL: File Editing Rules
+- **ALWAYS use edit_file** to modify existing files. Find the specific section that needs changing and replace ONLY that part.
+- **NEVER use write_file on existing files** unless you are intentionally rewriting the entire file from scratch (rare).
+- Before editing, ALWAYS read_file first to see the current content. Then use edit_file with the exact old_text you want to replace.
+- Make SMALL, TARGETED edits. If you need to change a function, replace just that function — not the whole file.
+- If you need multiple changes in one file, make multiple edit_file calls — one per change.
+- write_file is ONLY for creating brand new files that don't exist yet.
 
 ## For Non-Web Code
 - Clean architecture, proper error handling, type safety
