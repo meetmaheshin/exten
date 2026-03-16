@@ -138,12 +138,14 @@ export class ChatService {
         isError,
       });
 
-      // Notify webview of completion
+      // Notify webview of completion with result
       if (callback) {
         callback({
           type: "tool_result_ack",
           conversationId,
           toolCallId,
+          result,
+          isError,
         } as WsServerMessage);
       }
 

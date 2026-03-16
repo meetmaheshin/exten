@@ -91,7 +91,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           break;
         }
         case "login": {
-          await this.authService.promptLogin();
+          if (msg.email && msg.password) {
+            const result = await this.authService.login(msg.email, msg.password);
+            this.postToWebview({ type: "loginResult", success: result.success, error: result.error });
+          } else {
+            await this.authService.promptLogin();
+          }
           break;
         }
         case "getAuthState": {

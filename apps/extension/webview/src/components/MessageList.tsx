@@ -39,25 +39,18 @@ export function MessageList({ messages, isStreaming, streamingContent, activeToo
     <div className="messages-container" ref={containerRef}>
       {messages.map((msg, i) => (
         <div key={msg.id ?? `msg-${i}`}>
-          <MessageBubble message={msg} />
-          {/* Show tool calls from completed messages */}
-          {msg.toolCalls && msg.toolCalls.length > 0 && (
+          {/* For assistant messages: show tool calls BEFORE the text */}
+          {msg.role === "assistant" && msg.toolCalls && msg.toolCalls.length > 0 && (
             <div className="tool-calls-group">
               {msg.toolCalls.map((tc) => (
                 <ToolCallDisplay key={tc.toolCallId} toolCall={tc} />
               ))}
             </div>
           )}
+          <MessageBubble message={msg} />
         </div>
       ))}
-      {/* Show streaming content if any */}
-      {isStreaming && streamingContent && (
-        <MessageBubble
-          message={{ role: "assistant", content: streamingContent }}
-          isStreaming
-        />
-      )}
-      {/* Show active tool calls during streaming — inline in chat */}
+      {/* During streaming: show tool calls FIRST, then approval cards, then text */}
       {isStreaming && activeToolCalls.length > 0 && (
         <div className="agent-activity">
           <div className="agent-activity-header">
@@ -71,7 +64,22 @@ export function MessageList({ messages, isStreaming, streamingContent, activeToo
           </div>
         </div>
       )}
-      {/* Show a working indicator when streaming but no content yet and no tool calls and no approvals */}
+      {/* Pending approval cards */}
+      {pendingApprovals.map((approval) => (
+        <ApprovalCard
+          key={approval.toolCallId}
+          approval={approval}
+          onDecision={onApprovalDecision || (() => {})}
+        />
+      ))}
+      {/* Streaming text appears AFTER tool calls — user sees progress first, then the final answer */}
+      {isStreaming && streamingContent && (
+        <MessageBubble
+          message={{ role: "assistant", content: streamingContent }}
+          isStreaming
+        />
+      )}
+      {/* Working indicator when streaming but nothing visible yet */}
       {isStreaming && !streamingContent && activeToolCalls.length === 0 && pendingApprovals.length === 0 && (
         <div className="message">
           <div className="message-header">
@@ -80,14 +88,6 @@ export function MessageList({ messages, isStreaming, streamingContent, activeToo
           <div className="message-body assistant streaming-cursor">&nbsp;</div>
         </div>
       )}
-      {/* Show pending approval cards inline */}
-      {pendingApprovals.map((approval) => (
-        <ApprovalCard
-          key={approval.toolCallId}
-          approval={approval}
-          onDecision={onApprovalDecision || (() => {})}
-        />
-      ))}
       <div ref={bottomRef} />
     </div>
   );

@@ -31,6 +31,44 @@ export class AuthService {
     }
   }
 
+  /** Login via webview form (email + password passed directly) */
+  async login(email: string, password: string): Promise<{ success: boolean; error?: string; userName?: string }> {
+    try {
+      const url = this.getServerUrl();
+      const response = await fetch(`${url}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+
+      // Safely parse response
+      const text = await response.text();
+      let data: LoginResponse;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        return { success: false, error: `Server returned invalid response. Check server URL in settings (current: ${url})` };
+      }
+
+      if (!response.ok) {
+        const errMsg = (data as unknown as { message?: string }).message || "Login failed";
+        return { success: false, error: errMsg };
+      }
+
+      this.accessToken = data.accessToken;
+      await this.secrets.store("ailancers.refreshToken", data.refreshToken);
+      this.notifyListeners(true);
+      return { success: true, userName: data.user.fullName };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      if (msg.includes("fetch") || msg.includes("ECONNREFUSED") || msg.includes("network")) {
+        return { success: false, error: `Cannot reach server at ${this.getServerUrl()}. Check your Server URL setting.` };
+      }
+      return { success: false, error: msg };
+    }
+  }
+
+  /** Legacy: prompt login via VS Code input boxes (fallback) */
   async promptLogin(): Promise<void> {
     const email = await vscode.window.showInputBox({
       prompt: "Enter your Ailancers email",
@@ -45,26 +83,11 @@ export class AuthService {
     });
     if (!password) return;
 
-    try {
-      const url = this.getServerUrl();
-      const response = await fetch(`${url}/api/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
-
-      if (!response.ok) {
-        const err = (await response.json()) as { message?: string };
-        throw new Error(err.message || "Login failed");
-      }
-
-      const data = (await response.json()) as LoginResponse;
-      this.accessToken = data.accessToken;
-      await this.secrets.store("ailancers.refreshToken", data.refreshToken);
-      this.notifyListeners(true);
-      vscode.window.showInformationMessage(`Ailancers: Logged in as ${data.user.fullName}`);
-    } catch (err) {
-      vscode.window.showErrorMessage(`Ailancers: Login failed - ${err instanceof Error ? err.message : "Unknown error"}`);
+    const result = await this.login(email, password);
+    if (result.success) {
+      vscode.window.showInformationMessage(`Ailancers: Logged in as ${result.userName}`);
+    } else {
+      vscode.window.showErrorMessage(`Ailancers: Login failed - ${result.error}`);
     }
   }
 
@@ -85,7 +108,15 @@ export class AuthService {
         return false;
       }
 
-      const data = (await response.json()) as RefreshResponse;
+      const text = await response.text();
+      let data: RefreshResponse;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        await this.secrets.delete("ailancers.refreshToken");
+        return false;
+      }
+
       this.accessToken = data.accessToken;
       await this.secrets.store("ailancers.refreshToken", data.refreshToken);
       this.notifyListeners(true);
@@ -118,7 +149,16 @@ export class AuthService {
         return null;
       }
 
-      const data = (await response.json()) as RefreshResponse;
+      const text = await response.text();
+      let data: RefreshResponse;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        this.accessToken = null;
+        this.notifyListeners(false);
+        return null;
+      }
+
       this.accessToken = data.accessToken;
       await this.secrets.store("ailancers.refreshToken", data.refreshToken);
       return this.accessToken;

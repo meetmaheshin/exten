@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { getVsCodeApi } from "../vscodeApi";
 
 const FEATURES = [
@@ -8,9 +9,35 @@ const FEATURES = [
 ];
 
 export function LoginScreen() {
-  const handleLogin = () => {
-    getVsCodeApi().postMessage({ type: "login" });
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email || !password) return;
+    setLoading(true);
+    setError("");
+    getVsCodeApi().postMessage({ type: "login", email, password });
   };
+
+  // Listen for login result from extension host
+  const handler = (event: MessageEvent) => {
+    const msg = event.data;
+    if (msg.type === "loginResult") {
+      setLoading(false);
+      if (!msg.success) {
+        setError(msg.error || "Login failed");
+      }
+    }
+  };
+
+  // Register once
+  useState(() => {
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  });
 
   return (
     <div className="login-container">
@@ -19,6 +46,32 @@ export function LoginScreen() {
         <div className="login-title">Ailancers Code</div>
         <div className="login-version">AI-Powered Development</div>
       </div>
+
+      <form className="login-form" onSubmit={handleSubmit}>
+        <input
+          className="login-input"
+          type="email"
+          placeholder="Email address"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          disabled={loading}
+          autoComplete="email"
+          autoFocus
+        />
+        <input
+          className="login-input"
+          type="password"
+          placeholder="Password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          disabled={loading}
+          autoComplete="current-password"
+        />
+        {error && <div className="login-error">{error}</div>}
+        <button className="login-btn" type="submit" disabled={loading || !email || !password}>
+          {loading ? "Signing in..." : "Sign In"}
+        </button>
+      </form>
 
       <div className="login-features">
         {FEATURES.map((f) => (
@@ -31,10 +84,6 @@ export function LoginScreen() {
           </div>
         ))}
       </div>
-
-      <button className="login-btn" onClick={handleLogin}>
-        Sign In to Get Started
-      </button>
 
       <div className="login-footer">
         Your team&apos;s AI coding assistant

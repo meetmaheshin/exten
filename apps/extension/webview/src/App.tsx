@@ -53,7 +53,7 @@ type Action =
   // Agent actions
   | { type: "AGENT_TURN_START"; turnNumber: number }
   | { type: "TOOL_CALL_STARTED"; toolCallId: string; toolName: string; toolInput: Record<string, unknown> }
-  | { type: "TOOL_CALL_COMPLETED"; toolCallId: string }
+  | { type: "TOOL_CALL_COMPLETED"; toolCallId: string; result?: string; isError?: boolean }
   | { type: "AGENT_COMPLETE"; usage: AgentUsage }
   // Approval actions
   | { type: "ADD_PENDING_APPROVAL"; approval: PendingApproval }
@@ -196,7 +196,7 @@ function reducer(state: AppState, action: Action): AppState {
         ...state,
         agentToolCalls: state.agentToolCalls.map((tc) =>
           tc.toolCallId === action.toolCallId
-            ? { ...tc, status: "completed" as const }
+            ? { ...tc, status: (action.isError ? "error" : "completed") as const, result: action.result, isError: action.isError }
             : tc
         ),
       };
@@ -318,7 +318,7 @@ export function App() {
         });
         break;
       case "tool_result_ack":
-        dispatch({ type: "TOOL_CALL_COMPLETED", toolCallId: msg.toolCallId });
+        dispatch({ type: "TOOL_CALL_COMPLETED", toolCallId: msg.toolCallId, result: msg.result, isError: msg.isError });
         break;
       case "agent_complete":
         dispatch({ type: "AGENT_COMPLETE", usage: msg.totalUsage });

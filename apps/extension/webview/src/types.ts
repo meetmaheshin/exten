@@ -1,7 +1,7 @@
 /** Messages FROM the webview TO the extension host */
 export type OutgoingMessage =
   | { type: "getAuthState" }
-  | { type: "login" }
+  | { type: "login"; email: string; password: string }
   | { type: "sendMessage"; conversationId: string; content: string; model?: string }
   | { type: "sendAgentMessage"; conversationId: string; content: string; model?: string; agentType?: "coder" | "qa" | "design" }
   | { type: "cancelStream"; conversationId: string }
@@ -14,6 +14,7 @@ export type OutgoingMessage =
 /** Messages FROM the extension host TO the webview */
 export type IncomingMessage =
   | { type: "authState"; authenticated: boolean }
+  | { type: "loginResult"; success: boolean; error?: string }
   | { type: "conversationCreated"; data: Conversation }
   | { type: "conversations"; data: Conversation[] }
   | { type: "stream_start"; conversationId: string; messageId: string }
@@ -25,7 +26,7 @@ export type IncomingMessage =
   // Agent mode messages
   | { type: "tool_call"; conversationId: string; toolCallId: string; toolName: string; toolInput: Record<string, unknown>; requiresApproval: boolean }
   | { type: "tool_approval_request"; conversationId: string; toolCallId: string; toolName: string; toolInput: Record<string, unknown> }
-  | { type: "tool_result_ack"; conversationId: string; toolCallId: string }
+  | { type: "tool_result_ack"; conversationId: string; toolCallId: string; result?: string; isError?: boolean }
   | { type: "agent_turn_start"; conversationId: string; turnNumber: number }
   | { type: "agent_complete"; conversationId: string; totalUsage: AgentUsage }
   | { type: "budget_warning"; conversationId: string; currentCostUsd: number; budgetUsd: number; percentUsed: number }

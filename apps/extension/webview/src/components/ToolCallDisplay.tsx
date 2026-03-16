@@ -5,98 +5,122 @@ interface ToolCallDisplayProps {
   toolCall: ToolCallData;
 }
 
-const TOOL_ICONS: Record<string, string> = {
-  read_file: "\u{1F4C4}",
-  write_file: "\u{270F}\u{FE0F}",
-  edit_file: "\u{2702}\u{FE0F}",
-  run_terminal: "\u{1F4BB}",
-  search_files: "\u{1F50D}",
-  list_directory: "\u{1F4C1}",
-  glob_files: "\u{1F4C2}",
-};
-
 const TOOL_LABELS: Record<string, string> = {
-  read_file: "Read File",
-  write_file: "Write File",
-  edit_file: "Edit File",
-  run_terminal: "Terminal",
-  search_files: "Search",
-  list_directory: "List Directory",
-  glob_files: "Find Files",
+  read_file: "Read",
+  write_file: "Write",
+  edit_file: "Edit",
+  run_terminal: "Bash",
+  search_files: "Grep",
+  list_directory: "List",
+  glob_files: "Glob",
 };
 
-function formatInput(toolName: string, input: Record<string, unknown>): string {
+/** Generate a short human-readable description of what the tool is doing */
+function formatDescription(toolName: string, input: Record<string, unknown>): string {
   switch (toolName) {
     case "read_file":
+      return String(input.path || "file");
     case "write_file":
+      return `Write to ${input.path || "file"}`;
     case "edit_file":
-      return String(input.path || "");
+      return `Edit ${input.path || "file"}`;
+    case "run_terminal": {
+      const cmd = String(input.command || "");
+      // Truncate long commands
+      return cmd.length > 80 ? cmd.slice(0, 77) + "..." : cmd;
+    }
+    case "search_files":
+      return `Search for "${input.pattern || ""}"`;
+    case "list_directory":
+      return `List ${input.path || "."}`;
+    case "glob_files":
+      return `Find ${input.pattern || "files"}`;
+    default:
+      return JSON.stringify(input).slice(0, 80);
+  }
+}
+
+/** Format the IN (input) block content */
+function formatInputBlock(toolName: string, input: Record<string, unknown>): string | null {
+  switch (toolName) {
     case "run_terminal":
       return String(input.command || "");
+    case "read_file":
+      return String(input.path || "");
+    case "write_file":
+      return String(input.path || "");
+    case "edit_file": {
+      const path = String(input.path || "");
+      const old_text = String(input.old_text || "");
+      const new_text = String(input.new_text || "");
+      return `${path}\n\nFind:\n${old_text.slice(0, 300)}\n\nReplace:\n${new_text.slice(0, 300)}`;
+    }
     case "search_files":
-      return String(input.pattern || "");
+      return `pattern: ${input.pattern || ""}\npath: ${input.path || "."}`;
+    case "glob_files":
+      return `pattern: ${input.pattern || ""}`;
     case "list_directory":
       return String(input.path || ".");
-    case "glob_files":
-      return String(input.pattern || "");
     default:
-      return JSON.stringify(input).slice(0, 100);
+      return JSON.stringify(input, null, 2).slice(0, 500);
   }
+}
+
+/** Truncate output for display */
+function formatOutput(result: string): string {
+  if (result.length > 1500) {
+    return result.slice(0, 1500) + "\n... (truncated)";
+  }
+  return result;
 }
 
 export function ToolCallDisplay({ toolCall }: ToolCallDisplayProps) {
   const [expanded, setExpanded] = useState(false);
-  const icon = TOOL_ICONS[toolCall.toolName] || "\u{1F527}";
   const label = TOOL_LABELS[toolCall.toolName] || toolCall.toolName;
-  const summary = formatInput(toolCall.toolName, toolCall.toolInput);
+  const description = formatDescription(toolCall.toolName, toolCall.toolInput);
+  const inputBlock = formatInputBlock(toolCall.toolName, toolCall.toolInput);
 
-  const statusClass =
-    toolCall.status === "error" || toolCall.status === "denied"
-      ? "tool-status-error"
-      : toolCall.status === "completed"
-        ? "tool-status-success"
-        : "tool-status-running";
+  const isRunning = toolCall.status === "running" || toolCall.status === "pending";
+  const isError = toolCall.status === "error" || toolCall.status === "denied";
+  const isComplete = toolCall.status === "completed";
+
+  const dotClass = isError ? "tc-dot-error" : isComplete ? "tc-dot-success" : "tc-dot-running";
 
   return (
-    <div className={`tool-call ${statusClass}`}>
+    <div className="tc-item">
+      {/* Header row: dot + label + description */}
       <div
-        className="tool-call-header"
+        className="tc-header"
         onClick={() => setExpanded(!expanded)}
         role="button"
         tabIndex={0}
       >
-        <span className="tool-call-icon">{icon}</span>
-        <span className="tool-call-label">{label}</span>
-        <span className="tool-call-summary">{summary}</span>
-        <span className="tool-call-status">
-          {toolCall.status === "pending" && "\u23F3"}
-          {toolCall.status === "running" && "\u2699\uFE0F"}
-          {toolCall.status === "completed" && "\u2705"}
-          {toolCall.status === "error" && "\u274C"}
-          {toolCall.status === "denied" && "\u{1F6AB}"}
-        </span>
-        <span className={`tool-call-expand ${expanded ? "expanded" : ""}`}>
-          &#9654;
-        </span>
+        <span className={`tc-dot ${dotClass}`} />
+        <span className="tc-label">{label}</span>
+        <span className="tc-desc">{description}</span>
+        <span className={`tc-chevron ${expanded ? "tc-chevron-open" : ""}`}>&#9654;</span>
       </div>
+
+      {/* Expanded: IN/OUT blocks */}
       {expanded && (
-        <div className="tool-call-details">
-          {toolCall.toolName === "edit_file" && toolCall.toolInput.old_text && (
-            <div className="tool-call-diff">
-              <div className="diff-remove">{String(toolCall.toolInput.old_text).slice(0, 500)}</div>
-              <div className="diff-add">{String(toolCall.toolInput.new_text || "").slice(0, 500)}</div>
-            </div>
-          )}
-          {toolCall.toolName === "run_terminal" && (
-            <div className="tool-call-terminal">
-              <code>$ {String(toolCall.toolInput.command)}</code>
+        <div className="tc-body">
+          {inputBlock && (
+            <div className="tc-block">
+              <div className="tc-block-label">IN</div>
+              <pre className="tc-block-content">{inputBlock}</pre>
             </div>
           )}
           {toolCall.result && (
-            <pre className="tool-call-output">
-              {toolCall.result.slice(0, 2000)}
-              {toolCall.result.length > 2000 ? "\n... (truncated)" : ""}
-            </pre>
+            <div className={`tc-block ${toolCall.isError ? "tc-block-error" : ""}`}>
+              <div className="tc-block-label">OUT</div>
+              <pre className="tc-block-content">{formatOutput(toolCall.result)}</pre>
+            </div>
+          )}
+          {isRunning && !toolCall.result && (
+            <div className="tc-block">
+              <div className="tc-block-label">OUT</div>
+              <pre className="tc-block-content tc-running-text">Running...</pre>
+            </div>
           )}
         </div>
       )}
