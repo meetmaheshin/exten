@@ -1,9 +1,14 @@
+export interface ImageAttachment {
+  data: string;
+  mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+}
+
 /** Messages FROM the webview TO the extension host */
 export type OutgoingMessage =
   | { type: "getAuthState" }
   | { type: "login"; email: string; password: string }
-  | { type: "sendMessage"; conversationId: string; content: string; model?: string }
-  | { type: "sendAgentMessage"; conversationId: string; content: string; model?: string; agentType?: "coder" | "qa" | "design" }
+  | { type: "sendMessage"; conversationId: string; content: string; model?: string; images?: ImageAttachment[] }
+  | { type: "sendAgentMessage"; conversationId: string; content: string; model?: string; agentType?: "coder" | "qa" | "design"; images?: ImageAttachment[] }
   | { type: "cancelStream"; conversationId: string }
   | { type: "loadConversations" }
   | { type: "loadModels" }
@@ -45,6 +50,7 @@ export interface ChatMessage {
   id?: string;
   role: "user" | "assistant" | "system";
   content: string;
+  images?: ImageAttachment[];
   inputTokens?: number | null;
   outputTokens?: number | null;
   costUsd?: number | null;

@@ -52,18 +52,19 @@ export class ChatService {
   }
 
   /** Send a regular chat message (non-agent) */
-  sendMessage(conversationId: string, content: string, callback: StreamCallback, model?: string): void {
+  sendMessage(conversationId: string, content: string, callback: StreamCallback, model?: string, images?: unknown[]): void {
     this.streamCallbacks.set(conversationId, callback);
     this.wsClient.send({
       type: "message",
       conversationId,
       content,
       model,
-    });
+      ...(images ? { images } : {}),
+    } as import("@ailancers/shared-types").WsClientMessage);
   }
 
   /** Send an agent-mode message — Claude can use tools */
-  sendAgentMessage(conversationId: string, content: string, callback: StreamCallback, model?: string, agentType?: "coder" | "qa"): void {
+  sendAgentMessage(conversationId: string, content: string, callback: StreamCallback, model?: string, agentType?: "coder" | "qa", images?: unknown[]): void {
     this.streamCallbacks.set(conversationId, callback);
     this.wsClient.send({
       type: "agent_message",
@@ -71,7 +72,8 @@ export class ChatService {
       content,
       model,
       agentType,
-    });
+      ...(images ? { images } : {}),
+    } as import("@ailancers/shared-types").WsClientMessage);
   }
 
   cancelStream(conversationId: string): void {

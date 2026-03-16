@@ -39,12 +39,20 @@ export interface ToolCallSummary {
 
 export type AgentType = "coder" | "qa" | "design";
 
+export interface ImageAttachment {
+  /** base64-encoded image data */
+  data: string;
+  /** MIME type (e.g. "image/png", "image/jpeg") */
+  mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+}
+
 export interface WsAgentMessage {
   type: "agent_message";
   conversationId: string;
   content: string;
   model?: string;
   agentType?: AgentType;
+  images?: ImageAttachment[];
 }
 
 export interface WsToolResult {

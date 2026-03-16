@@ -7,7 +7,7 @@ import { MessageList } from "./components/MessageList";
 import { ChatInput } from "./components/ChatInput";
 import { ConversationList } from "./components/ConversationList";
 import { AgentStatusBar } from "./components/AgentStatusBar";
-import type { ChatMessage, Conversation, IncomingMessage, TokenUsage, AgentUsage, ToolCallDisplay, AvailableModel, PendingApproval } from "./types";
+import type { ChatMessage, Conversation, IncomingMessage, TokenUsage, AgentUsage, ToolCallDisplay, AvailableModel, PendingApproval, ImageAttachment } from "./types";
 
 interface AppState {
   authenticated: boolean;
@@ -18,6 +18,7 @@ interface AppState {
   streamingContent: string;
   showConversations: boolean;
   pendingMessage: string | null;
+  pendingImages: ImageAttachment[] | null;
   // Agent mode state
   agentMode: boolean;
   agentType: "coder" | "qa" | "design";
@@ -39,12 +40,12 @@ type Action =
   | { type: "CONVERSATION_CREATED"; data: Conversation }
   | { type: "SELECT_CONVERSATION"; id: string }
   | { type: "MESSAGES_LOADED"; messages: ChatMessage[] }
-  | { type: "ADD_USER_MESSAGE"; content: string }
+  | { type: "ADD_USER_MESSAGE"; content: string; images?: ImageAttachment[] }
   | { type: "STREAM_START" }
   | { type: "STREAM_DELTA"; delta: string }
   | { type: "STREAM_END"; usage: TokenUsage }
   | { type: "STREAM_ERROR"; error: string }
-  | { type: "SET_PENDING"; content: string }
+  | { type: "SET_PENDING"; content: string; images?: ImageAttachment[] | null }
   | { type: "TOGGLE_CONVERSATIONS" }
   | { type: "TOGGLE_AGENT_MODE" }
   | { type: "SET_AGENT_TYPE"; agentType: "coder" | "qa" | "design" }
@@ -68,6 +69,7 @@ const initialState: AppState = {
   streamingContent: "",
   showConversations: false,
   pendingMessage: null,
+  pendingImages: null,
   agentMode: true, // Default to agent mode
   agentType: "coder" as const,
   agentTurnNumber: 0,
@@ -112,7 +114,7 @@ function reducer(state: AppState, action: Action): AppState {
     case "ADD_USER_MESSAGE":
       return {
         ...state,
-        messages: [...state.messages, { role: "user", content: action.content }],
+        messages: [...state.messages, { role: "user", content: action.content, images: action.images }],
         isStreaming: true,
         streamingContent: "",
         agentToolCalls: [],
@@ -151,7 +153,7 @@ function reducer(state: AppState, action: Action): AppState {
         streamingContent: "",
       };
     case "SET_PENDING":
-      return { ...state, pendingMessage: action.content };
+      return { ...state, pendingMessage: action.content, pendingImages: action.images ?? null };
     case "TOGGLE_CONVERSATIONS":
       return { ...state, showConversations: !state.showConversations };
     case "TOGGLE_AGENT_MODE": {
@@ -253,7 +255,8 @@ export function App() {
   useEffect(() => {
     if (state.pendingMessage && state.currentConversationId) {
       const content = state.pendingMessage;
-      dispatch({ type: "ADD_USER_MESSAGE", content });
+      const images = state.pendingImages ?? undefined;
+      dispatch({ type: "ADD_USER_MESSAGE", content, images });
       dispatch({ type: "SET_PENDING", content: "" });
       const msgType = state.agentMode ? "sendAgentMessage" : "sendMessage";
       vscode.current.postMessage({
@@ -262,9 +265,10 @@ export function App() {
         content,
         model: state.selectedModel || undefined,
         ...(state.agentMode ? { agentType: state.agentType } : {}),
+        ...(images ? { images } : {}),
       });
     }
-  }, [state.pendingMessage, state.currentConversationId, state.agentMode, state.agentType, state.selectedModel]);
+  }, [state.pendingMessage, state.currentConversationId, state.agentMode, state.agentType, state.selectedModel, state.pendingImages]);
 
   const handleMessage = useCallback((msg: IncomingMessage) => {
     switch (msg.type) {
@@ -335,13 +339,13 @@ export function App() {
     return <LoginScreen />;
   }
 
-  const handleSend = (content: string) => {
+  const handleSend = (content: string, images?: ImageAttachment[]) => {
     if (!state.currentConversationId) {
-      dispatch({ type: "SET_PENDING", content });
+      dispatch({ type: "SET_PENDING", content, images });
       vscode.current.postMessage({ type: "newConversation" });
       return;
     }
-    dispatch({ type: "ADD_USER_MESSAGE", content });
+    dispatch({ type: "ADD_USER_MESSAGE", content, images });
     const msgType = state.agentMode ? "sendAgentMessage" : "sendMessage";
     vscode.current.postMessage({
       type: msgType,
@@ -349,6 +353,7 @@ export function App() {
       content,
       model: state.selectedModel || undefined,
       ...(state.agentMode ? { agentType: state.agentType } : {}),
+      ...(images ? { images } : {}),
     });
   };
 

@@ -43,7 +43,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             msg.conversationId,
             msg.content,
             (wsMsg) => this.postToWebview(wsMsg),
-            msg.model
+            msg.model,
+            msg.images
           );
           break;
         }
@@ -53,7 +54,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             msg.content,
             (wsMsg) => this.postToWebview(wsMsg),
             msg.model,
-            msg.agentType
+            msg.agentType,
+            msg.images
           );
           break;
         }

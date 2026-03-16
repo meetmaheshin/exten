@@ -218,18 +218,20 @@ export function chatWsRoute(
             .limit(1);
           const projectId = conv?.projectId ?? null;
 
-          // Save user message
+          // Save user message (store images as structured content)
+          const hasImages = msg.images && msg.images.length > 0;
           await db
             .insert(messages)
             .values({
               conversationId: msg.conversationId,
               role: "user",
               content: msg.content,
+              contentType: hasImages ? "structured" : "text",
             });
 
           // Load conversation history
           const history = await db
-            .select({ role: messages.role, content: messages.content })
+            .select({ role: messages.role, content: messages.content, contentType: messages.contentType })
             .from(messages)
             .where(eq(messages.conversationId, msg.conversationId))
             .orderBy(asc(messages.createdAt));
@@ -238,6 +240,20 @@ export function chatWsRoute(
             role: m.role as "user" | "assistant",
             content: m.content,
           }));
+
+          // If the latest user message has images, build multipart content for Claude
+          if (hasImages && chatMessages.length > 0) {
+            const lastMsg = chatMessages[chatMessages.length - 1];
+            const contentParts: Array<{ type: string; text?: string; source?: { type: string; media_type: string; data: string } }> = [];
+            for (const img of msg.images!) {
+              contentParts.push({
+                type: "image",
+                source: { type: "base64", media_type: img.mediaType, data: img.data },
+              });
+            }
+            contentParts.push({ type: "text", text: lastMsg.content });
+            (lastMsg as { content: unknown }).content = contentParts;
+          }
 
           // Create assistant message placeholder
           const [assistantMsg] = await db
@@ -346,13 +362,14 @@ export function chatWsRoute(
             .where(eq(conversations.id, msg.conversationId));
 
           // Save user message
+          const agentHasImages = msg.images && msg.images.length > 0;
           await db
             .insert(messages)
             .values({
               conversationId: msg.conversationId,
               role: "user",
               content: msg.content,
-              contentType: "text",
+              contentType: agentHasImages ? "structured" : "text",
             });
 
           // Load conversation history — for agent mode, we need structured content
@@ -377,6 +394,20 @@ export function chatWsRoute(
             }
             return { role: m.role as "user" | "assistant", content: m.content };
           });
+
+          // If the latest user message has images, build multipart content for Claude vision
+          if (agentHasImages && aiMessages.length > 0) {
+            const lastAiMsg = aiMessages[aiMessages.length - 1];
+            const contentParts: Array<{ type: string; text?: string; source?: { type: string; media_type: string; data: string } }> = [];
+            for (const img of msg.images!) {
+              contentParts.push({
+                type: "image",
+                source: { type: "base64", media_type: img.mediaType, data: img.data },
+              });
+            }
+            contentParts.push({ type: "text", text: lastAiMsg.content as string });
+            (lastAiMsg as { content: unknown }).content = contentParts;
+          }
 
           // Create assistant message placeholder
           const [assistantMsg] = await db
