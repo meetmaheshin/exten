@@ -1,10 +1,13 @@
 import * as vscode from "vscode";
-import type { LoginResponse, RefreshResponse } from "@ailancers/shared-types";
+import type { LoginResponse, VerifyResponse } from "@ailancers/shared-types";
 
 type AuthStateListener = (authenticated: boolean) => void;
 
+const PLATFORM_URL = "https://staging-backend.ailancers.com";
+
 export class AuthService {
   private accessToken: string | null = null;
+  private userName: string | null = null;
   private listeners: AuthStateListener[] = [];
 
   constructor(private secrets: vscode.SecretStorage) {}
@@ -15,6 +18,10 @@ export class AuthService {
 
   getAccessToken(): string | null {
     return this.accessToken;
+  }
+
+  getUserName(): string | null {
+    return this.userName;
   }
 
   getServerUrl(): string {
@@ -31,23 +38,21 @@ export class AuthService {
     }
   }
 
-  /** Login via webview form (email + password passed directly) */
+  /** Login via Ailancers platform API */
   async login(email: string, password: string): Promise<{ success: boolean; error?: string; userName?: string }> {
     try {
-      const url = this.getServerUrl();
-      const response = await fetch(`${url}/api/auth/login`, {
+      const response = await fetch(`${PLATFORM_URL}/api/v1/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
 
-      // Safely parse response
       const text = await response.text();
       let data: LoginResponse;
       try {
         data = JSON.parse(text);
       } catch {
-        return { success: false, error: `Server returned invalid response. Check server URL in settings (current: ${url})` };
+        return { success: false, error: "Server returned invalid response" };
       }
 
       if (!response.ok) {
@@ -55,14 +60,15 @@ export class AuthService {
         return { success: false, error: errMsg };
       }
 
-      this.accessToken = data.accessToken;
-      await this.secrets.store("ailancers.refreshToken", data.refreshToken);
+      this.accessToken = data.token;
+      this.userName = data.user.name;
+      await this.secrets.store("ailancers.platformToken", data.token);
       this.notifyListeners(true);
-      return { success: true, userName: data.user.fullName };
+      return { success: true, userName: data.user.name };
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error";
       if (msg.includes("fetch") || msg.includes("ECONNREFUSED") || msg.includes("network")) {
-        return { success: false, error: `Cannot reach server at ${this.getServerUrl()}. Check your Server URL setting.` };
+        return { success: false, error: "Cannot reach Ailancers server. Check your internet connection." };
       }
       return { success: false, error: msg };
     }
@@ -91,34 +97,34 @@ export class AuthService {
     }
   }
 
+  /** Restore session using stored token + verify endpoint */
   async tryRestoreSession(): Promise<boolean> {
-    const refreshToken = await this.secrets.get("ailancers.refreshToken");
-    if (!refreshToken) return false;
+    const token = await this.secrets.get("ailancers.platformToken");
+    if (!token) return false;
 
     try {
-      const url = this.getServerUrl();
-      const response = await fetch(`${url}/api/auth/refresh`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refreshToken }),
+      const response = await fetch(`${PLATFORM_URL}/api/v1/auth/verify`, {
+        headers: { Authorization: `Bearer ${token}` },
       });
 
       if (!response.ok) {
-        await this.secrets.delete("ailancers.refreshToken");
+        await this.secrets.delete("ailancers.platformToken");
         return false;
       }
 
       const text = await response.text();
-      let data: RefreshResponse;
+      let data: VerifyResponse;
       try {
         data = JSON.parse(text);
       } catch {
-        await this.secrets.delete("ailancers.refreshToken");
+        await this.secrets.delete("ailancers.platformToken");
         return false;
       }
 
-      this.accessToken = data.accessToken;
-      await this.secrets.store("ailancers.refreshToken", data.refreshToken);
+      // Verify returns a refreshed token — store the new one
+      this.accessToken = data.token;
+      this.userName = data.user.name;
+      await this.secrets.store("ailancers.platformToken", data.token);
       this.notifyListeners(true);
       return true;
     } catch {
@@ -126,31 +132,29 @@ export class AuthService {
     }
   }
 
+  /** Refresh access token using verify endpoint */
   async refreshAccessToken(): Promise<string | null> {
-    const refreshToken = await this.secrets.get("ailancers.refreshToken");
-    if (!refreshToken) {
+    const token = await this.secrets.get("ailancers.platformToken");
+    if (!token) {
       this.accessToken = null;
       this.notifyListeners(false);
       return null;
     }
 
     try {
-      const url = this.getServerUrl();
-      const response = await fetch(`${url}/api/auth/refresh`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refreshToken }),
+      const response = await fetch(`${PLATFORM_URL}/api/v1/auth/verify`, {
+        headers: { Authorization: `Bearer ${token}` },
       });
 
       if (!response.ok) {
         this.accessToken = null;
-        await this.secrets.delete("ailancers.refreshToken");
+        await this.secrets.delete("ailancers.platformToken");
         this.notifyListeners(false);
         return null;
       }
 
       const text = await response.text();
-      let data: RefreshResponse;
+      let data: VerifyResponse;
       try {
         data = JSON.parse(text);
       } catch {
@@ -159,8 +163,9 @@ export class AuthService {
         return null;
       }
 
-      this.accessToken = data.accessToken;
-      await this.secrets.store("ailancers.refreshToken", data.refreshToken);
+      this.accessToken = data.token;
+      this.userName = data.user.name;
+      await this.secrets.store("ailancers.platformToken", data.token);
       return this.accessToken;
     } catch {
       this.accessToken = null;
@@ -170,25 +175,9 @@ export class AuthService {
   }
 
   async logout(): Promise<void> {
-    const refreshToken = await this.secrets.get("ailancers.refreshToken");
-    if (refreshToken && this.accessToken) {
-      try {
-        const url = this.getServerUrl();
-        await fetch(`${url}/api/auth/logout`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${this.accessToken}`,
-          },
-          body: JSON.stringify({ refreshToken }),
-        });
-      } catch {
-        // Best effort
-      }
-    }
-
     this.accessToken = null;
-    await this.secrets.delete("ailancers.refreshToken");
+    this.userName = null;
+    await this.secrets.delete("ailancers.platformToken");
     this.notifyListeners(false);
   }
 }

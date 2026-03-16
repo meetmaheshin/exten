@@ -15,10 +15,16 @@ export function requireAuth(authService: AuthService) {
     }
 
     const token = authHeader.slice(7);
+
+    // Try local JWT first, then fall back to platform token verification
     try {
       request.user = authService.verifyAccessToken(token);
     } catch {
-      return reply.status(401).send({ error: "Unauthorized", message: "Invalid or expired token" });
+      try {
+        request.user = await authService.verifyPlatformToken(token);
+      } catch {
+        return reply.status(401).send({ error: "Unauthorized", message: "Invalid or expired token" });
+      }
     }
   };
 }

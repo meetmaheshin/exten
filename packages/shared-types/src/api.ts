@@ -1,24 +1,38 @@
-import type { UserPublic } from "./user.js";
-
-// Auth
+// Auth — Ailancers Platform API
 export interface LoginRequest {
   email: string;
   password: string;
 }
 
+/** Ailancers platform user object returned from login/verify */
+export interface PlatformUser {
+  id: string;
+  name: string;
+  email: string;
+  avatar: string | null;
+  role: string;
+  is_active: boolean;
+  is_email_verified: boolean;
+  bio: string | null;
+  location: string | null;
+  country: string | null;
+  mobile: string | null;
+}
+
+/** Response from POST /api/v1/auth/login */
 export interface LoginResponse {
-  accessToken: string;
-  refreshToken: string;
-  user: UserPublic;
+  token: string;
+  user: PlatformUser;
+  message: string;
+  signup_bonus_credited: boolean;
 }
 
-export interface RefreshRequest {
-  refreshToken: string;
-}
-
-export interface RefreshResponse {
-  accessToken: string;
-  refreshToken: string;
+/** Response from GET /api/v1/auth/verify (also refreshes the token) */
+export interface VerifyResponse {
+  token: string;
+  user: PlatformUser;
+  message: string;
+  signup_bonus_credited: boolean;
 }
 
 // Chat

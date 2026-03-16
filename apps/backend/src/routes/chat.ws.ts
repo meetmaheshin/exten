@@ -135,7 +135,7 @@ export function chatWsRoute(
 ) {
   const rateLimiter = new UserRateLimiter(30, 60_000); // 30 AI requests per minute
 
-  app.get("/api/chat/stream", { websocket: true }, (socket: WebSocket, request) => {
+  app.get("/api/chat/stream", { websocket: true }, async (socket: WebSocket, request) => {
     // Authenticate via query param token
     const url = new URL(request.url!, `http://${request.headers.host}`);
     const token = url.searchParams.get("token");
@@ -148,7 +148,13 @@ export function chatWsRoute(
 
     let userId: string;
     try {
-      const payload = authService.verifyAccessToken(token);
+      // Try local JWT first, then platform token
+      let payload;
+      try {
+        payload = authService.verifyAccessToken(token);
+      } catch {
+        payload = await authService.verifyPlatformToken(token);
+      }
       userId = payload.sub;
     } catch {
       send(socket, { type: "error", conversationId: "", error: "Invalid auth token" });

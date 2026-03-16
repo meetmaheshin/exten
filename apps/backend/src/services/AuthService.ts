@@ -7,6 +7,9 @@ import type { Database } from "../config/database.js";
 import type { Env } from "../config/env.js";
 import { users, refreshTokens } from "../models/index.js";
 import { UnauthorizedError } from "../utils/errors.js";
+import type { VerifyResponse } from "@ailancers/shared-types";
+
+const PLATFORM_URL = "https://staging-backend.ailancers.com";
 
 export interface JwtPayload {
   sub: string;
@@ -117,11 +120,68 @@ export class AuthService {
   }
 
   verifyAccessToken(token: string): JwtPayload {
+    // First try local JWT verification
     try {
       return jwt.verify(token, this.env.JWT_SECRET) as JwtPayload;
     } catch {
+      // Not a local token — will need async platform verification
       throw new UnauthorizedError("Invalid or expired access token");
     }
+  }
+
+  /**
+   * Verify a token against the Ailancers platform API.
+   * Auto-creates a local user if they don't exist yet.
+   * Returns a JwtPayload compatible with the rest of the system.
+   */
+  async verifyPlatformToken(token: string): Promise<JwtPayload> {
+    let data: VerifyResponse;
+    try {
+      const response = await fetch(`${PLATFORM_URL}/api/v1/auth/verify`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!response.ok) {
+        throw new UnauthorizedError("Invalid or expired platform token");
+      }
+
+      const text = await response.text();
+      data = JSON.parse(text);
+    } catch (err) {
+      if (err instanceof UnauthorizedError) throw err;
+      throw new UnauthorizedError("Failed to verify platform token");
+    }
+
+    const platformUser = data.user;
+
+    // Find or create local user
+    let [localUser] = await this.db
+      .select()
+      .from(users)
+      .where(eq(users.email, platformUser.email))
+      .limit(1);
+
+    if (!localUser) {
+      // Auto-create local user from platform data
+      const placeholderHash = await bcrypt.hash(crypto.randomBytes(32).toString("hex"), 10);
+      [localUser] = await this.db
+        .insert(users)
+        .values({
+          email: platformUser.email,
+          passwordHash: placeholderHash,
+          fullName: platformUser.name,
+          role: platformUser.role === "client" ? "developer" : platformUser.role,
+          isActive: true,
+          avatarUrl: platformUser.avatar,
+        })
+        .returning();
+    }
+
+    return {
+      sub: localUser.id,
+      email: localUser.email,
+      role: localUser.role,
+    };
   }
 
   private generateAccessToken(user: { id: string; email: string; role: string }): string {
