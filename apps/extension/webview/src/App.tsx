@@ -412,6 +412,7 @@ export function App() {
             activeToolCalls={state.isStreaming ? state.agentToolCalls : []}
             pendingApprovals={state.pendingApprovals}
             onApprovalDecision={handleApprovalDecision}
+            agentUsage={state.agentUsage}
           />
           <AgentStatusBar
             turnNumber={state.agentTurnNumber}

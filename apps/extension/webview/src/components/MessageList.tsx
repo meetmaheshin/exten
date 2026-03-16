@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { MessageBubble } from "./MessageBubble";
 import { ToolCallDisplay } from "./ToolCallDisplay";
 import { ApprovalCard } from "./ApprovalCard";
-import type { ChatMessage, ToolCallDisplay as ToolCallData, PendingApproval } from "../types";
+import type { ChatMessage, ToolCallDisplay as ToolCallData, PendingApproval, AgentUsage } from "../types";
 
 interface MessageListProps {
   messages: ChatMessage[];
@@ -11,16 +11,17 @@ interface MessageListProps {
   activeToolCalls?: ToolCallData[];
   pendingApprovals?: PendingApproval[];
   onApprovalDecision?: (toolCallId: string, decision: "allow" | "allowAll" | "deny") => void;
+  agentUsage?: AgentUsage | null;
 }
 
-export function MessageList({ messages, isStreaming, streamingContent, activeToolCalls = [], pendingApprovals = [], onApprovalDecision }: MessageListProps) {
+export function MessageList({ messages, isStreaming, streamingContent, activeToolCalls = [], pendingApprovals = [], onApprovalDecision, agentUsage }: MessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom when new messages arrive or during streaming
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length, streamingContent, activeToolCalls.length, pendingApprovals.length]);
+  }, [messages.length, streamingContent, activeToolCalls.length, pendingApprovals.length, agentUsage]);
 
   if (messages.length === 0 && !isStreaming) {
     return (
@@ -72,7 +73,7 @@ export function MessageList({ messages, isStreaming, streamingContent, activeToo
           onDecision={onApprovalDecision || (() => {})}
         />
       ))}
-      {/* Streaming text appears AFTER tool calls — user sees progress first, then the final answer */}
+      {/* Streaming text appears AFTER tool calls */}
       {isStreaming && streamingContent && (
         <MessageBubble
           message={{ role: "assistant", content: streamingContent }}
@@ -86,6 +87,16 @@ export function MessageList({ messages, isStreaming, streamingContent, activeToo
             <span className="message-role assistant">AI</span>
           </div>
           <div className="message-body assistant streaming-cursor">&nbsp;</div>
+        </div>
+      )}
+      {/* Agent completion banner — shown when agent finishes */}
+      {!isStreaming && agentUsage && (
+        <div className="agent-complete-banner">
+          <span className="done-check">&#10003;</span>
+          <span>Agent completed</span>
+          <span className="done-stats">
+            {agentUsage.turnCount} turns &middot; {agentUsage.toolCallCount} tool calls &middot; ${agentUsage.costUsd.toFixed(4)}
+          </span>
         </div>
       )}
       <div ref={bottomRef} />

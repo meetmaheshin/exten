@@ -298,13 +298,42 @@ body {
 
 /* ========== Streaming indicator ========== */
 .streaming-cursor::after {
-  content: "\u2588";
+  content: "";
+  display: inline-block;
+  width: 0.5em;
+  height: 1.1em;
+  background: var(--vscode-editorCursor-foreground, #aeafad);
+  vertical-align: text-bottom;
+  margin-left: 2px;
   animation: blink 0.8s step-end infinite;
-  color: var(--vscode-editorCursor-foreground, #aeafad);
 }
 
 @keyframes blink {
   50% { opacity: 0; }
+}
+
+/* ========== Agent completion banner ========== */
+.agent-complete-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin: 6px 0;
+  border-radius: 6px;
+  background: var(--vscode-editorInfo-background, rgba(0, 120, 212, 0.1));
+  border-left: 3px solid var(--vscode-charts-green, #3fb950);
+  color: var(--vscode-foreground);
+  font-size: 12px;
+  opacity: 0.85;
+}
+.agent-complete-banner .done-check {
+  color: var(--vscode-charts-green, #3fb950);
+  font-weight: bold;
+  font-size: 14px;
+}
+.agent-complete-banner .done-stats {
+  color: var(--vscode-descriptionForeground);
+  margin-left: auto;
 }
 
 /* ========== Input area ========== */
