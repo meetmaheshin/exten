@@ -124,7 +124,7 @@ function reducer(state: AppState, action: Action): AppState {
     case "STREAM_START":
       return { ...state, isStreaming: true, streamingContent: "" };
     case "STREAM_DELTA":
-      return { ...state, streamingContent: state.streamingContent + action.delta };
+      return { ...state, streamingContent: state.streamingContent + action.delta.replace(/\u2588/g, "") };
     case "STREAM_END":
       return {
         ...state,

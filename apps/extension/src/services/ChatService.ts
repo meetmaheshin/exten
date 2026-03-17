@@ -107,9 +107,15 @@ export class ChatService {
           } as unknown as WsServerMessage);
         }
 
-        // Wait for user decision from webview
+        // Wait for user decision from webview (timeout after 5 minutes)
         const decision = await new Promise<"allow" | "allowAll" | "deny">((resolve) => {
           this.pendingApprovals.set(toolCallId, { resolve });
+          setTimeout(() => {
+            if (this.pendingApprovals.has(toolCallId)) {
+              this.pendingApprovals.delete(toolCallId);
+              resolve("deny");
+            }
+          }, 5 * 60 * 1000);
         });
 
         if (decision === "allowAll") {
@@ -128,8 +134,13 @@ export class ChatService {
         }
       }
 
-      // Execute the tool
-      const { result, isError } = await this.toolExecutor.execute(toolName, toolInput);
+      // Execute the tool (2-minute timeout to prevent agent hanging)
+      const TOOL_TIMEOUT_MS = 2 * 60 * 1000;
+      const toolPromise = this.toolExecutor.execute(toolName, toolInput);
+      const timeoutPromise = new Promise<{ result: string; isError: boolean }>((resolve) =>
+        setTimeout(() => resolve({ result: `Tool execution timed out after 2 minutes.`, isError: true }), TOOL_TIMEOUT_MS)
+      );
+      const { result, isError } = await Promise.race([toolPromise, timeoutPromise]);
 
       // Send result back to backend
       this.wsClient.send({
