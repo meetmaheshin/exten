@@ -148,14 +148,15 @@ export function chatWsRoute(
 
     let userId: string;
     try {
-      // Try local JWT first, then platform token
-      let payload;
+      // Try local JWT first
       try {
-        payload = authService.verifyAccessToken(token);
+        const payload = authService.verifyAccessToken(token);
+        userId = payload.sub;
       } catch {
-        payload = await authService.verifyPlatformToken(token);
+        // verifyPlatformToken has internal caching — won't call external API on every reconnect
+        const payload = await authService.verifyPlatformToken(token);
+        userId = payload.sub;
       }
-      userId = payload.sub;
     } catch {
       send(socket, { type: "error", conversationId: "", error: "Invalid auth token" });
       socket.close();

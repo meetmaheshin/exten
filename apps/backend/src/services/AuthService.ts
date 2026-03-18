@@ -10,6 +10,7 @@ import { UnauthorizedError } from "../utils/errors.js";
 import type { VerifyResponse } from "@ailancers/shared-types";
 
 const PLATFORM_URL = "https://staging-backend.ailancers.com";
+const PLATFORM_TOKEN_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
 export interface JwtPayload {
   sub: string;
@@ -18,6 +19,9 @@ export interface JwtPayload {
 }
 
 export class AuthService {
+  /** Cache: platform token → { payload, expiresAt } — avoids calling external API on every request */
+  private platformTokenCache = new Map<string, { payload: JwtPayload; expiresAt: number }>();
+
   constructor(
     private db: Database,
     private env: Env
@@ -133,8 +137,15 @@ export class AuthService {
    * Verify a token against the Ailancers platform API.
    * Auto-creates a local user if they don't exist yet.
    * Returns a JwtPayload compatible with the rest of the system.
+   * Results are cached for 10 minutes to avoid hammering the external API.
    */
   async verifyPlatformToken(token: string): Promise<JwtPayload> {
+    // Check cache first
+    const cached = this.platformTokenCache.get(token);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.payload;
+    }
+
     let data: VerifyResponse;
     try {
       const response = await fetch(`${PLATFORM_URL}/api/v1/auth/verify`, {
@@ -177,11 +188,16 @@ export class AuthService {
         .returning();
     }
 
-    return {
+    const payload: JwtPayload = {
       sub: localUser.id,
       email: localUser.email,
       role: localUser.role,
     };
+
+    // Cache the result
+    this.platformTokenCache.set(token, { payload, expiresAt: Date.now() + PLATFORM_TOKEN_CACHE_TTL });
+
+    return payload;
   }
 
   private generateAccessToken(user: { id: string; email: string; role: string }): string {
