@@ -22,27 +22,14 @@ RUN pnpm --filter @ailancers/dashboard run build
 # ─── Production stage ───
 FROM node:22-alpine AS runner
 
-RUN corepack enable && corepack prepare pnpm@latest --activate
-
 WORKDIR /app
 
 ENV NODE_ENV=production
 
-# Copy workspace config for pnpm
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
-
-# Copy shared-types (needed at runtime)
-COPY --from=builder /app/packages/shared-types/package.json /app/packages/shared-types/
-COPY --from=builder /app/packages/shared-types/dist/ /app/packages/shared-types/dist/
-
-# Copy dashboard app
-COPY --from=builder /app/apps/dashboard/package.json /app/apps/dashboard/
-COPY --from=builder /app/apps/dashboard/.next/ /app/apps/dashboard/.next/
-COPY --from=builder /app/apps/dashboard/public/ /app/apps/dashboard/public/
-COPY --from=builder /app/apps/dashboard/next.config.ts /app/apps/dashboard/
-
-# Install production dependencies only
-RUN pnpm install --frozen-lockfile --prod
+# Copy only what Next.js standalone needs
+COPY --from=builder /app/apps/dashboard/.next/standalone ./
+COPY --from=builder /app/apps/dashboard/.next/static ./apps/dashboard/.next/static
+COPY --from=builder /app/apps/dashboard/public ./apps/dashboard/public
 
 WORKDIR /app/apps/dashboard
 
@@ -51,4 +38,4 @@ EXPOSE 3001
 ENV PORT=3001
 ENV HOSTNAME=0.0.0.0
 
-CMD ["pnpm", "start"]
+CMD ["node", "server.js"]
