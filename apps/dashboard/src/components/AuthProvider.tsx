@@ -19,8 +19,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (email: string, password: string) => {
     const result = await apiLogin(email, password);
     setUser(result.user);
-    setAccessToken(result.accessToken);
-    saveSession(result.accessToken, result.refreshToken, result.user);
+    setAccessToken(result.token);
+    saveSession(result.token, result.user);
   }, []);
 
   const logout = useCallback(() => {
@@ -29,7 +29,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearSession();
   }, []);
 
-  const isAdmin = user?.role === "admin" || user?.role === "super_admin";
+  const isAdmin = true; // Platform users who can log in are treated as admins
 
   return (
     <AuthContext.Provider value={{ user, accessToken, login, logout, isAdmin }}>

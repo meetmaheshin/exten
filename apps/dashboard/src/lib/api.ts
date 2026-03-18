@@ -1,4 +1,7 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://exten-production.up.railway.app";
+const PLATFORM_URL = "https://staging-backend.ailancers.com";
+
+export { API_BASE };
 
 interface FetchOptions extends RequestInit {
   token?: string;
@@ -26,26 +29,27 @@ export async function apiFetch<T>(path: string, options: FetchOptions = {}): Pro
   return response.json() as Promise<T>;
 }
 
+/** Login via Ailancers platform — returns platform token + user */
 export async function apiLogin(email: string, password: string) {
-  return apiFetch<{
-    accessToken: string;
-    refreshToken: string;
-    user: {
-      id: string;
-      email: string;
-      fullName: string;
-      role: string;
-      team: string | null;
-    };
-  }>("/api/auth/login", {
+  const response = await fetch(`${PLATFORM_URL}/api/v1/auth/login`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
   });
-}
 
-export async function apiRefresh(refreshToken: string) {
-  return apiFetch<{ accessToken: string; refreshToken: string }>("/api/auth/refresh", {
-    method: "POST",
-    body: JSON.stringify({ refreshToken }),
-  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.message || data.detail || "Login failed");
+  }
+
+  return {
+    token: data.token as string,
+    user: {
+      id: data.user.id as string,
+      email: data.user.email as string,
+      fullName: data.user.name as string,
+      role: (data.user.role as string) === "client" ? "admin" : (data.user.role as string),
+      team: null as string | null,
+    },
+  };
 }

@@ -30,26 +30,23 @@ export function useAuth() {
   return useContext(AuthContext);
 }
 
-// Session storage helpers
+// Session storage helpers (single platform token)
 const TOKEN_KEY = "ailancers_token";
-const REFRESH_KEY = "ailancers_refresh";
 const USER_KEY = "ailancers_user";
 
-export function saveSession(accessToken: string, refreshToken: string, user: AuthUser) {
+export function saveSession(token: string, user: AuthUser) {
   if (typeof window === "undefined") return;
-  sessionStorage.setItem(TOKEN_KEY, accessToken);
-  sessionStorage.setItem(REFRESH_KEY, refreshToken);
-  sessionStorage.setItem(USER_KEY, JSON.stringify(user));
+  localStorage.setItem(TOKEN_KEY, token);
+  localStorage.setItem(USER_KEY, JSON.stringify(user));
 }
 
-export function loadSession(): { accessToken: string; refreshToken: string; user: AuthUser } | null {
+export function loadSession(): { accessToken: string; user: AuthUser } | null {
   if (typeof window === "undefined") return null;
-  const token = sessionStorage.getItem(TOKEN_KEY);
-  const refresh = sessionStorage.getItem(REFRESH_KEY);
-  const userStr = sessionStorage.getItem(USER_KEY);
-  if (!token || !refresh || !userStr) return null;
+  const token = localStorage.getItem(TOKEN_KEY);
+  const userStr = localStorage.getItem(USER_KEY);
+  if (!token || !userStr) return null;
   try {
-    return { accessToken: token, refreshToken: refresh, user: JSON.parse(userStr) };
+    return { accessToken: token, user: JSON.parse(userStr) };
   } catch {
     return null;
   }
@@ -57,7 +54,6 @@ export function loadSession(): { accessToken: string; refreshToken: string; user
 
 export function clearSession() {
   if (typeof window === "undefined") return;
-  sessionStorage.removeItem(TOKEN_KEY);
-  sessionStorage.removeItem(REFRESH_KEY);
-  sessionStorage.removeItem(USER_KEY);
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
 }

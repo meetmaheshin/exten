@@ -205,4 +205,24 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
 
     return reply.send({ data: daily });
   });
+
+  // List all users (admin)
+  app.get("/api/admin/users", { preHandler: admin }, async (request, reply) => {
+    const allUsers = await db
+      .select({
+        id: users.id,
+        email: users.email,
+        fullName: users.fullName,
+        role: users.role,
+        team: users.team,
+        avatarUrl: users.avatarUrl,
+        isActive: users.isActive,
+        createdAt: users.createdAt,
+        updatedAt: users.updatedAt,
+      })
+      .from(users)
+      .orderBy(desc(users.createdAt));
+
+    return reply.send({ data: allUsers });
+  });
 }
