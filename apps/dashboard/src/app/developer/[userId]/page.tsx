@@ -41,6 +41,10 @@ interface ScreenshotEntry {
   metadata: Record<string, unknown>;
 }
 
+export function generateStaticParams() {
+  return [];
+}
+
 export default function DeveloperDetailPage() {
   const params = useParams();
   const userId = params.userId as string;
