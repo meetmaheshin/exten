@@ -10,11 +10,11 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "next": "^15.0.0",
+    "@ailancers/shared-types": "workspace:*",
+    "next": "^15.5.13",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "recharts": "^2.15.0",
-    "@ailancers/shared-types": "workspace:*"
+    "recharts": "^2.15.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
