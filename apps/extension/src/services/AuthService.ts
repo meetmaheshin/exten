@@ -25,7 +25,7 @@ export class AuthService {
   }
 
   getServerUrl(): string {
-    return vscode.workspace.getConfiguration("ailancers").get<string>("serverUrl", "http://localhost:3000");
+    return vscode.workspace.getConfiguration("ailancers").get<string>("serverUrl", "https://exten-production.up.railway.app");
   }
 
   onAuthStateChange(listener: AuthStateListener): void {
