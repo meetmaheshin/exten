@@ -251,6 +251,24 @@ export function App() {
     }
   }, [state.currentConversationId, state.authenticated]);
 
+  // Streaming watchdog: if stuck streaming with no activity for 3 minutes, auto-reset
+  const lastActivityRef = useRef(Date.now());
+  useEffect(() => {
+    if (state.isStreaming) {
+      lastActivityRef.current = Date.now();
+    }
+  }, [state.isStreaming, state.streamingContent, state.agentToolCalls.length]);
+
+  useEffect(() => {
+    if (!state.isStreaming) return;
+    const watchdog = setInterval(() => {
+      if (Date.now() - lastActivityRef.current > 3 * 60 * 1000) {
+        dispatch({ type: "STREAM_ERROR", error: "Agent timed out (no activity for 3 minutes). You can send a new message." });
+      }
+    }, 30_000);
+    return () => clearInterval(watchdog);
+  }, [state.isStreaming]);
+
   // Handle pending message after conversation is created
   useEffect(() => {
     if (state.pendingMessage && state.currentConversationId) {

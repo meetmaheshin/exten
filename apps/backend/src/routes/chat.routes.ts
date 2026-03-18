@@ -59,7 +59,10 @@ export function chatRoutes(app: FastifyInstance, authService: AuthService, db: D
       .where(eq(messages.conversationId, id))
       .orderBy(asc(messages.createdAt));
 
-    return reply.send({ conversation, messages: msgs });
+    // Filter out empty assistant placeholder rows (created before streaming starts, never filled if agent was cancelled)
+    const filteredMsgs = msgs.filter((m) => m.content && m.content.trim().length > 0);
+
+    return reply.send({ conversation, messages: filteredMsgs });
   });
 
   app.delete("/api/chat/conversations/:id", { preHandler: auth }, async (request, reply) => {
