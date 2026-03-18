@@ -8,16 +8,18 @@ WORKDIR /app
 # Copy workspace root files
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml turbo.json tsconfig.base.json ./
 
-# Copy packages and backend source
+# Copy packages and both apps
 COPY packages/shared-types/ packages/shared-types/
 COPY apps/backend/ apps/backend/
+COPY apps/dashboard/ apps/dashboard/
 
-# Install dependencies
+# Install all dependencies
 RUN pnpm install --frozen-lockfile
 
-# Build shared-types first, then backend
+# Build shared-types, backend and dashboard
 RUN pnpm --filter @ailancers/shared-types run build
 RUN pnpm --filter @ailancers/backend run build
+RUN pnpm --filter @ailancers/dashboard run build
 
 # ─── Production stage ───
 FROM node:22-alpine AS runner
@@ -35,6 +37,9 @@ COPY --from=builder /app/packages/shared-types/dist/ /app/packages/shared-types/
 COPY --from=builder /app/apps/backend/package.json /app/apps/backend/
 COPY --from=builder /app/apps/backend/dist/ /app/apps/backend/dist/
 COPY --from=builder /app/apps/backend/drizzle/ /app/apps/backend/drizzle/
+
+# Copy dashboard static export
+COPY --from=builder /app/apps/dashboard/out/ /app/apps/backend/dist/dashboard-dist/
 
 # Install production dependencies only
 RUN pnpm install --frozen-lockfile --prod

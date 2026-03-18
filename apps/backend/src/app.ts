@@ -2,6 +2,10 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import websocket from "@fastify/websocket";
+import staticFiles from "@fastify/static";
+import { existsSync } from "fs";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
 import type { Env } from "./config/env.js";
 import type { Database } from "./config/database.js";
 import { AuthService } from "./services/AuthService.js";
@@ -64,6 +68,14 @@ export async function buildApp(env: Env, db: Database) {
 
   // Health check
   app.get("/health", async () => ({ status: "ok", timestamp: new Date().toISOString() }));
+
+  // Serve dashboard static files if built
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const dashboardPath = join(__dirname, "dashboard-dist");
+  if (existsSync(dashboardPath)) {
+    await app.register(staticFiles, { root: dashboardPath, prefix: "/dashboard/", decorateReply: false });
+    app.get("/dashboard", async (_req, reply) => reply.redirect("/dashboard/"));
+  }
 
   // Services
   const authService = new AuthService(db, env);
