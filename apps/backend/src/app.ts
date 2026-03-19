@@ -2,7 +2,6 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import websocket from "@fastify/websocket";
-import staticFiles from "@fastify/static";
 import { existsSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -73,19 +72,31 @@ export async function buildApp(env: Env, db: Database) {
   const __dirname = dirname(fileURLToPath(import.meta.url));
   const dashboardPath = join(__dirname, "dashboard-dist");
   if (existsSync(dashboardPath)) {
-    await app.register(staticFiles, {
-      root: dashboardPath,
-      prefix: "/dashboard/",
-      decorateReply: false,
-      index: "index.html",
-      wildcard: false,
-    });
     // Redirect /dashboard → /dashboard/
     app.get("/dashboard", async (_req, reply) => reply.redirect("/dashboard/"));
-    // Serve index.html for all dashboard sub-routes (client-side routing)
-    app.get("/dashboard/*", async (_req, reply) => {
-      const indexPath = join(dashboardPath, "index.html");
-      return reply.type("text/html").send(await import("fs").then(fs => fs.promises.readFile(indexPath)));
+    // Serve all /dashboard/* requests — static files or index.html fallback
+    app.get("/dashboard/*", async (request, reply) => {
+      const { readFile } = await import("fs/promises");
+      const { existsSync: exists } = await import("fs");
+      // Strip /dashboard prefix to get the file path
+      const urlPath = (request.url as string).split("?")[0].replace(/^\/dashboard/, "") || "/";
+      // Try exact file first, then index.html in that directory
+      const candidates = [
+        join(dashboardPath, urlPath),
+        join(dashboardPath, urlPath, "index.html"),
+        join(dashboardPath, "index.html"),
+      ];
+      for (const candidate of candidates) {
+        if (exists(candidate) && !candidate.endsWith("/")) {
+          const ext = candidate.split(".").pop() ?? "html";
+          const mimeTypes: Record<string, string> = { html: "text/html", js: "application/javascript", css: "text/css", png: "image/png", svg: "image/svg+xml", json: "application/json", ico: "image/x-icon", txt: "text/plain" };
+          const content = await readFile(candidate);
+          return reply.type(mimeTypes[ext] ?? "application/octet-stream").send(content);
+        }
+      }
+      // Fallback: serve index.html for client-side routing
+      const content = await readFile(join(dashboardPath, "index.html"));
+      return reply.type("text/html").send(content);
     });
   }
 
