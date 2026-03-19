@@ -1,8 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { eq, desc, and, gte, lte } from "drizzle-orm";
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { requireAuth, requireAdmin } from "../middleware/requireAuth.js";
 import type { AuthService } from "../services/AuthService.js";
 import type { Database } from "../config/database.js";
@@ -35,14 +33,14 @@ export function screenshotRoutes(
   const auth = requireAuth(authService);
   const admin = requireAdmin(authService);
 
-  // Upload screenshot from extension
+  // Upload screenshot from extension — store image in DB
   app.post("/api/telemetry/screenshot", { preHandler: auth }, async (request, reply) => {
     const body = uploadSchema.parse(request.body);
 
     // Validate base64 size
-    const sizeBytes = Buffer.byteLength(body.imageBase64, "base64");
+    const imageBuffer = Buffer.from(body.imageBase64, "base64");
     const maxBytes = env.SCREENSHOT_MAX_SIZE_MB * 1024 * 1024;
-    if (sizeBytes > maxBytes) {
+    if (imageBuffer.length > maxBytes) {
       return reply.status(413).send({
         error: "Screenshot too large",
         message: `Max size is ${env.SCREENSHOT_MAX_SIZE_MB}MB`,
@@ -60,18 +58,7 @@ export function screenshotRoutes(
       return reply.status(403).send({ error: "Session not found or unauthorized" });
     }
 
-    // Create storage directory: data/screenshots/{userId}/{YYYY-MM-DD}/
-    const capturedDate = new Date(body.capturedAt);
-    const dateDir = capturedDate.toISOString().slice(0, 10);
-    const userDir = path.join(env.SCREENSHOT_STORAGE_DIR, request.user.sub, dateDir);
-    await fs.promises.mkdir(userDir, { recursive: true });
-
-    // Write file
-    const storagePath = path.join(userDir, body.filename);
-    const imageBuffer = Buffer.from(body.imageBase64, "base64");
-    await fs.promises.writeFile(storagePath, imageBuffer);
-
-    // Save record
+    // Save record with image data in DB
     const [record] = await db
       .insert(screenshots)
       .values({
@@ -79,10 +66,11 @@ export function screenshotRoutes(
         sessionId: body.sessionId,
         projectId: session.projectId,
         filename: body.filename,
-        storagePath,
+        storagePath: "",
+        imageData: imageBuffer,
         fileSizeBytes: imageBuffer.length,
         metadata: body.metadata ?? {},
-        capturedAt: capturedDate,
+        capturedAt: new Date(body.capturedAt),
       })
       .returning();
 
@@ -150,12 +138,16 @@ export function screenshotRoutes(
     return reply.send({ data: results });
   });
 
-  // Serve screenshot image by id (auth required)
+  // Serve screenshot image by id — read from DB
   app.get("/api/telemetry/screenshots/:id/image", { preHandler: auth }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
     const [record] = await db
-      .select()
+      .select({
+        userId: screenshots.userId,
+        imageData: screenshots.imageData,
+        storagePath: screenshots.storagePath,
+      })
       .from(screenshots)
       .where(eq(screenshots.id, id))
       .limit(1);
@@ -169,14 +161,14 @@ export function screenshotRoutes(
       return reply.status(403).send({ error: "Forbidden" });
     }
 
-    try {
-      const imageBuffer = await fs.promises.readFile(record.storagePath);
+    // Serve from DB if available
+    if (record.imageData) {
       return reply
         .type("image/png")
         .header("Cache-Control", "private, max-age=3600")
-        .send(imageBuffer);
-    } catch {
-      return reply.status(404).send({ error: "Screenshot file not found" });
+        .send(record.imageData);
     }
+
+    return reply.status(404).send({ error: "Screenshot image not found" });
   });
 }

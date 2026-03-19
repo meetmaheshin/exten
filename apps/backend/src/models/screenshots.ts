@@ -1,4 +1,8 @@
-import { pgTable, uuid, varchar, text, jsonb, timestamp, integer, index } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, text, jsonb, timestamp, integer, index, customType } from "drizzle-orm/pg-core";
+
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType() { return "bytea"; },
+});
 import { relations } from "drizzle-orm";
 import { users } from "./users.js";
 import { activitySessions } from "./activitySessions.js";
@@ -12,7 +16,8 @@ export const screenshots = pgTable(
     sessionId: uuid("session_id").references(() => activitySessions.id, { onDelete: "set null" }),
     projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
     filename: varchar("filename", { length: 255 }).notNull(),
-    storagePath: text("storage_path").notNull(),
+    storagePath: text("storage_path").notNull().default(""),
+    imageData: bytea("image_data"),
     fileSizeBytes: integer("file_size_bytes").notNull().default(0),
     metadata: jsonb("metadata").default({}),
     capturedAt: timestamp("captured_at", { withTimezone: true }).notNull(),
