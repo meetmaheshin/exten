@@ -72,6 +72,17 @@ export async function buildApp(env: Env, db: Database) {
   const __dirname = dirname(fileURLToPath(import.meta.url));
   const dashboardPath = join(__dirname, "dashboard-dist");
   if (existsSync(dashboardPath)) {
+    // Serve favicon from dashboard dist
+    app.get("/favicon.ico", async (_req, reply) => {
+      const { readFile } = await import("fs/promises");
+      const { existsSync: exists } = await import("fs");
+      const faviconPath = join(dashboardPath, "favicon.ico");
+      if (exists(faviconPath)) {
+        const content = await readFile(faviconPath);
+        return reply.type("image/x-icon").header("Cache-Control", "public, max-age=86400").send(content);
+      }
+      return reply.status(204).send();
+    });
     // Redirect /dashboard → /dashboard/
     app.get("/dashboard", async (_req, reply) => reply.redirect("/dashboard/"));
     // Serve all /dashboard/* requests — static files or index.html fallback
