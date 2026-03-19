@@ -133,7 +133,7 @@ export default function UsersPage() {
                   </td>
                   <td>
                     <Link
-                      href={`/developer/${u.id}`}
+                      href={`/developer?id=${u.id}`}
                       className="btn btn-secondary"
                       style={{ padding: "4px 12px", fontSize: 12 }}
                     >
