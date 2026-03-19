@@ -1,5 +1,9 @@
+import DeveloperDetailClient from "./DeveloperDetailClient";
+
 export function generateStaticParams() {
   return [];
 }
 
-export { default } from "./DeveloperDetailClient";
+export default function Page() {
+  return <DeveloperDetailClient />;
+}
