@@ -142,7 +142,7 @@ export function externalProjectsRoutes(
       .where(eq(externalUserMappings.userId, userId))
       .limit(1);
 
-    // If no mapping yet, try to auto-create one by matching their fullName
+    // If no confirmed mapping yet, search by name and handle duplicates safely
     let externalUserId: number | null = mapping?.externalUserId ?? null;
 
     if (!externalUserId) {
@@ -153,26 +153,36 @@ export function externalProjectsRoutes(
         .limit(1);
 
       if (user?.fullName) {
-        const match = await syncService.findExternalUserByName(user.fullName);
-        if (match) {
-          externalUserId = match.id;
-          // Persist the mapping so future requests are instant
+        const candidates = await syncService.findExternalUserCandidatesByName(user.fullName);
+
+        if (candidates.length === 1) {
+          // Exactly one match — safe to auto-map
+          externalUserId = candidates[0].id;
           await db
             .insert(externalUserMappings)
             .values({
               userId,
-              externalUserId: match.id,
-              externalUserName: match.name,
+              externalUserId: candidates[0].id,
+              externalUserName: candidates[0].name,
               matchType: "exact",
             })
             .onConflictDoNothing();
+        } else if (candidates.length > 1) {
+          // Multiple people share this name — require explicit user confirmation
+          return reply.send({
+            data: [],
+            externalUserId: null,
+            mapped: false,
+            needsIdentityConfirmation: true,
+            candidates,
+          });
         }
+        // candidates.length === 0 → not found in platform
       }
     }
 
     if (!externalUserId) {
-      // User not found in external system — return empty
-      return reply.send({ data: [], externalUserId: null, mapped: false });
+      return reply.send({ data: [], externalUserId: null, mapped: false, needsIdentityConfirmation: false });
     }
 
     // Find all active projects where this external user is in assignee_ids
@@ -269,6 +279,35 @@ export function externalProjectsRoutes(
     }));
 
     return reply.send({ data: result, externalUserId, mapped: true });
+  });
+
+  // Developer: explicitly confirm which platform user they are (resolves duplicate-name ambiguity)
+  app.post("/api/projects/confirm-identity", { preHandler: auth }, async (request, reply) => {
+    const body = z.object({
+      externalUserId: z.number().int().positive(),
+      externalUserName: z.string().min(1),
+    }).parse(request.body);
+
+    await db
+      .insert(externalUserMappings)
+      .values({
+        userId: request.user.sub,
+        externalUserId: body.externalUserId,
+        externalUserName: body.externalUserName,
+        matchType: "confirmed",
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: externalUserMappings.userId,
+        set: {
+          externalUserId: body.externalUserId,
+          externalUserName: body.externalUserName,
+          matchType: "confirmed",
+          updatedAt: new Date(),
+        },
+      });
+
+    return reply.send({ ok: true });
   });
 
   // Developer: get tasks for a specific project (their tasks only)

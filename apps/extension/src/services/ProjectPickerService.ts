@@ -28,6 +28,11 @@ export interface ActiveSelection {
   taskName: string | null;
 }
 
+export interface ExternalUserCandidate {
+  id: number;
+  name: string;
+}
+
 const STORAGE_KEY = "ailancers.activeSelection";
 const CACHE_KEY = "ailancers.projectsCache";
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -57,7 +62,8 @@ export class ProjectPickerService implements vscode.Disposable {
     return this._activeSelection?.taskId ?? null;
   }
 
-  /** Fetch projects assigned to the current user. Uses a short cache. */
+  /** Fetch projects assigned to the current user. Uses a short cache.
+   *  Returns empty array if identity confirmation is needed (caller should call promptIdentityConfirmation). */
   async fetchMyProjects(): Promise<ExternalProject[]> {
     const cached = this.context.globalState.get<{ data: ExternalProject[]; at: number }>(CACHE_KEY);
     if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
@@ -65,14 +71,52 @@ export class ProjectPickerService implements vscode.Disposable {
     }
 
     try {
-      const resp = await this.apiClient.get<{ data: ExternalProject[]; mapped: boolean }>(
-        "/api/projects/mine"
-      );
+      const resp = await this.apiClient.get<{
+        data: ExternalProject[];
+        mapped: boolean;
+        needsIdentityConfirmation?: boolean;
+        candidates?: ExternalUserCandidate[];
+      }>("/api/projects/mine");
+
+      if (resp.needsIdentityConfirmation && resp.candidates?.length) {
+        // Don't cache — ask user to confirm identity, then re-fetch
+        await this.promptIdentityConfirmation(resp.candidates);
+        return [];
+      }
+
       if (!resp.mapped) return [];
       await this.context.globalState.update(CACHE_KEY, { data: resp.data, at: Date.now() });
       return resp.data;
     } catch {
       return cached?.data ?? [];
+    }
+  }
+
+  /** When multiple platform users share the same name, ask which one they are. */
+  async promptIdentityConfirmation(candidates: ExternalUserCandidate[]): Promise<void> {
+    const items = candidates.map((c) => ({
+      label: c.name,
+      description: `Platform ID: ${c.id}`,
+      candidate: c,
+    }));
+
+    const pick = await vscode.window.showQuickPick(items, {
+      title: "Ailancers — Confirm Your Identity",
+      placeHolder: `Multiple people named "${candidates[0].name}" found. Which one are you?`,
+      ignoreFocusOut: true,
+    });
+
+    if (!pick) return; // user cancelled — will be asked again next time
+
+    try {
+      await this.apiClient.post("/api/projects/confirm-identity", {
+        externalUserId: pick.candidate.id,
+        externalUserName: pick.candidate.name,
+      });
+      // Invalidate cache so next fetch uses the confirmed mapping
+      this.invalidateCache();
+    } catch (err) {
+      vscode.window.showErrorMessage("Failed to confirm identity: " + (err instanceof Error ? err.message : String(err)));
     }
   }
 

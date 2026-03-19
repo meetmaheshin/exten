@@ -218,36 +218,33 @@ export class ProjectSyncService {
    * Scans the assignedUsers of all tasks for a matching name.
    * Returns the best match (exact first, then case-insensitive).
    */
-  async findExternalUserByName(fullName: string): Promise<{ id: number; name: string } | null> {
+  /**
+   * Find ALL external users whose display name matches fullName (case-insensitive).
+   * Returns multiple candidates — caller must handle duplicates by prompting the user.
+   */
+  async findExternalUserCandidatesByName(fullName: string): Promise<Array<{ id: number; name: string }>> {
     const nameLower = fullName.trim().toLowerCase();
 
-    // Search assigned_users JSONB array in tasks
     const taskResult = await this.db.execute<{ external_user_id: number; external_user_name: string }>(
       sql`SELECT DISTINCT
             (u->>'id')::int  AS external_user_id,
             u->>'name'       AS external_user_name
           FROM external_tasks,
                jsonb_array_elements(assigned_users) AS u
-          WHERE lower(u->>'name') = ${nameLower}
-          LIMIT 1`
+          WHERE lower(u->>'name') = ${nameLower}`
     );
     if (taskResult.rows.length > 0) {
-      return { id: taskResult.rows[0].external_user_id, name: taskResult.rows[0].external_user_name };
+      return taskResult.rows.map((r) => ({ id: r.external_user_id, name: r.external_user_name }));
     }
 
-    // Fallback: check project owners
+    // Fallback: project owners
     const ownerResult = await this.db.execute<{ external_user_id: number; external_user_name: string }>(
       sql`SELECT DISTINCT
             owner_id    AS external_user_id,
             owner_name  AS external_user_name
           FROM external_projects
-          WHERE lower(owner_name) = ${nameLower}
-          LIMIT 1`
+          WHERE lower(owner_name) = ${nameLower}`
     );
-    if (ownerResult.rows.length > 0) {
-      return { id: ownerResult.rows[0].external_user_id, name: ownerResult.rows[0].external_user_name };
-    }
-
-    return null;
+    return ownerResult.rows.map((r) => ({ id: r.external_user_id, name: r.external_user_name }));
   }
 }
