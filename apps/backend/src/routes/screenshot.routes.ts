@@ -7,7 +7,7 @@ import { requireAuth, requireAdmin } from "../middleware/requireAuth.js";
 import type { AuthService } from "../services/AuthService.js";
 import type { Database } from "../config/database.js";
 import type { Env } from "../config/env.js";
-import { screenshots, activitySessions } from "../models/index.js";
+import { screenshots, activitySessions, users } from "../models/index.js";
 
 const uploadSchema = z.object({
   sessionId: z.string().uuid(),
@@ -132,6 +132,8 @@ export function screenshotRoutes(
       .select({
         id: screenshots.id,
         userId: screenshots.userId,
+        userName: users.fullName,
+        userEmail: users.email,
         filename: screenshots.filename,
         fileSizeBytes: screenshots.fileSizeBytes,
         metadata: screenshots.metadata,
@@ -139,6 +141,7 @@ export function screenshotRoutes(
         sessionId: screenshots.sessionId,
       })
       .from(screenshots)
+      .leftJoin(users, eq(screenshots.userId, users.id))
       .where(whereClause)
       .orderBy(desc(screenshots.capturedAt))
       .limit(query.limit)

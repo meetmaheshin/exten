@@ -10,11 +10,14 @@ declare module "fastify" {
 export function requireAuth(authService: AuthService) {
   return async (request: FastifyRequest, reply: FastifyReply) => {
     const authHeader = request.headers.authorization;
-    if (!authHeader?.startsWith("Bearer ")) {
+    const queryToken = (request.query as Record<string, string>).token;
+    const rawToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : queryToken;
+
+    if (!rawToken) {
       return reply.status(401).send({ error: "Unauthorized", message: "Missing or invalid Authorization header" });
     }
 
-    const token = authHeader.slice(7);
+    const token = rawToken;
 
     // Try local JWT first, then fall back to platform token verification
     try {
