@@ -34,7 +34,7 @@ const envSchema = z.object({
 
   CORS_ORIGINS: z.string().default("http://localhost:3001"),
 
-  SCREENSHOT_STORAGE_DIR: z.string().default("./data/screenshots"),
+  SCREENSHOT_STORAGE_DIR: z.string().default("/app/data/screenshots"),
   SCREENSHOT_MAX_SIZE_MB: z.coerce.number().default(5),
 });
 
