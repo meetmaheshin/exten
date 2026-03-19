@@ -73,8 +73,19 @@ export async function buildApp(env: Env, db: Database) {
   const __dirname = dirname(fileURLToPath(import.meta.url));
   const dashboardPath = join(__dirname, "dashboard-dist");
   if (existsSync(dashboardPath)) {
-    await app.register(staticFiles, { root: dashboardPath, prefix: "/dashboard/", decorateReply: false });
+    await app.register(staticFiles, {
+      root: dashboardPath,
+      prefix: "/dashboard/",
+      decorateReply: false,
+      index: "index.html",
+      wildcard: false,
+    });
+    // Redirect /dashboard → /dashboard/
     app.get("/dashboard", async (_req, reply) => reply.redirect("/dashboard/"));
+    // Serve index.html for all dashboard sub-routes (client-side routing)
+    app.get("/dashboard/*", async (_req, reply) => {
+      return reply.sendFile("index.html", dashboardPath);
+    });
   }
 
   // Services
