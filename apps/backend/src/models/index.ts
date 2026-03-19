@@ -8,3 +8,10 @@ export { telemetryEvents } from "./telemetryEvents.js";
 export { aiUsageDaily } from "./aiUsageLog.js";
 export { budgetAlerts } from "./budgetAlerts.js";
 export { screenshots, screenshotsRelations } from "./screenshots.js";
+export {
+  externalProjects,
+  externalTasks,
+  externalUserMappings,
+  externalProjectsRelations,
+  externalTasksRelations,
+} from "./externalProjects.js";

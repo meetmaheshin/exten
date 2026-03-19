@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth";
 
 const navItems = [
   { href: "/", label: "Team Overview", icon: "👥" },
+  { href: "/projects", label: "Projects", icon: "📁" },
   { href: "/users", label: "Users", icon: "🧑‍💻" },
   { href: "/activity", label: "Activity", icon: "📊" },
   { href: "/ai-usage", label: "AI Usage & Cost", icon: "🤖" },

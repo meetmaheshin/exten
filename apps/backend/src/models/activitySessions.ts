@@ -2,6 +2,7 @@ import { pgTable, uuid, varchar, integer, jsonb, timestamp, index } from "drizzl
 import { relations } from "drizzle-orm";
 import { users } from "./users.js";
 import { projects } from "./projects.js";
+import { externalProjects, externalTasks } from "./externalProjects.js";
 
 export const activitySessions = pgTable(
   "activity_sessions",
@@ -21,6 +22,9 @@ export const activitySessions = pgTable(
     editorVersion: varchar("editor_version", { length: 50 }),
     extensionVersion: varchar("extension_version", { length: 20 }),
     osPlatform: varchar("os_platform", { length: 30 }),
+    // External platform project/task being worked on during this session
+    externalProjectId: integer("external_project_id").references(() => externalProjects.id, { onDelete: "set null" }),
+    externalTaskId: integer("external_task_id").references(() => externalTasks.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -28,10 +32,14 @@ export const activitySessions = pgTable(
     index("idx_activity_project").on(table.projectId),
     index("idx_activity_started").on(table.startedAt),
     index("idx_activity_user_date").on(table.userId, table.startedAt),
+    index("idx_activity_ext_project").on(table.externalProjectId),
+    index("idx_activity_ext_task").on(table.externalTaskId),
   ]
 );
 
 export const activitySessionsRelations = relations(activitySessions, ({ one }) => ({
   user: one(users, { fields: [activitySessions.userId], references: [users.id] }),
   project: one(projects, { fields: [activitySessions.projectId], references: [projects.id] }),
+  externalProject: one(externalProjects, { fields: [activitySessions.externalProjectId], references: [externalProjects.id] }),
+  externalTask: one(externalTasks, { fields: [activitySessions.externalTaskId], references: [externalTasks.id] }),
 }));

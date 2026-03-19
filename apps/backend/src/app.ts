@@ -15,6 +15,7 @@ import { chatWsRoute } from "./routes/chat.ws.js";
 import { telemetryRoutes } from "./routes/telemetry.routes.js";
 import { screenshotRoutes } from "./routes/screenshot.routes.js";
 import { activityRoutes } from "./routes/activity.routes.js";
+import { externalProjectsRoutes } from "./routes/externalProjects.routes.js";
 import { AppError } from "./utils/errors.js";
 import { ZodError } from "zod";
 
@@ -128,6 +129,7 @@ export async function buildApp(env: Env, db: Database) {
   telemetryRoutes(app, authService, db);
   screenshotRoutes(app, authService, db, env);
   activityRoutes(app, authService, db);
+  externalProjectsRoutes(app, authService, db);
 
   return app;
 }

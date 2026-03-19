@@ -52,7 +52,9 @@
       { "command": "ailancers.toggleTracking", "title": "Ailancers: Toggle Activity Tracking" },
       { "command": "ailancers.newConversation", "title": "Ailancers: New Conversation" },
       { "command": "ailancers.captureScreen", "title": "Ailancers: Capture Screenshot Now" },
-      { "command": "ailancers.openActivityDashboard", "title": "Ailancers: Open Activity Dashboard" }
+      { "command": "ailancers.openActivityDashboard", "title": "Ailancers: Open Activity Dashboard" },
+      { "command": "ailancers.selectProject", "title": "Ailancers: Select Active Project / Task" },
+      { "command": "ailancers.refreshProjects", "title": "Ailancers: Refresh Project List" }
     ],
     "configuration": {
       "title": "Ailancers Code",

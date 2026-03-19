@@ -8,6 +8,7 @@ import { ApprovalService } from "./services/ApprovalService";
 import { ActivityTracker } from "./services/ActivityTracker";
 import { TelemetryService } from "./services/TelemetryService";
 import { ScreenCaptureService } from "./services/ScreenCaptureService";
+import { ProjectPickerService } from "./services/ProjectPickerService";
 import { ChatViewProvider } from "./providers/ChatViewProvider";
 import { StatusBarProvider } from "./providers/StatusBarProvider";
 import { ActivityDashboardProvider } from "./providers/ActivityDashboardProvider";
@@ -26,7 +27,8 @@ export async function activate(context: vscode.ExtensionContext) {
   const approvalService = new ApprovalService();
   const chatService = new ChatService(apiClient, wsClient, toolExecutor, approvalService);
   const activityTracker = new ActivityTracker();
-  const telemetryService = new TelemetryService(apiClient, activityTracker);
+  const projectPicker = new ProjectPickerService(apiClient, context);
+  const telemetryService = new TelemetryService(apiClient, activityTracker, projectPicker);
   const screenCaptureService = new ScreenCaptureService(context, apiClient);
 
   // Register sidebar webview
@@ -40,15 +42,17 @@ export async function activate(context: vscode.ExtensionContext) {
   // Activity dashboard provider
   const activityDashboard = new ActivityDashboardProvider(context.extensionUri, apiClient, activityTracker);
 
-  // Register status bar
-  const statusBar = new StatusBarProvider(authService, activityTracker);
-  context.subscriptions.push(statusBar);
+  // Register status bar (now includes project picker)
+  const statusBar = new StatusBarProvider(authService, activityTracker, projectPicker);
+  context.subscriptions.push(statusBar, projectPicker);
 
   // Register commands
   context.subscriptions.push(
     vscode.commands.registerCommand("ailancers.login", () => authService.promptLogin()),
     vscode.commands.registerCommand("ailancers.logout", async () => {
       await authService.logout();
+      projectPicker.clearSelection();
+      projectPicker.invalidateCache();
       vscode.window.showInformationMessage("Ailancers: Logged out successfully");
     }),
     vscode.commands.registerCommand("ailancers.openChat", () => {
@@ -74,6 +78,22 @@ export async function activate(context: vscode.ExtensionContext) {
     }),
     vscode.commands.registerCommand("ailancers.openActivityDashboard", () => {
       activityDashboard.show();
+    }),
+    // New command: select which project/task to work on
+    vscode.commands.registerCommand("ailancers.selectProject", async () => {
+      if (!authService.isAuthenticated) {
+        vscode.window.showWarningMessage("Sign in to Ailancers first");
+        return;
+      }
+      await projectPicker.promptPicker();
+    }),
+    // Refresh project list from server
+    vscode.commands.registerCommand("ailancers.refreshProjects", async () => {
+      projectPicker.invalidateCache();
+      const projects = await projectPicker.fetchMyProjects();
+      vscode.window.showInformationMessage(
+        `Ailancers: Refreshed — ${projects.length} project${projects.length !== 1 ? "s" : ""} found`
+      );
     })
   );
 
@@ -98,6 +118,8 @@ export async function activate(context: vscode.ExtensionContext) {
       screenCaptureService.start(sessionId);
       log("Screen capture started");
     }
+    // Pre-fetch user's projects in background so picker is instant
+    projectPicker.fetchMyProjects().catch(() => {});
   }
 
   // Listen for auth changes
@@ -108,10 +130,15 @@ export async function activate(context: vscode.ExtensionContext) {
       if (sessionId) {
         screenCaptureService.start(sessionId);
       }
+      // Pre-cache projects after login
+      projectPicker.invalidateCache();
+      projectPicker.fetchMyProjects().catch(() => {});
     } else {
       telemetryService.endSession();
       wsClient.disconnect();
       screenCaptureService.stop();
+      projectPicker.clearSelection();
+      projectPicker.invalidateCache();
     }
     statusBar.refresh();
     chatViewProvider.refresh();

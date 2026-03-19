@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import type { ApiClient } from "./ApiClient";
 import type { ActivityTracker } from "./ActivityTracker";
+import type { ProjectPickerService } from "./ProjectPickerService";
 
 export class TelemetryService {
   private sessionId: string | null = null;
@@ -8,7 +9,8 @@ export class TelemetryService {
 
   constructor(
     private apiClient: ApiClient,
-    private activityTracker: ActivityTracker
+    private activityTracker: ActivityTracker,
+    private projectPicker?: ProjectPickerService
   ) {}
 
   async startSession(): Promise<string | null> {
@@ -71,6 +73,8 @@ export class TelemetryService {
       await this.apiClient.post("/api/telemetry/session/heartbeat", {
         sessionId: this.sessionId,
         ...metrics,
+        externalProjectId: this.projectPicker?.activeProjectId ?? null,
+        externalTaskId: this.projectPicker?.activeTaskId ?? null,
       });
     } catch {
       // Queue for retry on next flush — keeping simple for now

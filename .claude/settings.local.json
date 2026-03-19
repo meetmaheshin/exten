@@ -24,7 +24,22 @@
       "Bash(DATABASE_URL=\"postgresql://fake:fake@localhost:5432/fake\" npx drizzle-kit generate --config=drizzle.config.ts)",
       "Bash(npx drizzle-kit:*)",
       "Bash(node --import tsx node_modules/.bin/drizzle-kit generate)",
-      "Bash(gh auth:*)"
+      "Bash(gh auth:*)",
+      "Bash(mv drizzle/migrations/0000_initial/migration.sql drizzle/migrations/0000_initial.sql)",
+      "Bash(rmdir drizzle/migrations/0000_initial)",
+      "Bash(pnpm run:*)",
+      "WebSearch",
+      "Bash(ls tsconfig*.json)",
+      "Bash(find /d/exten/apps/dashboard/src -name *usage* -o -name *usage*)",
+      "Bash(grep -r \"ai.usage\\\\|ai_usage\" /d/exten/apps/dashboard/src --include=*.ts --include=*.tsx)",
+      "Bash(pnpm build:*)",
+      "Bash(pnpm package:*)",
+      "Bash(curl -s -X POST https://staging-backend.ailancers.com/api/v1/auth/login -H \"Content-Type: application/json\" -d '{\"\"\"\"email\"\"\"\":\"\"\"\"sunitkatiyar24@gmail.com\"\"\"\",\"\"\"\"password\"\"\"\":\"\"\"\"Sunit@1234\"\"\"\"}')",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJmMzZhNDhmMC1jYzM0LTQ3YTMtOTRjMi0yMDU3OThjNWUxYTUiLCJpYXQiOjE3NzM2NTAzNTAsImV4cCI6MTc3NDI1NTE1MH0.XHSkWCk6LNweUpSq0lQiuByuYUr419dalOg7RRoPDMo\" curl -s https://staging-backend.ailancers.com/api/v1/auth/verify -H \"Authorization: Bearer $TOKEN\")",
+      "Bash(pnpm --filter @ailancers/shared-types build)",
+      "Bash(pnpm --filter ailancers-code build)",
+      "Bash(pnpm --filter ailancers-backend build)",
+      "Bash(pnpm --filter @ailancers/backend build)"
     ]
   }
 }

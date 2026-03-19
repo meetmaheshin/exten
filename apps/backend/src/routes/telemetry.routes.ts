@@ -23,6 +23,9 @@ const heartbeatSchema = z.object({
   filesModified: z.record(z.object({ language: z.string(), changes: z.number() })),
   languageSeconds: z.record(z.number()),
   isCurrentlyIdle: z.boolean(),
+  // External platform project/task being worked on
+  externalProjectId: z.number().int().positive().optional().nullable(),
+  externalTaskId: z.number().int().positive().optional().nullable(),
 });
 
 const sessionEndSchema = z.object({
@@ -73,15 +76,24 @@ export function telemetryRoutes(app: FastifyInstance, authService: AuthService, 
       return reply.status(404).send({ error: "Session not found" });
     }
 
+    // Build update — always accumulate metrics; update project/task if provided
+    const updateValues: Record<string, unknown> = {
+      activeSeconds: session.activeSeconds + body.activeSeconds,
+      idleSeconds: session.idleSeconds + body.idleSeconds,
+      totalKeystrokes: session.totalKeystrokes + body.keystrokeCount,
+      totalFileSaves: session.totalFileSaves + body.fileSaveCount,
+      totalFileChanges: session.totalFileChanges + body.fileChangeCount,
+    };
+    if (body.externalProjectId !== undefined) {
+      updateValues.externalProjectId = body.externalProjectId ?? null;
+    }
+    if (body.externalTaskId !== undefined) {
+      updateValues.externalTaskId = body.externalTaskId ?? null;
+    }
+
     await db
       .update(activitySessions)
-      .set({
-        activeSeconds: session.activeSeconds + body.activeSeconds,
-        idleSeconds: session.idleSeconds + body.idleSeconds,
-        totalKeystrokes: session.totalKeystrokes + body.keystrokeCount,
-        totalFileSaves: session.totalFileSaves + body.fileSaveCount,
-        totalFileChanges: session.totalFileChanges + body.fileChangeCount,
-      })
+      .set(updateValues)
       .where(eq(activitySessions.id, body.sessionId));
 
     // Insert heartbeat telemetry event
@@ -97,6 +109,8 @@ export function telemetryRoutes(app: FastifyInstance, authService: AuthService, 
         fileSaveCount: body.fileSaveCount,
         languageSeconds: body.languageSeconds,
         isCurrentlyIdle: body.isCurrentlyIdle,
+        externalProjectId: body.externalProjectId ?? null,
+        externalTaskId: body.externalTaskId ?? null,
       },
     });
 
