@@ -84,7 +84,8 @@ export async function buildApp(env: Env, db: Database) {
     app.get("/dashboard", async (_req, reply) => reply.redirect("/dashboard/"));
     // Serve index.html for all dashboard sub-routes (client-side routing)
     app.get("/dashboard/*", async (_req, reply) => {
-      return reply.sendFile("index.html", dashboardPath);
+      const indexPath = join(dashboardPath, "index.html");
+      return reply.type("text/html").send(await import("fs").then(fs => fs.promises.readFile(indexPath)));
     });
   }
 
