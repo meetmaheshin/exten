@@ -9,6 +9,7 @@ import {
   externalProjects,
   externalTasks,
   externalUserMappings,
+  employeeDirectory,
   users,
 } from "../models/index.js";
 
@@ -112,6 +113,16 @@ export function externalProjectsRoutes(
       tasks: taskStats,
       userMappings: mappingStats,
     });
+  });
+
+  // Admin: list all employees from the directory
+  app.get("/api/admin/employees", { preHandler: admin }, async (_request, reply) => {
+    const employees = await db
+      .select()
+      .from(employeeDirectory)
+      .orderBy(employeeDirectory.employeeName);
+
+    return reply.send({ data: employees });
   });
 
   // Admin: list all external projects with task counts

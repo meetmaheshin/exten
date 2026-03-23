@@ -11,6 +11,7 @@ const navItems = [
   { href: "/activity", label: "Activity", icon: "📊" },
   { href: "/ai-usage", label: "AI Usage & Cost", icon: "🤖" },
   { href: "/screenshots", label: "Screenshots", icon: "📸" },
+  { href: "/employees", label: "Employees", icon: "🏢" },
 ];
 
 export function Sidebar() {

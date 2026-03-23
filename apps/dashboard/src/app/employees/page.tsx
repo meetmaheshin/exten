@@ -1,0 +1,319 @@
+"use client";
+
+import { useEffect, useState, useRef } from "react";
+import { DashboardShell } from "@/components/DashboardShell";
+import { useAuth } from "@/lib/auth";
+import { apiFetch } from "@/lib/api";
+
+interface Employee {
+  externalUserId: number;
+  employeeName: string;
+  email: string;
+  department: string | null;
+  jobPosition: string | null;
+  managerName: string | null;
+  company: string | null;
+  active: boolean;
+}
+
+interface UserMapping {
+  userId: string;
+  externalUserId: number;
+  externalUserName: string;
+  matchType: string;
+  email: string | null;
+  fullName: string | null;
+  updatedAt: string;
+}
+
+export default function EmployeesPage() {
+  const { accessToken } = useAuth();
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [mappings, setMappings] = useState<UserMapping[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Add form state
+  const [formName, setFormName] = useState("");
+  const [formEmail, setFormEmail] = useState("");
+  const [formUserId, setFormUserId] = useState("");
+  const [formDept, setFormDept] = useState("");
+  const [formPosition, setFormPosition] = useState("");
+  const [formManager, setFormManager] = useState("");
+  const [formCompany, setFormCompany] = useState("");
+  const [formSaving, setFormSaving] = useState(false);
+
+  const fetchData = async () => {
+    if (!accessToken) return;
+    setLoading(true);
+    try {
+      const [empRes, mapRes] = await Promise.all([
+        apiFetch<{ data: Employee[] }>("/api/admin/employees", { token: accessToken }),
+        apiFetch<{ data: UserMapping[] }>("/api/admin/user-mappings", { token: accessToken }),
+      ]);
+      setEmployees(empRes.data);
+      setMappings(mapRes.data);
+    } catch (err) {
+      console.error("Failed to load employees:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchData(); }, [accessToken]);
+
+  const filtered = employees.filter(
+    (e) =>
+      e.employeeName.toLowerCase().includes(search.toLowerCase()) ||
+      e.email.toLowerCase().includes(search.toLowerCase()) ||
+      (e.department || "").toLowerCase().includes(search.toLowerCase())
+  );
+
+  // Check if an employee is mapped to an Ailancers user
+  const getMappingForEmployee = (extUserId: number) =>
+    mappings.find((m) => m.externalUserId === extUserId);
+
+  const handleAddEmployee = async () => {
+    if (!accessToken || !formName || !formEmail || !formUserId) return;
+    setFormSaving(true);
+    try {
+      await apiFetch("/api/admin/employees/import", {
+        token: accessToken,
+        method: "POST",
+        body: JSON.stringify({
+          employees: [{
+            externalUserId: parseInt(formUserId, 10),
+            employeeName: formName,
+            email: formEmail,
+            department: formDept || undefined,
+            jobPosition: formPosition || undefined,
+            managerName: formManager || undefined,
+            company: formCompany || undefined,
+            active: true,
+          }],
+        }),
+      });
+      setShowAddForm(false);
+      setFormName(""); setFormEmail(""); setFormUserId("");
+      setFormDept(""); setFormPosition(""); setFormManager(""); setFormCompany("");
+      await fetchData();
+    } catch (err) {
+      alert("Failed to add employee: " + (err instanceof Error ? err.message : err));
+    } finally {
+      setFormSaving(false);
+    }
+  };
+
+  const handleCsvImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !accessToken) return;
+
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const csv = await file.text();
+      const result = await apiFetch<{ imported: number; skipped: number; totalRows: number; parsedRows: number }>(
+        "/api/admin/employees/import-csv",
+        {
+          token: accessToken,
+          method: "POST",
+          body: JSON.stringify({ csv }),
+        }
+      );
+      setImportResult(`Imported ${result.imported} employees (${result.skipped} skipped, ${result.totalRows} total rows)`);
+      await fetchData();
+    } catch (err) {
+      setImportResult("Import failed: " + (err instanceof Error ? err.message : err));
+    } finally {
+      setImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  return (
+    <DashboardShell>
+      <div className="page-header">
+        <div>
+          <div className="page-title">Employee Directory</div>
+          <div className="page-subtitle">
+            Platform users mapped to Ailancers accounts &middot; {employees.length} employees, {mappings.length} mapped
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            className="btn btn-secondary"
+            onClick={() => setShowAddForm(!showAddForm)}
+          >
+            {showAddForm ? "Cancel" : "+ Add Employee"}
+          </button>
+          <label className="btn btn-secondary" style={{ cursor: "pointer", margin: 0 }}>
+            {importing ? "Importing..." : "Import CSV"}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv"
+              onChange={handleCsvImport}
+              style={{ display: "none" }}
+              disabled={importing}
+            />
+          </label>
+        </div>
+      </div>
+
+      {importResult && (
+        <div className="card" style={{
+          marginBottom: 16,
+          background: importResult.startsWith("Import failed") ? "rgba(239,68,68,0.1)" : "rgba(34,197,94,0.1)",
+          borderColor: importResult.startsWith("Import failed") ? "var(--danger)" : "var(--success)",
+          borderWidth: 1,
+          borderStyle: "solid",
+        }}>
+          {importResult}
+          <button onClick={() => setImportResult(null)} style={{ marginLeft: 12, cursor: "pointer", background: "none", border: "none", color: "var(--text-muted)" }}>✕</button>
+        </div>
+      )}
+
+      {showAddForm && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div style={{ fontWeight: 600, marginBottom: 12 }}>Add New Employee</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+            <div>
+              <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>Platform User ID *</label>
+              <input className="form-input" placeholder="e.g. 172" value={formUserId} onChange={(e) => setFormUserId(e.target.value)} style={{ width: "100%" }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>Full Name *</label>
+              <input className="form-input" placeholder="Mahesh Kumar" value={formName} onChange={(e) => setFormName(e.target.value)} style={{ width: "100%" }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>Work Email *</label>
+              <input className="form-input" placeholder="mahesh@company.com" value={formEmail} onChange={(e) => setFormEmail(e.target.value)} style={{ width: "100%" }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>Department</label>
+              <input className="form-input" placeholder="Engineering" value={formDept} onChange={(e) => setFormDept(e.target.value)} style={{ width: "100%" }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>Job Position</label>
+              <input className="form-input" placeholder="Senior Developer" value={formPosition} onChange={(e) => setFormPosition(e.target.value)} style={{ width: "100%" }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>Manager</label>
+              <input className="form-input" placeholder="Manager Name" value={formManager} onChange={(e) => setFormManager(e.target.value)} style={{ width: "100%" }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>Company</label>
+              <input className="form-input" placeholder="OnGraph Technologies" value={formCompany} onChange={(e) => setFormCompany(e.target.value)} style={{ width: "100%" }} />
+            </div>
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <button className="btn btn-primary" onClick={handleAddEmployee} disabled={formSaving || !formName || !formEmail || !formUserId}>
+              {formSaving ? "Saving..." : "Add Employee"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="card" style={{ marginBottom: 16 }}>
+        <input
+          className="form-input"
+          placeholder="Search by name, email, or department..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          style={{ maxWidth: 400 }}
+        />
+      </div>
+
+      {loading ? (
+        <div className="loading">Loading employees...</div>
+      ) : (
+        <div className="card" style={{ padding: 0 }}>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Employee</th>
+                <th>Department</th>
+                <th>Manager</th>
+                <th>Company</th>
+                <th>Ailancers Mapping</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((emp) => {
+                const mapping = getMappingForEmployee(emp.externalUserId);
+                return (
+                  <tr key={emp.externalUserId}>
+                    <td style={{ fontFamily: "monospace", fontSize: 12, color: "var(--text-muted)" }}>
+                      {emp.externalUserId}
+                    </td>
+                    <td>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <div
+                          style={{
+                            width: 32, height: 32, borderRadius: "50%",
+                            background: mapping ? "var(--primary)" : "var(--border)",
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            fontSize: 13, fontWeight: 600, color: "#fff",
+                          }}
+                        >
+                          {emp.employeeName[0]?.toUpperCase() || "?"}
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 500 }}>{emp.employeeName}</div>
+                          <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{emp.email}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td style={{ color: emp.department ? "var(--text)" : "var(--text-muted)" }}>
+                      {emp.department || "—"}
+                    </td>
+                    <td style={{ fontSize: 13 }}>{emp.managerName || "—"}</td>
+                    <td style={{ fontSize: 12, color: "var(--text-muted)" }}>{emp.company || "—"}</td>
+                    <td>
+                      {mapping ? (
+                        <div>
+                          <span className="badge badge-primary" style={{ marginRight: 4 }}>{mapping.matchType}</span>
+                          <span style={{ fontSize: 12 }}>{mapping.fullName || mapping.email}</span>
+                        </div>
+                      ) : (
+                        <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Not mapped</span>
+                      )}
+                    </td>
+                    <td>
+                      <span style={{
+                        display: "inline-flex", alignItems: "center", gap: 5,
+                        color: emp.active ? "var(--success)" : "var(--danger)",
+                      }}>
+                        <span style={{
+                          width: 7, height: 7, borderRadius: "50%",
+                          background: emp.active ? "var(--success)" : "var(--danger)",
+                          display: "inline-block",
+                        }} />
+                        {emp.active ? "Active" : "Inactive"}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+              {filtered.length === 0 && (
+                <tr>
+                  <td colSpan={7} style={{ textAlign: "center", color: "var(--text-muted)", padding: 32 }}>
+                    {employees.length === 0
+                      ? "No employees imported yet. Import a CSV or add employees manually."
+                      : "No employees match your search"}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </DashboardShell>
+  );
+}
