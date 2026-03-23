@@ -848,6 +848,58 @@ body {
   background: rgba(204, 167, 0, 0.35);
 }
 
+/* Agent elapsed timer in status bar */
+.agent-status-timer {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  opacity: 0.8;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Planning agent color */
+.agent-status-bar.agent-status-planning {
+  background: rgba(78, 200, 140, 0.15);
+  border-top-color: rgba(78, 200, 140, 0.3);
+  color: var(--vscode-charts-green, #89d185);
+}
+
+/* Agent activity: current action text */
+.agent-activity-action {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Agent activity: stats (tool count + elapsed) */
+.agent-activity-stats {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  opacity: 0.7;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Elapsed time on individual tool calls */
+.tc-elapsed {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 10px;
+  color: var(--vscode-charts-yellow, #cca700);
+  opacity: 0.8;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Elapsed badge next to AI label when thinking */
+.agent-elapsed-badge {
+  font-size: 10px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  color: var(--vscode-descriptionForeground);
+  opacity: 0.7;
+  margin-left: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ========== Login screen ========== */
 .login-container {
   display: flex;

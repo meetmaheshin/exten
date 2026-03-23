@@ -198,7 +198,7 @@ function reducer(state: AppState, action: Action): AppState {
         ...state,
         agentToolCalls: state.agentToolCalls.map((tc) =>
           tc.toolCallId === action.toolCallId
-            ? { ...tc, status: (action.isError ? "error" : "completed") as const, result: action.result, isError: action.isError }
+            ? { ...tc, status: action.isError ? "error" as const : "completed" as const, result: action.result, isError: action.isError }
             : tc
         ),
       };

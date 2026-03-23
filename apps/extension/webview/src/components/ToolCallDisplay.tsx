@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { ToolCallDisplay as ToolCallData } from "../types";
 
 interface ToolCallDisplayProps {
   toolCall: ToolCallData;
+  /** Auto-expand this tool call (used for the latest running tool) */
+  autoExpand?: boolean;
 }
 
 const TOOL_LABELS: Record<string, string> = {
@@ -74,8 +76,26 @@ function formatOutput(result: string): string {
   return result;
 }
 
-export function ToolCallDisplay({ toolCall }: ToolCallDisplayProps) {
+export function ToolCallDisplay({ toolCall, autoExpand }: ToolCallDisplayProps) {
   const [expanded, setExpanded] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+
+  // Auto-expand when this is the latest running tool
+  useEffect(() => {
+    if (autoExpand && (toolCall.status === "running" || toolCall.status === "pending")) {
+      setExpanded(true);
+    }
+  }, [autoExpand, toolCall.status]);
+
+  // Elapsed timer for running tools
+  useEffect(() => {
+    if (toolCall.status !== "running" && toolCall.status !== "pending") {
+      return;
+    }
+    setElapsed(0);
+    const interval = setInterval(() => setElapsed((e) => e + 1), 1000);
+    return () => clearInterval(interval);
+  }, [toolCall.status]);
   const label = TOOL_LABELS[toolCall.toolName] || toolCall.toolName;
   const description = formatDescription(toolCall.toolName, toolCall.toolInput);
   const inputBlock = formatInputBlock(toolCall.toolName, toolCall.toolInput);
@@ -98,6 +118,9 @@ export function ToolCallDisplay({ toolCall }: ToolCallDisplayProps) {
         <span className={`tc-dot ${dotClass}`} />
         <span className="tc-label">{label}</span>
         <span className="tc-desc">{description}</span>
+        {isRunning && elapsed > 0 && (
+          <span className="tc-elapsed">{elapsed}s</span>
+        )}
         <span className={`tc-chevron ${expanded ? "tc-chevron-open" : ""}`}>&#9654;</span>
       </div>
 
