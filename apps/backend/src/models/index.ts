@@ -12,6 +12,7 @@ export {
   externalProjects,
   externalTasks,
   externalUserMappings,
+  employeeDirectory,
   externalProjectsRelations,
   externalTasksRelations,
 } from "./externalProjects.js";

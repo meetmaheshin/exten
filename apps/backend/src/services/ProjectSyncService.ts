@@ -1,6 +1,6 @@
 import type { Database } from "../config/database.js";
-import { externalProjects, externalTasks } from "../models/index.js";
-import { sql } from "drizzle-orm";
+import { externalProjects, externalTasks, employeeDirectory } from "../models/index.js";
+import { sql, eq } from "drizzle-orm";
 
 const PLATFORM_API_URL = "https://mailerai.habitnetwork.xyz/api/project-info";
 
@@ -214,13 +214,86 @@ export class ProjectSyncService {
   }
 
   /**
-   * Find the external user ID for a given display name.
-   * Scans the assignedUsers of all tasks for a matching name.
-   * Returns the best match (exact first, then case-insensitive).
+   * Find external user ID by email using the employee directory.
+   * This is the primary matching method — reliable and unique.
    */
+  async findExternalUserByEmail(email: string): Promise<{ id: number; name: string } | null> {
+    const emailLower = email.trim().toLowerCase();
+    const [row] = await this.db
+      .select({ externalUserId: employeeDirectory.externalUserId, employeeName: employeeDirectory.employeeName })
+      .from(employeeDirectory)
+      .where(sql`lower(${employeeDirectory.email}) = ${emailLower}`)
+      .limit(1);
+
+    if (row) {
+      return { id: row.externalUserId, name: row.employeeName };
+    }
+    return null;
+  }
+
+  /**
+   * Import employee directory from CSV data (parsed as array of objects).
+   * Each row needs: externalUserId, employeeName, email, and optional department/company/etc.
+   */
+  async importEmployeeDirectory(rows: Array<{
+    externalUserId: number;
+    employeeName: string;
+    email: string;
+    department?: string;
+    jobPosition?: string;
+    managerName?: string;
+    company?: string;
+    active?: boolean;
+  }>): Promise<{ imported: number; skipped: number }> {
+    let imported = 0;
+    let skipped = 0;
+
+    const BATCH = 50;
+    for (let i = 0; i < rows.length; i += BATCH) {
+      const batch = rows.slice(i, i + BATCH)
+        .filter((r) => r.externalUserId && r.email && r.email !== "N/A" && r.email !== "test");
+
+      if (batch.length === 0) { skipped += BATCH; continue; }
+
+      const values = batch.map((r) => ({
+        externalUserId: r.externalUserId,
+        employeeName: r.employeeName,
+        email: r.email.toLowerCase().trim(),
+        department: r.department || null,
+        jobPosition: r.jobPosition || null,
+        managerName: r.managerName || null,
+        company: r.company || null,
+        active: r.active ?? true,
+        updatedAt: new Date(),
+      }));
+
+      await this.db
+        .insert(employeeDirectory)
+        .values(values)
+        .onConflictDoUpdate({
+          target: employeeDirectory.externalUserId,
+          set: {
+            employeeName: sql`excluded.employee_name`,
+            email: sql`excluded.email`,
+            department: sql`excluded.department`,
+            jobPosition: sql`excluded.job_position`,
+            managerName: sql`excluded.manager_name`,
+            company: sql`excluded.company`,
+            active: sql`excluded.active`,
+            updatedAt: sql`now()`,
+          },
+        });
+
+      imported += batch.length;
+      skipped += (rows.slice(i, i + BATCH).length - batch.length);
+    }
+
+    return { imported, skipped };
+  }
+
   /**
    * Find ALL external users whose display name matches fullName (case-insensitive).
-   * Returns multiple candidates — caller must handle duplicates by prompting the user.
+   * Fallback when email matching fails. Returns multiple candidates.
    */
   async findExternalUserCandidatesByName(fullName: string): Promise<Array<{ id: number; name: string }>> {
     const nameLower = fullName.trim().toLowerCase();

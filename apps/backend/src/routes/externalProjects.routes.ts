@@ -29,6 +29,66 @@ export function externalProjectsRoutes(
     return reply.send(result);
   });
 
+  // Admin: import employee directory (CSV data as JSON array)
+  // Each entry: { externalUserId, employeeName, email, department?, jobPosition?, managerName?, company?, active? }
+  app.post("/api/admin/employees/import", { preHandler: admin }, async (request, reply) => {
+    const body = z.object({
+      employees: z.array(z.object({
+        externalUserId: z.number().int().positive(),
+        employeeName: z.string().min(1),
+        email: z.string().min(1),
+        department: z.string().optional(),
+        jobPosition: z.string().optional(),
+        managerName: z.string().optional(),
+        company: z.string().optional(),
+        active: z.boolean().optional(),
+      })),
+    }).parse(request.body);
+
+    const result = await syncService.importEmployeeDirectory(body.employees);
+    return reply.send(result);
+  });
+
+  // Admin: import employee directory from raw CSV text
+  // Expects CSV with headers: Active,Activities,Company,Department,Employee Name,Job Position,Manager,Next Activity Deadline,Work Address,Work Email,Work Phone,User/ID
+  app.post("/api/admin/employees/import-csv", { preHandler: admin }, async (request, reply) => {
+    const body = z.object({ csv: z.string().min(10) }).parse(request.body);
+    const lines = body.csv.split("\n").filter((l) => l.trim());
+    if (lines.length < 2) return reply.status(400).send({ error: "CSV must have header + data rows" });
+
+    // Parse CSV (handle quoted fields)
+    const parseRow = (line: string): string[] => {
+      const result: string[] = [];
+      let current = "";
+      let inQuotes = false;
+      for (const ch of line) {
+        if (ch === '"') { inQuotes = !inQuotes; continue; }
+        if (ch === "," && !inQuotes) { result.push(current.trim()); current = ""; continue; }
+        current += ch;
+      }
+      result.push(current.trim());
+      return result;
+    };
+
+    const rows = lines.slice(1).map(parseRow).filter((cols) => {
+      const userId = parseInt(cols[11], 10); // User/ID column
+      const email = cols[9]; // Work Email column
+      return userId > 0 && email && email !== "N/A" && email !== "test" && email.includes("@");
+    }).map((cols) => ({
+      externalUserId: parseInt(cols[11], 10),
+      employeeName: cols[4] || "Unknown",
+      email: cols[9],
+      department: cols[3] || undefined,
+      jobPosition: cols[5] || undefined,
+      managerName: cols[6] || undefined,
+      company: cols[2] || undefined,
+      active: cols[0] === "True",
+    }));
+
+    const result = await syncService.importEmployeeDirectory(rows);
+    return reply.send({ ...result, totalRows: lines.length - 1, parsedRows: rows.length });
+  });
+
   // Admin: get sync status (when was last sync, how many projects/tasks)
   app.get("/api/admin/sync/status", { preHandler: admin }, async (_request, reply) => {
     const [projectStats] = await db
@@ -142,21 +202,38 @@ export function externalProjectsRoutes(
       .where(eq(externalUserMappings.userId, userId))
       .limit(1);
 
-    // If no confirmed mapping yet, search by name and handle duplicates safely
+    // If no confirmed mapping yet, try email first, then fall back to name matching
     let externalUserId: number | null = mapping?.externalUserId ?? null;
 
     if (!externalUserId) {
       const [user] = await db
-        .select({ fullName: users.fullName })
+        .select({ fullName: users.fullName, email: users.email })
         .from(users)
         .where(eq(users.id, userId))
         .limit(1);
 
-      if (user?.fullName) {
+      // 1) Try email match via employee directory (most reliable)
+      if (user?.email) {
+        const emailMatch = await syncService.findExternalUserByEmail(user.email);
+        if (emailMatch) {
+          externalUserId = emailMatch.id;
+          await db
+            .insert(externalUserMappings)
+            .values({
+              userId,
+              externalUserId: emailMatch.id,
+              externalUserName: emailMatch.name,
+              matchType: "email",
+            })
+            .onConflictDoNothing();
+        }
+      }
+
+      // 2) Fall back to name matching if email didn't work
+      if (!externalUserId && user?.fullName) {
         const candidates = await syncService.findExternalUserCandidatesByName(user.fullName);
 
         if (candidates.length === 1) {
-          // Exactly one match — safe to auto-map
           externalUserId = candidates[0].id;
           await db
             .insert(externalUserMappings)
@@ -168,7 +245,6 @@ export function externalProjectsRoutes(
             })
             .onConflictDoNothing();
         } else if (candidates.length > 1) {
-          // Multiple people share this name — require explicit user confirmation
           return reply.send({
             data: [],
             externalUserId: null,
@@ -177,7 +253,6 @@ export function externalProjectsRoutes(
             candidates,
           });
         }
-        // candidates.length === 0 → not found in platform
       }
     }
 

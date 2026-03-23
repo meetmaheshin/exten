@@ -121,6 +121,30 @@ export const externalUserMappings = pgTable(
   ]
 );
 
+/**
+ * Employee directory: maps external platform user IDs to emails.
+ * Imported from HR CSV. Used to match Ailancers login email → external user ID.
+ */
+export const employeeDirectory = pgTable(
+  "employee_directory",
+  {
+    externalUserId: integer("external_user_id").primaryKey(),
+    employeeName: varchar("employee_name", { length: 255 }).notNull(),
+    email: varchar("email", { length: 255 }).notNull(),
+    department: varchar("department", { length: 100 }),
+    jobPosition: varchar("job_position", { length: 255 }),
+    managerName: varchar("manager_name", { length: 255 }),
+    company: varchar("company", { length: 255 }),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_emp_dir_email").on(table.email),
+    index("idx_emp_dir_name").on(table.employeeName),
+  ]
+);
+
 export const externalProjectsRelations = relations(externalProjects, ({ many }) => ({
   tasks: many(externalTasks),
 }));
