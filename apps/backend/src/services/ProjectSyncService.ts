@@ -233,8 +233,9 @@ export class ProjectSyncService {
                jsonb_array_elements(assigned_users) AS u
           WHERE lower(u->>'name') = ${nameLower}`
     );
-    if (taskResult.rows.length > 0) {
-      return taskResult.rows.map((r) => ({ id: r.external_user_id, name: r.external_user_name }));
+    const taskRows = Array.from(taskResult);
+    if (taskRows.length > 0) {
+      return taskRows.map((r) => ({ id: r.external_user_id, name: r.external_user_name }));
     }
 
     // Fallback: project owners
@@ -245,6 +246,6 @@ export class ProjectSyncService {
           FROM external_projects
           WHERE lower(owner_name) = ${nameLower}`
     );
-    return ownerResult.rows.map((r) => ({ id: r.external_user_id, name: r.external_user_name }));
+    return Array.from(ownerResult).map((r) => ({ id: r.external_user_id, name: r.external_user_name }));
   }
 }

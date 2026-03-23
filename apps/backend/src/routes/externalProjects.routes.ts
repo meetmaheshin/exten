@@ -220,7 +220,7 @@ export function externalProjectsRoutes(
     );
 
     // For each project, get the tasks assigned to this user
-    const projectIds = assignedProjects.rows.map((p) => p.id);
+    const projectIds = Array.from(assignedProjects).map((p) => p.id);
 
     let tasksByProject: Record<number, Array<{
       id: number;
@@ -254,7 +254,7 @@ export function externalProjectsRoutes(
               date_deadline ASC NULLS LAST`
       );
 
-      for (const task of tasks.rows) {
+      for (const task of tasks) {
         if (!tasksByProject[task.project_id]) tasksByProject[task.project_id] = [];
         tasksByProject[task.project_id].push({
           id: task.id,
@@ -267,7 +267,7 @@ export function externalProjectsRoutes(
       }
     }
 
-    const result = assignedProjects.rows.map((p) => ({
+    const result = Array.from(assignedProjects).map((p) => ({
       id: p.id,
       name: p.name,
       stageName: p.stage_name,
@@ -388,7 +388,7 @@ export function externalProjectsRoutes(
           LIMIT ${query.limit} OFFSET ${query.offset}`
     );
 
-    return reply.send({ data: result.rows });
+    return reply.send({ data: Array.from(result) });
   });
 
   // Admin: per-task breakdown for a project
@@ -421,7 +421,7 @@ export function externalProjectsRoutes(
           ORDER BY total_active_seconds DESC`
     );
 
-    return reply.send({ data: result.rows });
+    return reply.send({ data: Array.from(result) });
   });
 
   // Admin: which developer is on which project right now (live)
@@ -456,6 +456,6 @@ export function externalProjectsRoutes(
           ORDER BY s.started_at DESC`
     );
 
-    return reply.send({ data: result.rows });
+    return reply.send({ data: Array.from(result) });
   });
 }
