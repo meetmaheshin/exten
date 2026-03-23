@@ -147,10 +147,17 @@ function reducer(state: AppState, action: Action): AppState {
         ...state,
         messages: [
           ...state.messages,
-          { role: "assistant", content: `Error: ${action.error}` },
+          {
+            role: "assistant",
+            content: `Error: ${action.error}`,
+            toolCalls: state.agentToolCalls.length > 0 ? [...state.agentToolCalls] : undefined,
+          },
         ],
         isStreaming: false,
         streamingContent: "",
+        agentToolCalls: [],
+        pendingApprovals: [],
+        agentUsage: null,
       };
     case "SET_PENDING":
       return { ...state, pendingMessage: action.content, pendingImages: action.images ?? null };
@@ -381,6 +388,9 @@ export function App() {
         type: "cancelStream",
         conversationId: state.currentConversationId,
       });
+      // Immediately reset streaming state — don't wait for backend response
+      // since the callback gets deleted on cancel, stream_end may never arrive
+      dispatch({ type: "STREAM_ERROR", error: "Cancelled by user." });
     }
   };
 
