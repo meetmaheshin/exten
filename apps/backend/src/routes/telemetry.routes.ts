@@ -23,6 +23,7 @@ const heartbeatSchema = z.object({
   filesModified: z.record(z.object({ language: z.string(), changes: z.number() })),
   languageSeconds: z.record(z.number()),
   isCurrentlyIdle: z.boolean(),
+  appUsage: z.record(z.number()).optional(),
   // External platform project/task being worked on
   externalProjectId: z.number().int().positive().optional().nullable(),
   externalTaskId: z.number().int().positive().optional().nullable(),
@@ -91,6 +92,15 @@ export function telemetryRoutes(app: FastifyInstance, authService: AuthService, 
       updateValues.externalTaskId = body.externalTaskId ?? null;
     }
 
+    // Merge app usage accumulation
+    if (body.appUsage) {
+      const existingAppUsage = (session.appUsage || {}) as Record<string, number>;
+      for (const [app, secs] of Object.entries(body.appUsage)) {
+        existingAppUsage[app] = (existingAppUsage[app] || 0) + secs;
+      }
+      updateValues.appUsage = existingAppUsage;
+    }
+
     await db
       .update(activitySessions)
       .set(updateValues)
@@ -109,6 +119,7 @@ export function telemetryRoutes(app: FastifyInstance, authService: AuthService, 
         fileSaveCount: body.fileSaveCount,
         languageSeconds: body.languageSeconds,
         isCurrentlyIdle: body.isCurrentlyIdle,
+        appUsage: body.appUsage ?? {},
         externalProjectId: body.externalProjectId ?? null,
         externalTaskId: body.externalTaskId ?? null,
       },

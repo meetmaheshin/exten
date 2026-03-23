@@ -33,6 +33,7 @@ export interface SessionHeartbeat {
   filesModified: Record<string, { language: string; changes: number }>;
   languageSeconds: Record<string, number>;
   isCurrentlyIdle: boolean;
+  appUsage?: Record<string, number>;
 }
 
 export interface ActivitySnapshot {
@@ -44,6 +45,7 @@ export interface ActivitySnapshot {
   filesModified: Record<string, { language: string; changes: number }>;
   languageSeconds: Record<string, number>;
   isCurrentlyIdle: boolean;
+  appUsage: Record<string, number>;
 }
 
 export interface ActivitySession {

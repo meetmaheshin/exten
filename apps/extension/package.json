@@ -54,7 +54,8 @@
       { "command": "ailancers.captureScreen", "title": "Ailancers: Capture Screenshot Now" },
       { "command": "ailancers.openActivityDashboard", "title": "Ailancers: Open Activity Dashboard" },
       { "command": "ailancers.selectProject", "title": "Ailancers: Select Active Project / Task" },
-      { "command": "ailancers.refreshProjects", "title": "Ailancers: Refresh Project List" }
+      { "command": "ailancers.refreshProjects", "title": "Ailancers: Refresh Project List" },
+      { "command": "ailancers.toggleAutoStart", "title": "Ailancers: Toggle Auto-Start on Boot" }
     ],
     "configuration": {
       "title": "Ailancers Code",
@@ -98,6 +99,11 @@
           "type": "boolean",
           "default": false,
           "description": "Blur potentially sensitive areas in screenshots"
+        },
+        "ailancers.autoStartEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically start VS Code when the computer boots for activity tracking"
         }
       }
     }

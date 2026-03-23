@@ -5,6 +5,7 @@ import * as os from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { ApiClient } from "./ApiClient";
+import type { ActivityTracker } from "./ActivityTracker";
 
 const execFileAsync = promisify(execFile);
 
@@ -34,7 +35,8 @@ export class ScreenCaptureService implements vscode.Disposable {
 
   constructor(
     private extensionContext: vscode.ExtensionContext,
-    private apiClient: ApiClient
+    private apiClient: ApiClient,
+    private activityTracker?: ActivityTracker
   ) {
     this.screenshotDir = path.join(extensionContext.globalStorageUri.fsPath, "screenshots");
   }
@@ -82,6 +84,10 @@ export class ScreenCaptureService implements vscode.Disposable {
 
   private async captureAndUpload(): Promise<string | null> {
     if (this.isCapturing || !this.sessionId) return null;
+
+    // Skip screenshot when OS is idle (no input for 10+ min)
+    if (this.activityTracker?.isOsIdle) return null;
+
     this.isCapturing = true;
 
     try {

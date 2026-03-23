@@ -22,6 +22,7 @@ export const activitySessions = pgTable(
     editorVersion: varchar("editor_version", { length: 50 }),
     extensionVersion: varchar("extension_version", { length: 20 }),
     osPlatform: varchar("os_platform", { length: 30 }),
+    appUsage: jsonb("app_usage").default({}),
     // External platform project/task being worked on during this session
     externalProjectId: integer("external_project_id").references(() => externalProjects.id, { onDelete: "set null" }),
     externalTaskId: integer("external_task_id").references(() => externalTasks.id, { onDelete: "set null" }),

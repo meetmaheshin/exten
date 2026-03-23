@@ -69,6 +69,10 @@ export class TelemetryService {
 
     const metrics = this.activityTracker.harvestMetrics();
 
+    // Skip heartbeat entirely if OS is idle (saves bandwidth, prevents idle inflation)
+    // But still harvest metrics to reset counters
+    if (this.activityTracker.isOsIdle) return;
+
     try {
       await this.apiClient.post("/api/telemetry/session/heartbeat", {
         sessionId: this.sessionId,

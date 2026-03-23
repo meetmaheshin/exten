@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import type { ActivitySnapshot } from "@ailancers/shared-types";
+import type { SystemIdleService } from "./SystemIdleService";
 
 export class ActivityTracker {
   private lastActivityTimestamp = Date.now();
@@ -15,9 +16,21 @@ export class ActivityTracker {
   private activeSeconds = 0;
   private idleSeconds = 0;
   private aiRequestCount = 0;
+  private systemIdleService: SystemIdleService | null;
 
-  constructor() {
+  constructor(systemIdleService?: SystemIdleService) {
+    this.systemIdleService = systemIdleService ?? null;
     this.tickInterval = setInterval(() => this.tick(), 1000);
+  }
+
+  /** True when OS has had no input for > 10 minutes */
+  get isOsIdle(): boolean {
+    return (this.systemIdleService?.osIdleSeconds ?? 0) > 600;
+  }
+
+  /** Current foreground app name */
+  get activeAppName(): string {
+    return this.systemIdleService?.activeWindow.appName ?? "unknown";
   }
 
   private tick(): void {
@@ -29,8 +42,11 @@ export class ActivityTracker {
     this.lastTickTimestamp = now;
 
     const idleThreshold = config.get<number>("idleTimeoutSeconds", 300) * 1000;
+    const osIdleSec = this.systemIdleService?.osIdleSeconds ?? 0;
 
-    if (now - this.lastActivityTimestamp > idleThreshold) {
+    // Use OS idle as primary signal; fall back to VS Code activity tracking
+    // OS idle > 10 min = definitely idle (even if VS Code events fire from background processes)
+    if (osIdleSec > 600 || now - this.lastActivityTimestamp > idleThreshold) {
       this.isIdle = true;
       this.idleSeconds += elapsed;
     } else {
@@ -92,6 +108,7 @@ export class ActivityTracker {
       filesModified: Object.fromEntries(this.filesModified),
       languageSeconds: Object.fromEntries(this.languageSeconds),
       isCurrentlyIdle: this.isIdle,
+      appUsage: this.systemIdleService?.harvestAppUsage() ?? {},
     };
 
     // Reset counters

@@ -8,6 +8,8 @@ import { ApprovalService } from "./services/ApprovalService";
 import { ActivityTracker } from "./services/ActivityTracker";
 import { TelemetryService } from "./services/TelemetryService";
 import { ScreenCaptureService } from "./services/ScreenCaptureService";
+import { SystemIdleService } from "./services/SystemIdleService";
+import { AutoStartService } from "./services/AutoStartService";
 import { ProjectPickerService } from "./services/ProjectPickerService";
 import { ChatViewProvider } from "./providers/ChatViewProvider";
 import { StatusBarProvider } from "./providers/StatusBarProvider";
@@ -26,10 +28,13 @@ export async function activate(context: vscode.ExtensionContext) {
   const toolExecutor = new ToolExecutor(outputChannel);
   const approvalService = new ApprovalService();
   const chatService = new ChatService(apiClient, wsClient, toolExecutor, approvalService);
-  const activityTracker = new ActivityTracker();
+  const systemIdleService = new SystemIdleService();
+  systemIdleService.start();
+  const activityTracker = new ActivityTracker(systemIdleService);
   const projectPicker = new ProjectPickerService(apiClient, context);
   const telemetryService = new TelemetryService(apiClient, activityTracker, projectPicker);
-  const screenCaptureService = new ScreenCaptureService(context, apiClient);
+  const screenCaptureService = new ScreenCaptureService(context, apiClient, activityTracker);
+  const autoStartService = new AutoStartService(context);
 
   // Register sidebar webview
   const chatViewProvider = new ChatViewProvider(context.extensionUri, chatService, apiClient, authService);
@@ -94,6 +99,20 @@ export async function activate(context: vscode.ExtensionContext) {
       vscode.window.showInformationMessage(
         `Ailancers: Refreshed — ${projects.length} project${projects.length !== 1 ? "s" : ""} found`
       );
+    }),
+    // Toggle auto-start on boot
+    vscode.commands.registerCommand("ailancers.toggleAutoStart", async () => {
+      try {
+        if (autoStartService.isEnabled()) {
+          await autoStartService.disable();
+          vscode.window.showInformationMessage("Ailancers: Auto-start disabled. VS Code will no longer open on boot.");
+        } else {
+          await autoStartService.enable();
+          vscode.window.showInformationMessage("Ailancers: Auto-start enabled. VS Code will open automatically on boot.");
+        }
+      } catch (err) {
+        vscode.window.showErrorMessage(`Ailancers: ${err instanceof Error ? err.message : err}`);
+      }
     })
   );
 
@@ -106,7 +125,7 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   // Cleanup on deactivation
-  context.subscriptions.push(activityTracker, screenCaptureService);
+  context.subscriptions.push(activityTracker, screenCaptureService, { dispose: () => systemIdleService.dispose() });
 
   // Attempt auto-login
   const restored = await authService.tryRestoreSession();
@@ -120,6 +139,8 @@ export async function activate(context: vscode.ExtensionContext) {
     }
     // Pre-fetch user's projects in background so picker is instant
     projectPicker.fetchMyProjects().catch(() => {});
+    // Prompt auto-start on first login
+    autoStartService.promptOnFirstLogin().catch(() => {});
   }
 
   // Listen for auth changes
@@ -133,6 +154,8 @@ export async function activate(context: vscode.ExtensionContext) {
       // Pre-cache projects after login
       projectPicker.invalidateCache();
       projectPicker.fetchMyProjects().catch(() => {});
+      // Prompt auto-start on first login
+      autoStartService.promptOnFirstLogin().catch(() => {});
     } else {
       telemetryService.endSession();
       wsClient.disconnect();
