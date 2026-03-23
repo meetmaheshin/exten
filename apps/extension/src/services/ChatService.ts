@@ -64,7 +64,7 @@ export class ChatService {
   }
 
   /** Send an agent-mode message — Claude can use tools */
-  sendAgentMessage(conversationId: string, content: string, callback: StreamCallback, model?: string, agentType?: "coder" | "qa", images?: unknown[]): void {
+  sendAgentMessage(conversationId: string, content: string, callback: StreamCallback, model?: string, agentType?: import("@ailancers/shared-types").AgentType, images?: unknown[]): void {
     this.streamCallbacks.set(conversationId, callback);
     this.wsClient.send({
       type: "agent_message",

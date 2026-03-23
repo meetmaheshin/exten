@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { Env } from "../config/env.js";
-import { AGENT_TOOL_DEFINITIONS, AGENT_SYSTEM_PROMPT, QA_SYSTEM_PROMPT, DESIGN_REVIEW_SYSTEM_PROMPT, CHAT_SYSTEM_PROMPT, requiresApproval } from "./agentTools.js";
+import { AGENT_TOOL_DEFINITIONS, AGENT_SYSTEM_PROMPT, QA_SYSTEM_PROMPT, DESIGN_REVIEW_SYSTEM_PROMPT, PLANNING_SYSTEM_PROMPT, CHAT_SYSTEM_PROMPT, requiresApproval } from "./agentTools.js";
 import type { AgentUsage, ToolCallSummary } from "@ailancers/shared-types";
 
 // Pricing per million tokens (as of Feb 2026)
@@ -108,6 +108,7 @@ export class ClaudeProxyService {
     const model = options?.model || this.defaultModel;
     const systemPrompt = options?.agentType === "qa" ? QA_SYSTEM_PROMPT
       : options?.agentType === "design" ? DESIGN_REVIEW_SYSTEM_PROMPT
+      : options?.agentType === "planning" ? PLANNING_SYSTEM_PROMPT
       : AGENT_SYSTEM_PROMPT;
     const msgs: Anthropic.MessageParam[] = [...conversationMessages];
 

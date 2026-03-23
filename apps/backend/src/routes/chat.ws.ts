@@ -299,7 +299,7 @@ export function chatWsRoute(
               await recordAiUsage(db, {
                 userId,
                 projectId,
-                model: msg.model || "default",
+                model: msg.model || "claude-sonnet-4-6",
                 inputTokens: result.inputTokens,
                 outputTokens: result.outputTokens,
                 costUsd: result.costUsd,
@@ -487,7 +487,7 @@ export function chatWsRoute(
                 await recordAiUsage(db, {
                   userId,
                   projectId: agentProjectId,
-                  model: msg.model || "default",
+                  model: msg.model || "claude-sonnet-4-6",
                   inputTokens: result.usage.inputTokens,
                   outputTokens: result.usage.outputTokens,
                   costUsd: result.usage.costUsd,

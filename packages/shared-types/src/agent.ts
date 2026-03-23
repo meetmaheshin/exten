@@ -37,7 +37,7 @@ export interface ToolCallSummary {
 
 // ─── WebSocket Protocol: Client → Server ───
 
-export type AgentType = "coder" | "qa" | "design";
+export type AgentType = "coder" | "qa" | "design" | "planning";
 
 export interface ImageAttachment {
   /** base64-encoded image data */

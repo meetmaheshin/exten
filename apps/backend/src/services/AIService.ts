@@ -13,130 +13,178 @@ export interface AvailableModel {
   category: "code" | "chat" | "reasoning";
 }
 
-/** All known models — only models whose provider key is configured will be available */
+/** All known models — Claude listed first as primary provider */
 const ALL_MODELS: AvailableModel[] = [
-  // Anthropic
+  // Anthropic — PRIMARY provider
   { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6", provider: "anthropic", category: "code" },
-  { id: "claude-opus-4-6", name: "Claude Opus 4.6", provider: "anthropic", category: "code" },
-  { id: "claude-haiku-4-5", name: "Claude Haiku 4.5", provider: "anthropic", category: "chat" },
-  // OpenAI — Code-optimized
-  { id: "gpt-5.3-codex", name: "GPT-5.3 Codex", provider: "openai", category: "code" },
-  { id: "codex-mini-latest", name: "Codex Mini", provider: "openai", category: "code" },
-  { id: "gpt-4.1", name: "GPT-4.1", provider: "openai", category: "code" },
-  { id: "gpt-4.1-mini", name: "GPT-4.1 Mini", provider: "openai", category: "code" },
-  // OpenAI — Chat
-  { id: "gpt-4o", name: "GPT-4o", provider: "openai", category: "chat" },
-  { id: "gpt-4o-mini", name: "GPT-4o Mini", provider: "openai", category: "chat" },
-  // OpenAI — Reasoning
-  { id: "o4-mini", name: "o4-mini", provider: "openai", category: "reasoning" },
-  { id: "o3-mini", name: "o3-mini", provider: "openai", category: "reasoning" },
+  { id: "claude-opus-4-6",   name: "Claude Opus 4.6",   provider: "anthropic", category: "code" },
+  { id: "claude-haiku-4-5",  name: "Claude Haiku 4.5",  provider: "anthropic", category: "chat" },
+  // OpenAI — fallback only
+  { id: "gpt-4o",            name: "GPT-4o",            provider: "openai",    category: "chat" },
+  { id: "gpt-4o-mini",       name: "GPT-4o Mini",       provider: "openai",    category: "chat" },
+  { id: "gpt-4.1",           name: "GPT-4.1",           provider: "openai",    category: "code" },
+  { id: "gpt-4.1-mini",      name: "GPT-4.1 Mini",      provider: "openai",    category: "code" },
+  { id: "o4-mini",           name: "o4-mini",           provider: "openai",    category: "reasoning" },
+  { id: "o3-mini",           name: "o3-mini",           provider: "openai",    category: "reasoning" },
 ];
 
 /**
- * Unified AI service that routes requests to Claude or OpenAI
- * based on the selected model.
+ * Unified AI service — Claude (Anthropic) is always the PRIMARY provider.
+ *
+ * Routing rules:
+ *   1. If an explicit OpenAI model ID is requested (gpt-*, o3-*, o4-*) → use OpenAI directly
+ *   2. Otherwise → use Claude (claude-sonnet-4-6 as default)
+ *   3. If Claude errors → automatically retry with OpenAI (if configured) as fallback
+ *   4. If ANTHROPIC_API_KEY is missing → use OpenAI only
  */
 export class AIService {
-  private claude: ClaudeProxyService;
+  private claude: ClaudeProxyService | null;
   private openai: OpenAIProxyService | null;
-  private openaiEnabled: boolean;
-  private defaultModel: string;
-
-  private anthropicEnabled: boolean;
 
   constructor(env: Env) {
-    this.anthropicEnabled = !!env.ANTHROPIC_API_KEY;
-    this.claude = this.anthropicEnabled ? new ClaudeProxyService(env) : (null as unknown as ClaudeProxyService);
-    this.openaiEnabled = !!env.OPENAI_API_KEY;
-    this.openai = this.openaiEnabled ? new OpenAIProxyService(env) : null;
-    this.defaultModel = env.ANTHROPIC_DEFAULT_MODEL;
-  }
+    this.claude = env.ANTHROPIC_API_KEY ? new ClaudeProxyService(env) : null;
+    this.openai = env.OPENAI_API_KEY ? new OpenAIProxyService(env) : null;
 
-  /** Get the list of models available based on configured API keys */
-  getAvailableModels(): AvailableModel[] {
-    return ALL_MODELS.filter((m) => {
-      if (m.provider === "openai") return this.openaiEnabled;
-      if (m.provider === "anthropic") return this.anthropicEnabled;
-      return false;
-    });
-  }
-
-  /** Get recommended default models for each mode */
-  getDefaultModels(): { chatModel: string; codingModel: string } {
-    return {
-      chatModel: this.defaultModel,  // gpt-4o or claude-sonnet
-      codingModel: this.openaiEnabled && this.openai
-        ? this.openai.getCodingModel()
-        : this.defaultModel,
-    };
-  }
-
-  /** Detect provider from model ID */
-  private getProvider(model?: string): AIProvider {
-    const m = model || this.defaultModel;
-    if (m.startsWith("gpt-") || m.startsWith("o1-") || m.startsWith("o3-") || m.startsWith("o4-") || m.includes("codex")) {
-      return "openai";
+    if (!this.claude) {
+      console.warn("[AIService] ANTHROPIC_API_KEY not set — Claude unavailable. Set it in Railway environment variables.");
     }
-    return "anthropic";
   }
 
-  /** Stream a simple chat response */
+  private isOpenAIModel(model: string): boolean {
+    return model.startsWith("gpt-") || model.startsWith("o1-") || model.startsWith("o3-") || model.startsWith("o4-") || model.includes("codex");
+  }
+
+  /** Get the list of available models based on configured API keys */
+  getAvailableModels(): AvailableModel[] {
+    return ALL_MODELS.filter((m) =>
+      m.provider === "anthropic" ? !!this.claude : !!this.openai
+    );
+  }
+
+  /**
+   * Default models — always Claude when available.
+   */
+  getDefaultModels(): { chatModel: string; codingModel: string } {
+    if (this.claude) {
+      return { chatModel: "claude-sonnet-4-6", codingModel: "claude-sonnet-4-6" };
+    }
+    return { chatModel: "gpt-4o", codingModel: "gpt-4.1" };
+  }
+
+  /** Stream a chat response — Claude first, OpenAI fallback on error */
   async streamChat(
     messages: Array<{ role: "user" | "assistant"; content: string }>,
     callbacks: StreamCallbacks,
     options?: { model?: string; abortSignal?: AbortSignal }
   ) {
-    const provider = this.getProvider(options?.model);
+    const model = options?.model;
 
-    if (provider === "openai") {
+    // Explicit OpenAI model requested
+    if (model && this.isOpenAIModel(model)) {
       if (!this.openai) {
-        callbacks.onError("OpenAI is not configured. Set OPENAI_API_KEY in your environment.");
+        callbacks.onError("OpenAI is not configured. Set OPENAI_API_KEY.");
         return;
       }
       return this.openai.streamChat(messages, callbacks, options);
     }
 
-    if (!this.anthropicEnabled) {
-      callbacks.onError("Anthropic is not configured. Set ANTHROPIC_API_KEY in your environment.");
-      return;
+    // Claude primary
+    if (this.claude) {
+      try {
+        return await this.claude.streamChat(messages, callbacks, {
+          ...options,
+          model: (model && !this.isOpenAIModel(model)) ? model : "claude-sonnet-4-6",
+        });
+      } catch (err) {
+        if (this.openai) {
+          console.error("[AIService] Claude failed, falling back to OpenAI:", err);
+          return this.openai.streamChat(messages, callbacks, { ...options, model: "gpt-4o" });
+        }
+        throw err;
+      }
     }
-    return this.claude.streamChat(messages, callbacks, options);
+
+    // No Claude — OpenAI only
+    if (this.openai) {
+      return this.openai.streamChat(messages, callbacks, { ...options, model: "gpt-4o" });
+    }
+
+    callbacks.onError("No AI provider configured. Set ANTHROPIC_API_KEY.");
   }
 
-  /** Run the agentic coding loop */
+  /** Run the agentic tool-use loop — Claude primary, OpenAI fallback */
   async runAgentLoop(
     conversationMessages: Anthropic.MessageParam[] | Array<{ role: string; content: string }>,
     callbacks: AgentCallbacks,
     options?: { model?: string; abortSignal?: AbortSignal; budgetRemainingUsd?: number; agentType?: string }
   ): Promise<AgentResult> {
-    const provider = this.getProvider(options?.model);
+    const empty: AgentResult = {
+      fullText: "",
+      usage: { inputTokens: 0, outputTokens: 0, costUsd: 0, turnCount: 0, toolCallCount: 0 },
+      toolCalls: [],
+    };
 
-    if (provider === "openai") {
+    const model = options?.model;
+
+    // Explicit OpenAI model requested
+    if (model && this.isOpenAIModel(model)) {
       if (!this.openai) {
-        callbacks.onError("OpenAI is not configured. Set OPENAI_API_KEY in your environment.");
-        return { fullText: "", usage: { inputTokens: 0, outputTokens: 0, costUsd: 0, turnCount: 0, toolCallCount: 0 }, toolCalls: [] };
+        callbacks.onError("OpenAI is not configured. Set OPENAI_API_KEY.");
+        return empty;
       }
-      // Convert Anthropic format to simple format for OpenAI
-      const simpleMessages = (conversationMessages as Array<{ role: string; content: unknown }>).map((m) => ({
-        role: m.role,
-        content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
-      }));
-      return this.openai.runAgentLoop(simpleMessages, callbacks, options);
+      const msgs = toSimpleMessages(conversationMessages);
+      return this.openai.runAgentLoop(msgs, callbacks, options);
     }
 
-    if (!this.anthropicEnabled) {
-      callbacks.onError("Anthropic is not configured. Set ANTHROPIC_API_KEY in your environment.");
-      return { fullText: "", usage: { inputTokens: 0, outputTokens: 0, costUsd: 0, turnCount: 0, toolCallCount: 0 }, toolCalls: [] };
+    // Claude primary (native tool_use — best for agentic loops)
+    if (this.claude) {
+      try {
+        return await this.claude.runAgentLoop(
+          conversationMessages as Anthropic.MessageParam[],
+          callbacks,
+          {
+            ...options,
+            model: (model && !this.isOpenAIModel(model)) ? model : "claude-sonnet-4-6",
+          }
+        );
+      } catch (err) {
+        if (this.openai) {
+          console.error("[AIService] Claude agent failed, falling back to OpenAI:", err);
+          callbacks.onError("Claude unavailable — switching to OpenAI fallback.");
+          const msgs = toSimpleMessages(conversationMessages);
+          return this.openai.runAgentLoop(msgs, callbacks, { ...options, model: "gpt-4.1" });
+        }
+        throw err;
+      }
     }
-    return this.claude.runAgentLoop(conversationMessages as Anthropic.MessageParam[], callbacks, options);
+
+    // No Claude — OpenAI only
+    if (this.openai) {
+      const msgs = toSimpleMessages(conversationMessages);
+      return this.openai.runAgentLoop(msgs, callbacks, { ...options, model: "gpt-4.1" });
+    }
+
+    callbacks.onError("No AI provider configured. Set ANTHROPIC_API_KEY.");
+    return empty;
   }
 
   /** Calculate cost for a model */
   calculateCost(model: string, inputTokens: number, outputTokens: number): number {
-    const provider = this.getProvider(model);
-    if (provider === "openai" && this.openai) {
+    if (this.isOpenAIModel(model) && this.openai) {
       return this.openai.calculateCost(model, inputTokens, outputTokens);
     }
-    return this.claude.calculateCost(model, inputTokens, outputTokens);
+    if (this.claude) {
+      return this.claude.calculateCost(model, inputTokens, outputTokens);
+    }
+    return 0;
   }
+}
+
+function toSimpleMessages(
+  msgs: Anthropic.MessageParam[] | Array<{ role: string; content: unknown }>
+): Array<{ role: string; content: string }> {
+  return (msgs as Array<{ role: string; content: unknown }>).map((m) => ({
+    role: m.role,
+    content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+  }));
 }
