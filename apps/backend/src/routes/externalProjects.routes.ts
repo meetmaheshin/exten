@@ -273,8 +273,10 @@ export function externalProjectsRoutes(
 
     // Find all active projects where this external user is in assignee_ids
     // OR is assigned to at least one task
-    const assigneeJson = JSON.stringify([externalUserId]);
-    const userMatchJson = JSON.stringify([{ id: externalUserId }]);
+    // NOTE: JSONB parameters must use sql.raw() because Drizzle's sql template
+    // double-escapes string params, making @> containment fail.
+    const assigneeLiteral = sql.raw(`'${JSON.stringify([externalUserId])}'::jsonb`);
+    const userMatchLiteral = sql.raw(`'${JSON.stringify([{ id: externalUserId }])}'::jsonb`);
     const assignedProjects = await db.execute<{
       id: number;
       name: string;
@@ -296,11 +298,11 @@ export function externalProjectsRoutes(
           WHERE ep.active = true
             AND ep.is_closed = false
             AND (
-              ep.assignee_ids @> ${assigneeJson}::jsonb
+              ep.assignee_ids @> ${assigneeLiteral}
               OR EXISTS (
                 SELECT 1 FROM external_tasks et
                 WHERE et.project_id = ep.id
-                  AND et.assigned_users @> ${userMatchJson}::jsonb
+                  AND et.assigned_users @> ${userMatchLiteral}
               )
             )
           ORDER BY ep.name`
@@ -331,7 +333,7 @@ export function externalProjectsRoutes(
         sql`SELECT id, project_id, name, state, stage_name, priority, date_deadline
             FROM external_tasks
             WHERE project_id = ANY(${projectIds}::int[])
-              AND assigned_users @> ${userMatchJson}::jsonb
+              AND assigned_users @> ${userMatchLiteral}
             ORDER BY
               CASE state
                 WHEN '01_in_progress' THEN 0
