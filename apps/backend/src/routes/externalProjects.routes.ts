@@ -273,10 +273,10 @@ export function externalProjectsRoutes(
 
     // Find all active projects where this external user is in assignee_ids
     // OR is assigned to at least one task
-    // NOTE: JSONB parameters must use sql.raw() because Drizzle's sql template
-    // double-escapes string params, making @> containment fail.
-    const assigneeLiteral = sql.raw(`'${JSON.stringify([externalUserId])}'::jsonb`);
-    const userMatchLiteral = sql.raw(`'${JSON.stringify([{ id: externalUserId }])}'::jsonb`);
+    // NOTE: Use sql.raw for the full query because Drizzle's parameterized sql template
+    // double-escapes JSONB string params, making @> containment fail.
+    const assigneeJson = JSON.stringify([externalUserId]);
+    const userMatchJson = JSON.stringify([{ id: externalUserId }]);
     const assignedProjects = await db.execute<{
       id: number;
       name: string;
@@ -286,7 +286,7 @@ export function externalProjectsRoutes(
       task_count: number;
       date_end: string | null;
     }>(
-      sql`SELECT DISTINCT
+      sql.raw(`SELECT DISTINCT
             ep.id,
             ep.name,
             ep.stage_name,
@@ -298,14 +298,14 @@ export function externalProjectsRoutes(
           WHERE ep.active = true
             AND ep.is_closed = false
             AND (
-              ep.assignee_ids @> ${assigneeLiteral}
+              ep.assignee_ids @> '${assigneeJson}'::jsonb
               OR EXISTS (
                 SELECT 1 FROM external_tasks et
                 WHERE et.project_id = ep.id
-                  AND et.assigned_users @> ${userMatchLiteral}
+                  AND et.assigned_users @> '${userMatchJson}'::jsonb
               )
             )
-          ORDER BY ep.name`
+          ORDER BY ep.name`)
     );
 
     // For each project, get the tasks assigned to this user
@@ -330,17 +330,17 @@ export function externalProjectsRoutes(
         priority: string | null;
         date_deadline: string | null;
       }>(
-        sql`SELECT id, project_id, name, state, stage_name, priority, date_deadline
+        sql.raw(`SELECT id, project_id, name, state, stage_name, priority, date_deadline
             FROM external_tasks
-            WHERE project_id = ANY(${projectIds}::int[])
-              AND assigned_users @> ${userMatchLiteral}
+            WHERE project_id = ANY(ARRAY[${projectIds.join(",")}]::int[])
+              AND assigned_users @> '${userMatchJson}'::jsonb
             ORDER BY
               CASE state
                 WHEN '01_in_progress' THEN 0
                 WHEN '04_waiting_normal' THEN 1
                 ELSE 2
               END,
-              date_deadline ASC NULLS LAST`
+              date_deadline ASC NULLS LAST`)
       );
 
       for (const task of tasks) {

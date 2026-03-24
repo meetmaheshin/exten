@@ -64,32 +64,51 @@ export class ProjectPickerService implements vscode.Disposable {
 
   /** Fetch projects assigned to the current user. Uses a short cache.
    *  Returns empty array if identity confirmation is needed (caller should call promptIdentityConfirmation). */
-  async fetchMyProjects(): Promise<ExternalProject[]> {
-    const cached = this.context.globalState.get<{ data: ExternalProject[]; at: number }>(CACHE_KEY);
-    if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
-      return cached.data;
+  async fetchMyProjects(skipCache = false): Promise<ExternalProject[]> {
+    if (!skipCache) {
+      const cached = this.context.globalState.get<{ data: ExternalProject[]; at: number }>(CACHE_KEY);
+      if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
+        return cached.data;
+      }
     }
 
     try {
       const resp = await this.apiClient.get<{
         data: ExternalProject[];
         mapped: boolean;
+        externalUserId?: number | null;
         needsIdentityConfirmation?: boolean;
         candidates?: ExternalUserCandidate[];
       }>("/api/projects/mine");
 
+      this._log(`API /projects/mine → mapped=${resp.mapped}, externalUserId=${resp.externalUserId ?? "null"}, projects=${resp.data?.length ?? 0}, needsConfirm=${resp.needsIdentityConfirmation ?? false}`);
+
       if (resp.needsIdentityConfirmation && resp.candidates?.length) {
-        // Don't cache — ask user to confirm identity, then re-fetch
         await this.promptIdentityConfirmation(resp.candidates);
         return [];
       }
 
-      if (!resp.mapped) return [];
+      if (!resp.mapped) {
+        this._log("Not mapped to any external user — no projects to show");
+        return [];
+      }
       await this.context.globalState.update(CACHE_KEY, { data: resp.data, at: Date.now() });
       return resp.data;
-    } catch {
+    } catch (err) {
+      this._log(`Error fetching projects: ${err instanceof Error ? err.message : String(err)}`);
+      const cached = this.context.globalState.get<{ data: ExternalProject[]; at: number }>(CACHE_KEY);
       return cached?.data ?? [];
     }
+  }
+
+  private _log(msg: string): void {
+    const ch = this._outputChannel;
+    if (ch) ch.appendLine(`[ProjectPicker] ${msg}`);
+  }
+
+  private get _outputChannel(): vscode.OutputChannel | null {
+    // Reuse the global output channel if available
+    return (globalThis as Record<string, unknown>).__ailancersOutput as vscode.OutputChannel | null ?? null;
   }
 
   /** When multiple platform users share the same name, ask which one they are. */

@@ -21,6 +21,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
   log("Activating Ailancers Code extension...");
 
+  // Expose output channel globally for debug logging in services
+  (globalThis as Record<string, unknown>).__ailancersOutput = outputChannel;
+
   // Initialize services
   const authService = new AuthService(context.secrets);
   const apiClient = new ApiClient(authService);
@@ -92,13 +95,18 @@ export async function activate(context: vscode.ExtensionContext) {
       }
       await projectPicker.promptPicker();
     }),
-    // Refresh project list from server
+    // Refresh project list from server (hard refresh, skip cache)
     vscode.commands.registerCommand("ailancers.refreshProjects", async () => {
       projectPicker.invalidateCache();
-      const projects = await projectPicker.fetchMyProjects();
-      vscode.window.showInformationMessage(
-        `Ailancers: Refreshed — ${projects.length} project${projects.length !== 1 ? "s" : ""} found`
-      );
+      log("Refreshing projects (cache cleared)...");
+      const projects = await projectPicker.fetchMyProjects(true);
+      const msg = `Ailancers: Refreshed — ${projects.length} project${projects.length !== 1 ? "s" : ""} found`;
+      log(msg);
+      if (projects.length === 0) {
+        // Show output channel so user can see debug info
+        outputChannel.show(true);
+      }
+      vscode.window.showInformationMessage(msg);
     }),
     // Toggle auto-start on boot
     vscode.commands.registerCommand("ailancers.toggleAutoStart", async () => {
