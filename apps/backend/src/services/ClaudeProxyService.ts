@@ -59,6 +59,7 @@ export class ClaudeProxyService {
         max_tokens: this.maxTokens,
         system: CHAT_SYSTEM_PROMPT,
         messages,
+        thinking: { type: "adaptive" },
       });
 
       let fullText = "";
@@ -141,6 +142,7 @@ export class ClaudeProxyService {
           system: systemPrompt,
           tools: AGENT_TOOL_DEFINITIONS,
           messages: msgs,
+          thinking: { type: "adaptive" },
         });
 
         // Accumulate token usage
