@@ -67,7 +67,10 @@ export class ToolExecutor {
 
   // ─── read_file ───
   private async readFile(input: Record<string, unknown>): Promise<ToolResult> {
-    const filePath = this.resolvePath(input.path as string);
+    if (!input.path || typeof input.path !== "string") {
+      return { result: "read_file requires a 'path' parameter", isError: true };
+    }
+    const filePath = this.resolvePath(input.path);
     const uri = vscode.Uri.file(filePath);
 
     const bytes = await vscode.workspace.fs.readFile(uri);
@@ -94,12 +97,15 @@ export class ToolExecutor {
 
   // ─── write_file ───
   private async writeFile(input: Record<string, unknown>): Promise<ToolResult> {
-    const content = input.content as string;
+    if (!input.path || typeof input.path !== "string") {
+      return { result: "write_file requires a 'path' parameter", isError: true };
+    }
+    const content = typeof input.content === "string" ? input.content : "";
     if (content.length > MAX_WRITE_SIZE) {
       return { result: `File content exceeds maximum size (${MAX_WRITE_SIZE / 1024}KB)`, isError: true };
     }
 
-    const filePath = this.resolvePath(input.path as string);
+    const filePath = this.resolvePath(input.path);
     const uri = vscode.Uri.file(filePath);
 
     // Ensure parent directory exists
@@ -118,10 +124,16 @@ export class ToolExecutor {
 
   // ─── edit_file ───
   private async editFile(input: Record<string, unknown>): Promise<ToolResult> {
-    const filePath = this.resolvePath(input.path as string);
+    if (!input.path || typeof input.path !== "string") {
+      return { result: "edit_file requires a 'path' parameter", isError: true };
+    }
+    if (!input.old_text || typeof input.old_text !== "string") {
+      return { result: "edit_file requires a non-empty 'old_text' parameter", isError: true };
+    }
+    const filePath = this.resolvePath(input.path);
     const uri = vscode.Uri.file(filePath);
-    const oldText = input.old_text as string;
-    const newText = input.new_text as string;
+    const oldText = input.old_text;
+    const newText = typeof input.new_text === "string" ? input.new_text : "";
 
     const bytes = await vscode.workspace.fs.readFile(uri);
     const content = Buffer.from(bytes).toString("utf-8");
