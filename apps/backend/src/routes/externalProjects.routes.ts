@@ -274,6 +274,7 @@ export function externalProjectsRoutes(
     // Find all active projects where this external user is in assignee_ids
     // OR is assigned to at least one task
     const assigneeJson = JSON.stringify([externalUserId]);
+    const userMatchJson = JSON.stringify([{ id: externalUserId }]);
     const assignedProjects = await db.execute<{
       id: number;
       name: string;
@@ -299,7 +300,7 @@ export function externalProjectsRoutes(
               OR EXISTS (
                 SELECT 1 FROM external_tasks et
                 WHERE et.project_id = ep.id
-                  AND et.assigned_users @> jsonb_build_array(jsonb_build_object('id', ${externalUserId}::int))
+                  AND et.assigned_users @> ${userMatchJson}::jsonb
               )
             )
           ORDER BY ep.name`
@@ -330,7 +331,7 @@ export function externalProjectsRoutes(
         sql`SELECT id, project_id, name, state, stage_name, priority, date_deadline
             FROM external_tasks
             WHERE project_id = ANY(${projectIds}::int[])
-              AND assigned_users @> jsonb_build_array(jsonb_build_object('id', ${externalUserId}::int))
+              AND assigned_users @> ${userMatchJson}::jsonb
             ORDER BY
               CASE state
                 WHEN '01_in_progress' THEN 0
