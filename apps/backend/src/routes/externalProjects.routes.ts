@@ -194,7 +194,7 @@ export function externalProjectsRoutes(
         updatedAt: externalUserMappings.updatedAt,
       })
       .from(externalUserMappings)
-      .leftJoin(users, eq(externalUserMappings.userId, users.id))
+      .leftJoin(users, sql`${externalUserMappings.userId}::uuid = ${users.id}`)
       .orderBy(externalUserMappings.externalUserName);
 
     return reply.send({ data: mappings });
