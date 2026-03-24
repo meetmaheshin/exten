@@ -92,7 +92,7 @@ export default function ProjectsPage() {
     try {
       const result = await apiFetch<{ projectsUpserted: number; tasksUpserted: number; durationMs: number; errors: string[] }>(
         "/api/admin/sync/projects",
-        { token: accessToken, method: "POST" }
+        { token: accessToken, method: "POST", body: JSON.stringify({}) }
       );
       alert(
         `Sync complete!\n` +

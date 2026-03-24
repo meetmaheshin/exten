@@ -446,8 +446,8 @@ export function externalProjectsRoutes(
       offset: z.coerce.number().int().min(0).default(0),
     }).parse(request.query);
 
-    const fromFilter = query.from ? sql`AND s.started_at >= ${new Date(query.from)}` : sql``;
-    const toFilter = query.to ? sql`AND s.started_at <= ${new Date(query.to)}` : sql``;
+    const fromFilter = query.from ? sql`AND s.started_at >= ${query.from}::timestamptz` : sql``;
+    const toFilter = query.to ? sql`AND s.started_at <= ${query.to}::timestamptz` : sql``;
 
     const result = await db.execute<{
       project_id: number;
