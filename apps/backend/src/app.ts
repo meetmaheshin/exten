@@ -9,6 +9,7 @@ import type { Env } from "./config/env.js";
 import type { Database } from "./config/database.js";
 import { AuthService } from "./services/AuthService.js";
 import { AIService } from "./services/AIService.js";
+import { BillingReporter } from "./services/BillingReporter.js";
 import { authRoutes } from "./routes/auth.routes.js";
 import { chatRoutes } from "./routes/chat.routes.js";
 import { chatWsRoute } from "./routes/chat.ws.js";
@@ -16,6 +17,7 @@ import { telemetryRoutes } from "./routes/telemetry.routes.js";
 import { screenshotRoutes } from "./routes/screenshot.routes.js";
 import { activityRoutes } from "./routes/activity.routes.js";
 import { externalProjectsRoutes } from "./routes/externalProjects.routes.js";
+import { billingRoutes } from "./routes/billing.routes.js";
 import { AppError } from "./utils/errors.js";
 import { ZodError } from "zod";
 
@@ -115,6 +117,8 @@ export async function buildApp(env: Env, db: Database) {
   // Services
   const authService = new AuthService(db, env);
   const aiService = new AIService(env);
+  const billingReporter = new BillingReporter(env);
+  billingReporter.start();
 
   // Model discovery endpoint — includes recommended defaults per mode
   app.get("/api/models", async () => ({
@@ -125,11 +129,12 @@ export async function buildApp(env: Env, db: Database) {
   // Routes
   authRoutes(app, authService, db);
   chatRoutes(app, authService, db);
-  chatWsRoute(app, authService, aiService, db);
+  chatWsRoute(app, authService, aiService, db, billingReporter);
   telemetryRoutes(app, authService, db);
   screenshotRoutes(app, authService, db, env);
   activityRoutes(app, authService, db);
   externalProjectsRoutes(app, authService, db);
+  billingRoutes(app, authService, billingReporter);
 
   return app;
 }

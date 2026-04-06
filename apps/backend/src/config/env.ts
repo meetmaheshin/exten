@@ -36,6 +36,11 @@ const envSchema = z.object({
 
   SCREENSHOT_STORAGE_DIR: z.string().default("/app/data/screenshots"),
   SCREENSHOT_MAX_SIZE_MB: z.coerce.number().default(5),
+
+  // AI Billing — report token usage to ailancers-chat-ui
+  AILANCERS_BILLING_API_URL: z.string().default(""),
+  AILANCERS_BILLING_HMAC_SECRET: z.string().default(""),
+  AILANCERS_BILLING_REPORT_INTERVAL_MS: z.coerce.number().default(180000), // 3 minutes
 });
 
 export type Env = z.infer<typeof envSchema>;

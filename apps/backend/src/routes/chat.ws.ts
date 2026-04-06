@@ -131,7 +131,8 @@ export function chatWsRoute(
   app: FastifyInstance,
   authService: AuthService,
   aiService: AIService,
-  db: Database
+  db: Database,
+  billingReporter?: import("../services/BillingReporter.js").BillingReporter,
 ) {
   const rateLimiter = new UserRateLimiter(30, 60_000); // 30 AI requests per minute
 
@@ -304,6 +305,16 @@ export function chatWsRoute(
                 outputTokens: result.outputTokens,
                 costUsd: result.costUsd,
               });
+
+              // Report to ailancers billing (batched, async)
+              if (billingReporter && projectId) {
+                billingReporter.recordUsage(
+                  projectId,
+                  msg.model || "claude-sonnet-4-6",
+                  result.inputTokens,
+                  result.outputTokens,
+                );
+              }
 
               send(socket, {
                 type: "stream_end",
@@ -492,6 +503,16 @@ export function chatWsRoute(
                   outputTokens: result.usage.outputTokens,
                   costUsd: result.usage.costUsd,
                 });
+
+                // Report to ailancers billing (batched, async)
+                if (billingReporter && agentProjectId) {
+                  billingReporter.recordUsage(
+                    agentProjectId,
+                    msg.model || "claude-sonnet-4-6",
+                    result.usage.inputTokens,
+                    result.usage.outputTokens,
+                  );
+                }
 
                 send(socket, {
                   type: "stream_end",
