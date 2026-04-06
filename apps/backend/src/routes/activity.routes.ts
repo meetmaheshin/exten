@@ -206,6 +206,34 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
     return reply.send({ data: daily });
   });
 
+  // AI usage breakdown by date (for the AI Usage & Cost page)
+  app.get("/api/admin/ai-usage/daily", { preHandler: admin }, async (request, reply) => {
+    const query = dateRangeSchema.parse(request.query);
+
+    const conditions = [];
+    if (query.from) conditions.push(gte(aiUsageDaily.date, query.from.slice(0, 10)));
+    if (query.to) conditions.push(lte(aiUsageDaily.date, query.to.slice(0, 10)));
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const daily = await db
+      .select({
+        date: aiUsageDaily.date,
+        totalRequests: sql<number>`coalesce(sum(${aiUsageDaily.totalRequests}), 0)::int`,
+        totalInputTokens: sql<number>`coalesce(sum(${aiUsageDaily.totalInputTokens}), 0)::int`,
+        totalOutputTokens: sql<number>`coalesce(sum(${aiUsageDaily.totalOutputTokens}), 0)::int`,
+        totalCostUsd: sql<string>`coalesce(sum(${aiUsageDaily.totalCostUsd}), 0)`,
+        uniqueUsers: sql<number>`count(distinct ${aiUsageDaily.userId})::int`,
+      })
+      .from(aiUsageDaily)
+      .where(whereClause)
+      .groupBy(aiUsageDaily.date)
+      .orderBy(desc(aiUsageDaily.date))
+      .limit(query.limit);
+
+    return reply.send({ data: daily });
+  });
+
   // List all users (admin)
   app.get("/api/admin/users", { preHandler: admin }, async (request, reply) => {
     const allUsers = await db
