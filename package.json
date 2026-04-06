@@ -16,7 +16,11 @@
   "packageManager": "pnpm@10.16.1",
   "pnpm": {
     "onlyBuiltDependencies": [
-      "esbuild"
+      "esbuild",
+      "electron"
+    ],
+    "ignoredBuiltDependencies": [
+      "sharp"
     ]
   }
 }
