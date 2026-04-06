@@ -1,24 +1,18 @@
-import { desktopCapturer, app } from "electron";
-import * as path from "node:path";
-import * as fs from "node:fs";
+import { desktopCapturer } from "electron";
 import type { ApiClient } from "./ApiClient";
 import type { ActivityTracker } from "./ActivityTracker";
 import type { ConfigStore } from "./ConfigStore";
+import type { TelemetryService } from "./TelemetryService";
 
 export class ScreenCaptureService {
   private captureInterval: ReturnType<typeof setInterval> | null = null;
-  private localDir: string;
 
   constructor(
     private apiClient: ApiClient,
     private activityTracker: ActivityTracker,
-    private configStore: ConfigStore
-  ) {
-    this.localDir = path.join(app.getPath("userData"), "screenshots");
-    if (!fs.existsSync(this.localDir)) {
-      fs.mkdirSync(this.localDir, { recursive: true });
-    }
-  }
+    private configStore: ConfigStore,
+    private telemetryService: TelemetryService
+  ) {}
 
   start(): void {
     if (this.captureInterval) return;
@@ -38,6 +32,9 @@ export class ScreenCaptureService {
     if (!this.configStore.get("screenCaptureEnabled")) return;
     if (this.activityTracker.isIdle) return;
 
+    const sessionId = this.telemetryService.sessionId;
+    if (!sessionId) return;
+
     try {
       const sources = await desktopCapturer.getSources({
         types: ["screen"],
@@ -52,35 +49,19 @@ export class ScreenCaptureService {
       const primaryScreen = sources[0];
       const image = primaryScreen.thumbnail;
       const pngBuffer = image.toPNG();
+      const imageBase64 = pngBuffer.toString("base64");
+      const filename = `desktop-${Date.now()}.png`;
 
-      // Upload to backend
-      await this.upload(pngBuffer);
+      await this.apiClient.post("/api/telemetry/screenshot", {
+        sessionId,
+        filename,
+        imageBase64,
+        capturedAt: new Date().toISOString(),
+      });
 
       console.log(`[ScreenCapture] Captured and uploaded (${(pngBuffer.length / 1024).toFixed(0)}KB)`);
     } catch (err) {
       console.error("[ScreenCapture] Capture failed:", err);
-    }
-  }
-
-  private async upload(pngBuffer: Buffer): Promise<void> {
-    const base64 = pngBuffer.toString("base64");
-    const filename = `desktop-${Date.now()}.png`;
-
-    try {
-      const resp = await this.apiClient.fetch("/api/telemetry/screenshot", {
-        method: "POST",
-        body: JSON.stringify({
-          filename,
-          image: base64,
-          timestamp: new Date().toISOString(),
-        }),
-      });
-
-      if (!resp.ok) {
-        console.error("[ScreenCapture] Upload failed:", resp.status);
-      }
-    } catch (err) {
-      console.error("[ScreenCapture] Upload error:", err);
     }
   }
 

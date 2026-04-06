@@ -33,7 +33,7 @@ app.whenReady().then(async () => {
   const systemIdle = new SystemIdleService();
   const activityTracker = new ActivityTracker(systemIdle, configStore);
   const telemetryService = new TelemetryService(apiClient, activityTracker, configStore);
-  const screenCapture = new ScreenCaptureService(apiClient, activityTracker, configStore);
+  const screenCapture = new ScreenCaptureService(apiClient, activityTracker, configStore, telemetryService);
   const projectService = new ProjectService(apiClient);
 
   // Use Electron's built-in idle detection (more reliable than PowerShell)
@@ -45,6 +45,21 @@ app.whenReady().then(async () => {
   // ─── Create tray ───
   const trayManager = new TrayManager(authService, projectService, activityTracker, telemetryService);
 
+  // ─── Update tray timer on each heartbeat flush ───
+  telemetryService.onFlush((result) => {
+    trayManager.updateActiveTime(result.activeSeconds);
+    trayManager.rebuildMenu();
+  });
+
+  // ─── Sync project selection → telemetry when user picks via tray ───
+  // Poll project selection every 5s to keep telemetry in sync
+  setInterval(() => {
+    telemetryService.setActiveProject(
+      projectService.activeProjectId,
+      projectService.activeTaskId
+    );
+  }, 5000);
+
   // ─── Start/stop services based on auth state ───
   async function startTracking(): Promise<void> {
     console.log("[Ailancers] User authenticated — starting tracking");
@@ -53,10 +68,16 @@ app.whenReady().then(async () => {
     await telemetryService.startSession();
     screenCapture.start();
 
-    // Fetch projects in background
+    // Fetch projects and auto-select if previously saved
     try {
       const projects = await projectService.fetchProjects();
       console.log(`[Ailancers] ${projects.length} projects loaded`);
+
+      // Sync initial project selection to telemetry
+      telemetryService.setActiveProject(
+        projectService.activeProjectId,
+        projectService.activeTaskId
+      );
     } catch {
       // Non-critical
     }
@@ -69,6 +90,7 @@ app.whenReady().then(async () => {
     screenCapture.stop();
     activityTracker.stop();
     systemIdle.stop();
+    telemetryService.setActiveProject(null, null);
     projectService.invalidateCache();
     trayManager.resetActiveTime();
     trayManager.rebuildMenu();
