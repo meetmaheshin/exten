@@ -92,6 +92,10 @@ export class TrayManager {
     this.totalActiveSeconds += seconds;
   }
 
+  setTotalActiveSeconds(seconds: number): void {
+    this.totalActiveSeconds = seconds;
+  }
+
   resetActiveTime(): void {
     this.totalActiveSeconds = 0;
   }

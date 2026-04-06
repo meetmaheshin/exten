@@ -68,6 +68,17 @@ app.whenReady().then(async () => {
     await telemetryService.startSession();
     screenCapture.start();
 
+    // Restore today's active time so tray doesn't show 0m after re-login
+    try {
+      const todaySeconds = await telemetryService.fetchTodayActiveSeconds();
+      if (todaySeconds > 0) {
+        trayManager.setTotalActiveSeconds(todaySeconds);
+        console.log(`[Ailancers] Restored today's active time: ${Math.round(todaySeconds / 60)}m`);
+      }
+    } catch {
+      // Non-critical
+    }
+
     // Fetch projects and auto-select if previously saved
     try {
       const projects = await projectService.fetchProjects();

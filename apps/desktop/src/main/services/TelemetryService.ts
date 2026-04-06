@@ -25,7 +25,6 @@ export class TelemetryService {
     return this._sessionId;
   }
 
-  /** Register a callback that fires after each successful heartbeat flush */
   onFlush(cb: (result: TelemetryFlushResult) => void): void {
     this.onFlushCallback = cb;
   }
@@ -33,6 +32,20 @@ export class TelemetryService {
   setActiveProject(projectId: number | null, taskId: number | null): void {
     this.activeProjectId = projectId;
     this.activeTaskId = taskId;
+  }
+
+  /** Fetch today's total active seconds from the backend (for tray timer restore) */
+  async fetchTodayActiveSeconds(): Promise<number> {
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const resp = await this.apiClient.get<{
+        totalActiveSeconds: number;
+      }>(`/api/activity/me/summary?from=${today.toISOString()}`);
+      return resp.totalActiveSeconds || 0;
+    } catch {
+      return 0;
+    }
   }
 
   async startSession(): Promise<void> {
@@ -64,7 +77,6 @@ export class TelemetryService {
       this.flushInterval = null;
     }
 
-    // Final flush
     await this.flush();
 
     try {
@@ -85,8 +97,8 @@ export class TelemetryService {
 
     const metrics = this.activityTracker.harvestMetrics();
 
-    // Skip heartbeat if fully idle (no active seconds this interval)
-    if (metrics.activeSeconds === 0 && metrics.idleSeconds > 0) {
+    // Skip heartbeat only if nothing happened at all
+    if (metrics.activeSeconds === 0 && metrics.idleSeconds === 0) {
       return;
     }
 
@@ -106,7 +118,6 @@ export class TelemetryService {
         appUsage: metrics.appUsage,
       });
 
-      // Notify caller (tray) of successful flush
       if (this.onFlushCallback) {
         this.onFlushCallback({
           activeSeconds: metrics.activeSeconds,
