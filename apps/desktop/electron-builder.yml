@@ -7,7 +7,9 @@ files:
   - dist/**/*
   - resources/**/*
 win:
-  target: [nsis]
+  target:
+    - target: dir
+      arch: x64
   icon: resources/icon.png
 mac:
   target: [dmg]
