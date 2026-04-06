@@ -1,0 +1,24 @@
+appId: com.ailancers.desktop-tracker
+productName: Ailancers Tracker
+directories:
+  output: out
+  buildResources: resources
+files:
+  - dist/**/*
+  - resources/**/*
+win:
+  target: [nsis]
+  icon: resources/icon.png
+mac:
+  target: [dmg]
+  icon: resources/icon.png
+  category: public.app-category.productivity
+linux:
+  target: [AppImage]
+  icon: resources/icon.png
+  category: Utility
+nsis:
+  oneClick: true
+  allowToChangeInstallationDirectory: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true

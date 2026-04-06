@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ailancers — Select Project</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f0f23;
+      color: #e2e8f0;
+      padding: 20px;
+    }
+    h2 { font-size: 16px; margin-bottom: 12px; color: #818cf8; }
+    .current {
+      background: #1e1e3a;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 16px;
+      font-size: 13px;
+      border: 1px solid #334155;
+    }
+    .current strong { color: #818cf8; }
+    .clear-btn {
+      background: none;
+      border: 1px solid #475569;
+      color: #94a3b8;
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 11px;
+      cursor: pointer;
+      margin-left: 8px;
+    }
+    .clear-btn:hover { border-color: #f87171; color: #f87171; }
+    .search {
+      width: 100%;
+      padding: 10px 14px;
+      background: #1e1e3a;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      color: #e2e8f0;
+      font-size: 14px;
+      margin-bottom: 12px;
+      outline: none;
+    }
+    .search:focus { border-color: #818cf8; }
+    .project-list {
+      max-height: 320px;
+      overflow-y: auto;
+      border-radius: 8px;
+    }
+    .project-item {
+      padding: 10px 14px;
+      background: #1e1e3a;
+      border: 1px solid #1e1e3a;
+      border-radius: 6px;
+      margin-bottom: 4px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .project-item:hover {
+      background: #2d2d52;
+      border-color: #818cf8;
+    }
+    .project-name { font-size: 13px; font-weight: 600; }
+    .project-meta { font-size: 11px; color: #94a3b8; margin-top: 2px; }
+    .task-list { margin-top: 4px; padding-left: 12px; }
+    .task-item {
+      padding: 6px 10px;
+      background: #16162e;
+      border-radius: 4px;
+      margin-top: 3px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: background 0.15s;
+    }
+    .task-item:hover { background: #2d2d52; }
+    .task-state { color: #818cf8; font-size: 10px; }
+    .loading { text-align: center; color: #94a3b8; padding: 40px; }
+    .empty { text-align: center; color: #64748b; padding: 40px; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h2>Select Project / Task</h2>
+  <div class="current" id="currentSelection">No project selected</div>
+  <input type="text" class="search" id="search" placeholder="Search projects...">
+  <div class="project-list" id="projectList">
+    <div class="loading">Loading projects...</div>
+  </div>
+
+  <script>
+    const searchInput = document.getElementById("search");
+    const projectList = document.getElementById("projectList");
+    const currentDiv = document.getElementById("currentSelection");
+    let allProjects = [];
+
+    async function loadProjects() {
+      const result = await window.ailancers.getProjects();
+      if (!result.ok || !result.data.length) {
+        projectList.innerHTML = '<div class="empty">No projects assigned to you.</div>';
+        return;
+      }
+      allProjects = result.data;
+      renderProjects(allProjects);
+    }
+
+    async function loadCurrent() {
+      const sel = await window.ailancers.getActiveSelection();
+      if (sel) {
+        currentDiv.innerHTML = `<strong>${sel.projectName}</strong>${sel.taskName ? " > " + sel.taskName : ""}` +
+          ' <button class="clear-btn" onclick="clearSelection()">Clear</button>';
+      }
+    }
+
+    function renderProjects(projects) {
+      if (projects.length === 0) {
+        projectList.innerHTML = '<div class="empty">No matching projects.</div>';
+        return;
+      }
+
+      projectList.innerHTML = projects.map(p => `
+        <div class="project-item" onclick="selectProject(${p.id}, '${esc(p.name)}')">
+          <div class="project-name">${esc(p.name)}</div>
+          <div class="project-meta">${p.stageName || ""} ${p.businessUnit ? "· " + p.businessUnit : ""} · ${p.myTasks.length} tasks</div>
+          ${p.myTasks.length > 0 ? `<div class="task-list">
+            ${p.myTasks.map(t => `
+              <div class="task-item" onclick="event.stopPropagation(); selectTask(${p.id}, '${esc(p.name)}', ${t.id}, '${esc(t.name)}')">
+                ${esc(t.name)} <span class="task-state">${stateLabel(t.state)}</span>
+              </div>
+            `).join("")}
+          </div>` : ""}
+        </div>
+      `).join("");
+    }
+
+    function esc(s) { return (s || "").replace(/'/g, "\\'").replace(/</g, "&lt;"); }
+    function stateLabel(s) {
+      const m = { "01_in_progress": "In Progress", "04_waiting_normal": "Waiting", "1_done": "Done" };
+      return m[s] || s || "";
+    }
+
+    async function selectProject(id, name) {
+      await window.ailancers.selectProject(id, name, null, null);
+      window.close();
+    }
+
+    async function selectTask(projectId, projectName, taskId, taskName) {
+      await window.ailancers.selectProject(projectId, projectName, taskId, taskName);
+      window.close();
+    }
+
+    async function clearSelection() {
+      await window.ailancers.clearProject();
+      currentDiv.innerHTML = "No project selected";
+    }
+
+    searchInput.addEventListener("input", () => {
+      const q = searchInput.value.toLowerCase();
+      const filtered = allProjects.filter(p =>
+        p.name.toLowerCase().includes(q) ||
+        (p.businessUnit || "").toLowerCase().includes(q) ||
+        p.myTasks.some(t => t.name.toLowerCase().includes(q))
+      );
+      renderProjects(filtered);
+    });
+
+    loadCurrent();
+    loadProjects();
+  </script>
+</body>
+</html>

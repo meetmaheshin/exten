@@ -1,0 +1,26 @@
+{
+  "name": "@ailancers/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Ailancers Desktop Activity Tracker",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "dev": "tsc && node scripts/copy-html.js && electron dist/main/index.js",
+    "build": "tsc && node scripts/copy-html.js",
+    "typecheck": "tsc --noEmit",
+    "package": "tsc && electron-builder",
+    "package:win": "tsc && electron-builder --win",
+    "package:mac": "tsc && electron-builder --mac",
+    "package:linux": "tsc && electron-builder --linux",
+    "clean": "rm -rf dist out"
+  },
+  "dependencies": {
+    "@ailancers/shared-types": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
+    "typescript": "^5.9.0"
+  }
+}
