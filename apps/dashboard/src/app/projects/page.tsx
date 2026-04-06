@@ -3,27 +3,38 @@
 import { useEffect, useState } from "react";
 import { DashboardShell } from "@/components/DashboardShell";
 import { useAuth } from "@/lib/auth";
-import { apiFetch, API_BASE } from "@/lib/api";
-import { formatDuration } from "@/lib/format";
+import { apiFetch } from "@/lib/api";
+import { formatDuration, formatNumber } from "@/lib/format";
 
-interface ProjectActivity {
-  project_id: number;
-  project_name: string;
+interface Project {
+  id: number;
+  name: string;
   stage_name: string | null;
+  owner_name: string | null;
+  business_unit: string | null;
+  task_count: number;
   total_active_seconds: number;
-  total_keystrokes: number;
   unique_developers: number;
   session_count: number;
 }
 
-interface TaskActivity {
-  task_id: number;
-  task_name: string;
-  state: string | null;
-  stage_name: string | null;
-  total_active_seconds: number;
-  unique_developers: number;
-  session_count: number;
+interface ProjectDetail {
+  project: { id: number; name: string; stageName: string | null; ownerName: string | null; businessUnit: string | null; taskCount: number };
+  users: Array<{
+    user_id: string; full_name: string; email: string;
+    total_active_seconds: number; total_idle_seconds: number;
+    total_keystrokes: number; total_file_saves: number;
+    session_count: number; last_active: string;
+  }>;
+  daily: Array<{ date: string; total_active_seconds: number; unique_developers: number; session_count: number }>;
+  tasks: Array<{ task_id: number; task_name: string; total_active_seconds: number; unique_developers: number; session_count: number }>;
+}
+
+interface LiveDev {
+  user_id: string; full_name: string; email: string;
+  project_id: number | null; project_name: string | null;
+  task_id: number | null; task_name: string | null;
+  active_seconds_today: number; session_started_at: string;
 }
 
 interface SyncStatus {
@@ -32,38 +43,23 @@ interface SyncStatus {
   userMappings: { mappedUsers: number };
 }
 
-interface LiveDev {
-  user_id: string;
-  full_name: string;
-  email: string;
-  project_id: number | null;
-  project_name: string | null;
-  task_id: number | null;
-  task_name: string | null;
-  active_seconds_today: number;
-  session_started_at: string;
-}
-
 export default function ProjectsPage() {
   const { accessToken } = useAuth();
-  const [projects, setProjects] = useState<ProjectActivity[]>([]);
-  const [selectedProject, setSelectedProject] = useState<ProjectActivity | null>(null);
-  const [tasks, setTasks] = useState<TaskActivity[]>([]);
-  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [selectedProject, setSelectedProject] = useState<ProjectDetail | null>(null);
   const [liveDevs, setLiveDevs] = useState<LiveDev[]>([]);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [tab, setTab] = useState<"projects" | "live">("projects");
-
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-  const fromParam = thirtyDaysAgo.toISOString();
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
     if (!accessToken) return;
     setLoading(true);
     Promise.all([
-      apiFetch<{ data: ProjectActivity[] }>(`/api/admin/projects/activity?from=${fromParam}&limit=100`, { token: accessToken }),
+      apiFetch<{ data: Project[] }>("/api/admin/projects/list?limit=500", { token: accessToken }),
       apiFetch<SyncStatus>("/api/admin/sync/status", { token: accessToken }),
       apiFetch<{ data: LiveDev[] }>("/api/admin/projects/live", { token: accessToken }),
     ])
@@ -76,46 +72,33 @@ export default function ProjectsPage() {
       .finally(() => setLoading(false));
   }, [accessToken]);
 
-  useEffect(() => {
-    if (!selectedProject || !accessToken) return;
-    apiFetch<{ data: TaskActivity[] }>(
-      `/api/admin/projects/${selectedProject.project_id}/tasks/activity`,
-      { token: accessToken }
-    )
-      .then((res) => setTasks(res.data))
-      .catch(console.error);
-  }, [selectedProject, accessToken]);
+  async function loadProjectDetail(projectId: number) {
+    if (!accessToken) return;
+    setDetailLoading(true);
+    try {
+      const detail = await apiFetch<ProjectDetail>(
+        `/api/admin/projects/${projectId}/detail`,
+        { token: accessToken }
+      );
+      setSelectedProject(detail);
+    } catch (e) { console.error(e); }
+    finally { setDetailLoading(false); }
+  }
 
   async function triggerSync() {
     if (!accessToken) return;
     setSyncing(true);
     try {
-      const result = await apiFetch<{ projectsUpserted: number; tasksUpserted: number; durationMs: number; errors: string[] }>(
-        "/api/admin/sync/projects",
-        { token: accessToken, method: "POST", body: JSON.stringify({}) }
-      );
-      alert(
-        `Sync complete!\n` +
-        `Projects: ${result.projectsUpserted}\n` +
-        `Tasks: ${result.tasksUpserted}\n` +
-        `Time: ${(result.durationMs / 1000).toFixed(1)}s` +
-        (result.errors.length > 0 ? `\nErrors:\n${result.errors.join("\n")}` : "")
-      );
-      // Refresh
-      const [pa, status] = await Promise.all([
-        apiFetch<{ data: ProjectActivity[] }>(`/api/admin/projects/activity?from=${fromParam}&limit=100`, { token: accessToken }),
-        apiFetch<SyncStatus>("/api/admin/sync/status", { token: accessToken }),
-      ]);
-      setProjects(pa.data);
-      setSyncStatus(status);
+      await apiFetch("/api/admin/sync/projects", { token: accessToken, method: "POST", body: JSON.stringify({}) });
+      window.location.reload();
     } catch (e) {
       alert("Sync failed: " + (e instanceof Error ? e.message : String(e)));
-    } finally {
-      setSyncing(false);
-    }
+    } finally { setSyncing(false); }
   }
 
-  const totalActiveSeconds = projects.reduce((s, p) => s + p.total_active_seconds, 0);
+  const filtered = search
+    ? projects.filter(p => p.name.toLowerCase().includes(search.toLowerCase()) || (p.business_unit || "").toLowerCase().includes(search.toLowerCase()))
+    : projects;
 
   return (
     <DashboardShell>
@@ -123,187 +106,141 @@ export default function ProjectsPage() {
         <div>
           <div className="page-title">Projects</div>
           <div className="page-subtitle">
-            Time tracked per platform project — last 30 days
-            {syncStatus && (
-              <span style={{ marginLeft: 12, color: "var(--text-muted)", fontSize: 11 }}>
-                {syncStatus.projects.totalProjects} projects · {syncStatus.tasks.totalTasks} tasks · {syncStatus.userMappings.mappedUsers} mapped users
-                {syncStatus.projects.lastSync && ` · Last sync: ${new Date(syncStatus.projects.lastSync).toLocaleString()}`}
-              </span>
-            )}
+            {syncStatus && `${syncStatus.projects.totalProjects} projects · ${syncStatus.tasks.totalTasks} tasks · ${syncStatus.userMappings.mappedUsers} mapped users`}
+            {syncStatus?.projects.lastSync && ` · Last sync: ${new Date(syncStatus.projects.lastSync).toLocaleString()}`}
           </div>
         </div>
-        <button
-          className="btn btn-primary"
-          onClick={triggerSync}
-          disabled={syncing}
-          style={{ minWidth: 120 }}
-        >
-          {syncing ? "Syncing…" : "↻ Sync Now"}
+        <button className="btn btn-primary" onClick={triggerSync} disabled={syncing} style={{ minWidth: 120 }}>
+          {syncing ? "Syncing..." : "Sync Now"}
         </button>
       </div>
 
-      {/* Tabs */}
       <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
         {(["projects", "live"] as const).map((t) => (
-          <button
-            key={t}
-            className={`btn ${tab === t ? "btn-primary" : "btn-secondary"}`}
-            onClick={() => setTab(t)}
-            style={{ minWidth: 100 }}
-          >
-            {t === "projects" ? "📊 Projects" : `🟢 Live (${liveDevs.length})`}
+          <button key={t} className={`btn ${tab === t ? "btn-primary" : "btn-secondary"}`} onClick={() => { setTab(t); setSelectedProject(null); }} style={{ minWidth: 100 }}>
+            {t === "projects" ? `All Projects (${filtered.length})` : `Live (${liveDevs.length})`}
           </button>
         ))}
       </div>
 
-      {loading ? (
-        <div className="loading">Loading project data…</div>
-      ) : tab === "live" ? (
-        /* ── LIVE VIEW ── */
+      {loading ? <div className="loading">Loading...</div> : tab === "live" ? (
         <div className="card">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Developer</th>
-                <th>Active Project</th>
-                <th>Active Task</th>
-                <th>Time Today</th>
-                <th>Session Started</th>
+          <div className="card-header">Active Sessions</div>
+          <div className="table-container"><table><thead><tr>
+            <th>Developer</th><th>Project</th><th>Task</th><th>Time Today</th><th>Started</th>
+          </tr></thead><tbody>
+            {liveDevs.length === 0 ? (
+              <tr><td colSpan={5} style={{ textAlign: "center", color: "var(--text-muted)", padding: 32 }}>No active sessions</td></tr>
+            ) : liveDevs.map(d => (
+              <tr key={d.user_id}>
+                <td><strong>{d.full_name}</strong><br /><span style={{ fontSize: 11, color: "var(--text-muted)" }}>{d.email}</span></td>
+                <td>{d.project_name || "—"}</td>
+                <td>{d.task_name || "—"}</td>
+                <td>{formatDuration(d.active_seconds_today)}</td>
+                <td>{new Date(d.session_started_at).toLocaleTimeString()}</td>
               </tr>
-            </thead>
-            <tbody>
-              {liveDevs.length === 0 ? (
-                <tr>
-                  <td colSpan={5} style={{ textAlign: "center", color: "var(--text-muted)", padding: 32 }}>
-                    No active sessions right now
-                  </td>
-                </tr>
-              ) : liveDevs.map((d) => (
-                <tr key={d.user_id}>
-                  <td>
-                    <div style={{ fontWeight: 500 }}>{d.full_name}</div>
-                    <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{d.email}</div>
-                  </td>
-                  <td>{d.project_name ?? <span style={{ color: "var(--text-muted)" }}>—</span>}</td>
-                  <td style={{ maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {d.task_name ?? <span style={{ color: "var(--text-muted)" }}>—</span>}
-                  </td>
-                  <td>{formatDuration(d.active_seconds_today)}</td>
-                  <td style={{ color: "var(--text-muted)", fontSize: 12 }}>
-                    {new Date(d.session_started_at).toLocaleTimeString()}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+            ))}
+          </tbody></table></div>
         </div>
-      ) : (
-        /* ── PROJECTS VIEW ── */
-        <div style={{ display: "grid", gridTemplateColumns: selectedProject ? "1fr 1fr" : "1fr", gap: 16 }}>
-          {/* Projects list */}
-          <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-            <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <strong>All Projects</strong>
-              <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                Total: {formatDuration(totalActiveSeconds)} active
-              </span>
-            </div>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Project</th>
-                  <th>Active Time</th>
-                  <th>Devs</th>
-                  <th>Sessions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {projects.length === 0 ? (
-                  <tr>
-                    <td colSpan={4} style={{ textAlign: "center", color: "var(--text-muted)", padding: 32 }}>
-                      No project activity yet. Make sure developers have selected a project in the extension and the platform is synced.
-                    </td>
-                  </tr>
-                ) : projects.map((p) => (
-                  <tr
-                    key={p.project_id}
-                    onClick={() => setSelectedProject(selectedProject?.project_id === p.project_id ? null : p)}
-                    style={{ cursor: "pointer", background: selectedProject?.project_id === p.project_id ? "var(--accent-subtle)" : undefined }}
-                  >
-                    <td>
-                      <div style={{ fontWeight: 500 }}>{p.project_name}</div>
-                      {p.stage_name && <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{p.stage_name}</div>}
-                    </td>
-                    <td>{formatDuration(p.total_active_seconds)}</td>
-                    <td>{p.unique_developers}</td>
-                    <td>{p.session_count}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      ) : selectedProject ? (
+        /* ── PROJECT DETAIL ── */
+        <div>
+          <button className="btn btn-secondary" onClick={() => setSelectedProject(null)} style={{ marginBottom: 16 }}>&larr; Back to Projects</button>
+          <div className="page-title" style={{ marginBottom: 4 }}>{selectedProject.project.name}</div>
+          <div className="page-subtitle" style={{ marginBottom: 20 }}>
+            {[selectedProject.project.stageName, selectedProject.project.businessUnit, selectedProject.project.ownerName ? `Owner: ${selectedProject.project.ownerName}` : null].filter(Boolean).join(" · ")}
           </div>
 
-          {/* Task breakdown for selected project */}
-          {selectedProject && (
-            <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-              <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div>
-                  <strong>{selectedProject.project_name}</strong>
-                  <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Task breakdown</div>
-                </div>
-                <button className="btn btn-secondary" style={{ fontSize: 11, padding: "4px 8px" }} onClick={() => setSelectedProject(null)}>✕</button>
-              </div>
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Task</th>
-                    <th>State</th>
-                    <th>Active Time</th>
-                    <th>Devs</th>
+          {detailLoading ? <div className="loading">Loading detail...</div> : (<>
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div className="card-header">Team Members ({selectedProject.users.length})</div>
+              <div className="table-container"><table><thead><tr>
+                <th>Developer</th><th>Active Time</th><th>Idle Time</th><th>Keystrokes</th><th>Saves</th><th>Sessions</th><th>Last Active</th><th>Screenshots</th>
+              </tr></thead><tbody>
+                {selectedProject.users.map(u => (
+                  <tr key={u.user_id}>
+                    <td><strong>{u.full_name}</strong><br /><span style={{ fontSize: 11, color: "var(--text-muted)" }}>{u.email}</span></td>
+                    <td style={{ color: "var(--success)", fontWeight: 600 }}>{formatDuration(u.total_active_seconds)}</td>
+                    <td style={{ color: "var(--warning)" }}>{formatDuration(u.total_idle_seconds)}</td>
+                    <td>{formatNumber(u.total_keystrokes)}</td>
+                    <td>{formatNumber(u.total_file_saves)}</td>
+                    <td>{u.session_count}</td>
+                    <td>{u.last_active ? new Date(u.last_active).toLocaleDateString() : "—"}</td>
+                    <td><a href={`/screenshots?userId=${u.user_id}`} style={{ color: "var(--primary)" }}>View</a></td>
                   </tr>
-                </thead>
-                <tbody>
-                  {tasks.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} style={{ textAlign: "center", color: "var(--text-muted)", padding: 32 }}>
-                        No task-level tracking yet for this project
-                      </td>
-                    </tr>
-                  ) : tasks.map((t) => (
+                ))}
+                {selectedProject.users.length === 0 && (
+                  <tr><td colSpan={8} style={{ textAlign: "center", color: "var(--text-muted)", padding: 24 }}>No activity recorded yet</td></tr>
+                )}
+              </tbody></table></div>
+            </div>
+
+            {selectedProject.tasks.length > 0 && (
+              <div className="card" style={{ marginBottom: 16 }}>
+                <div className="card-header">Task Breakdown</div>
+                <div className="table-container"><table><thead><tr>
+                  <th>Task</th><th>Active Time</th><th>Developers</th><th>Sessions</th>
+                </tr></thead><tbody>
+                  {selectedProject.tasks.map(t => (
                     <tr key={t.task_id}>
-                      <td style={{ maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {t.task_name}
-                      </td>
-                      <td>
-                        <span style={{
-                          fontSize: 11,
-                          padding: "2px 6px",
-                          borderRadius: 4,
-                          background: stateColor(t.state).bg,
-                          color: stateColor(t.state).text,
-                        }}>
-                          {t.stage_name ?? t.state ?? "—"}
-                        </span>
-                      </td>
-                      <td>{formatDuration(t.total_active_seconds)}</td>
+                      <td><strong>{t.task_name}</strong></td>
+                      <td style={{ color: "var(--success)", fontWeight: 600 }}>{formatDuration(t.total_active_seconds)}</td>
                       <td>{t.unique_developers}</td>
+                      <td>{t.session_count}</td>
                     </tr>
                   ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                </tbody></table></div>
+              </div>
+            )}
+
+            {selectedProject.daily.length > 0 && (
+              <div className="card">
+                <div className="card-header">Daily Activity</div>
+                <div className="table-container"><table><thead><tr>
+                  <th>Date</th><th>Active Time</th><th>Developers</th><th>Sessions</th>
+                </tr></thead><tbody>
+                  {selectedProject.daily.map(d => (
+                    <tr key={d.date}>
+                      <td>{new Date(d.date + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</td>
+                      <td style={{ color: "var(--success)", fontWeight: 600 }}>{formatDuration(d.total_active_seconds)}</td>
+                      <td>{d.unique_developers}</td>
+                      <td>{d.session_count}</td>
+                    </tr>
+                  ))}
+                </tbody></table></div>
+              </div>
+            )}
+          </>)}
+        </div>
+      ) : (
+        /* ── ALL PROJECTS LIST ── */
+        <div>
+          <input type="text" placeholder="Search projects..." value={search} onChange={e => setSearch(e.target.value)}
+            style={{ width: "100%", maxWidth: 400, padding: "8px 14px", background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, color: "var(--text)", marginBottom: 16, fontSize: 14, outline: "none" }} />
+          <div className="card">
+            <div className="table-container"><table><thead><tr>
+              <th>Project</th><th>Stage</th><th>BU</th><th>Tasks</th><th>Active Time</th><th>Developers</th><th>Sessions</th>
+            </tr></thead><tbody>
+              {filtered.map(p => (
+                <tr key={p.id} onClick={() => loadProjectDetail(p.id)} style={{ cursor: "pointer" }}>
+                  <td><strong style={{ color: "var(--primary)" }}>{p.name}</strong>{p.owner_name && <><br /><span style={{ fontSize: 11, color: "var(--text-muted)" }}>{p.owner_name}</span></>}</td>
+                  <td>{p.stage_name || "—"}</td>
+                  <td>{p.business_unit || "—"}</td>
+                  <td>{p.task_count}</td>
+                  <td style={{ fontWeight: p.total_active_seconds > 0 ? 600 : 400, color: p.total_active_seconds > 0 ? "var(--success)" : "var(--text-muted)" }}>
+                    {p.total_active_seconds > 0 ? formatDuration(p.total_active_seconds) : "—"}
+                  </td>
+                  <td>{p.unique_developers || "—"}</td>
+                  <td>{p.session_count || "—"}</td>
+                </tr>
+              ))}
+              {filtered.length === 0 && (
+                <tr><td colSpan={7} style={{ textAlign: "center", color: "var(--text-muted)", padding: 32 }}>No projects found</td></tr>
+              )}
+            </tbody></table></div>
+          </div>
         </div>
       )}
     </DashboardShell>
   );
-}
-
-function stateColor(state: string | null): { bg: string; text: string } {
-  switch (state) {
-    case "01_in_progress": return { bg: "#dbeafe", text: "#1d4ed8" };
-    case "1_done":         return { bg: "#dcfce7", text: "#15803d" };
-    case "03_cancelled":   return { bg: "#fee2e2", text: "#b91c1c" };
-    default:               return { bg: "var(--surface)", text: "var(--text-muted)" };
-  }
 }

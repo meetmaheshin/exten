@@ -547,4 +547,264 @@ export function externalProjectsRoutes(
 
     return reply.send({ data: Array.from(result) });
   });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Admin: all external projects listing (with activity stats)
+  // ─────────────────────────────────────────────────────────────────────────
+  app.get("/api/admin/projects/list", { preHandler: admin }, async (request, reply) => {
+    const query = z.object({
+      search: z.string().optional(),
+      limit: z.coerce.number().int().min(1).max(500).default(200),
+      offset: z.coerce.number().int().min(0).default(0),
+    }).parse(request.query);
+
+    const searchFilter = query.search
+      ? sql`AND ep.name ILIKE ${"%" + query.search + "%"}`
+      : sql``;
+
+    const result = await db.execute<{
+      id: number;
+      name: string;
+      stage_name: string | null;
+      owner_name: string | null;
+      business_unit: string | null;
+      task_count: number;
+      active: boolean;
+      total_active_seconds: number;
+      unique_developers: number;
+      session_count: number;
+    }>(
+      sql`SELECT
+            ep.id, ep.name, ep.stage_name, ep.owner_name, ep.business_unit,
+            ep.task_count, ep.active,
+            COALESCE(stats.total_active_seconds, 0)::int AS total_active_seconds,
+            COALESCE(stats.unique_developers, 0)::int AS unique_developers,
+            COALESCE(stats.session_count, 0)::int AS session_count
+          FROM external_projects ep
+          LEFT JOIN LATERAL (
+            SELECT
+              SUM(s.active_seconds)::int AS total_active_seconds,
+              COUNT(DISTINCT s.user_id)::int AS unique_developers,
+              COUNT(*)::int AS session_count
+            FROM activity_sessions s
+            WHERE s.external_project_id = ep.id
+          ) stats ON true
+          WHERE ep.active = true AND ep.is_closed = false ${searchFilter}
+          ORDER BY COALESCE(stats.total_active_seconds, 0) DESC, ep.name
+          LIMIT ${query.limit} OFFSET ${query.offset}`
+    );
+
+    return reply.send({ data: Array.from(result) });
+  });
+
+  // Admin: single project detail — users who worked on it with date breakdown
+  app.get("/api/admin/projects/:projectId/detail", { preHandler: admin }, async (request, reply) => {
+    const { projectId } = z.object({ projectId: z.coerce.number().int() }).parse(request.params);
+    const query = z.object({
+      from: z.string().datetime().optional(),
+      to: z.string().datetime().optional(),
+    }).parse(request.query);
+
+    const fromFilter = query.from ? sql`AND s.started_at >= ${query.from}::timestamptz` : sql``;
+    const toFilter = query.to ? sql`AND s.started_at <= ${query.to}::timestamptz` : sql``;
+
+    // Project info
+    const [project] = await db
+      .select()
+      .from(externalProjects)
+      .where(eq(externalProjects.id, projectId))
+      .limit(1);
+
+    if (!project) return reply.status(404).send({ error: "Project not found" });
+
+    // Users who worked on this project
+    const userBreakdown = await db.execute<{
+      user_id: string;
+      full_name: string;
+      email: string;
+      total_active_seconds: number;
+      total_idle_seconds: number;
+      total_keystrokes: number;
+      total_file_saves: number;
+      session_count: number;
+      last_active: string;
+    }>(
+      sql`SELECT
+            u.id AS user_id, u.full_name, u.email,
+            COALESCE(SUM(s.active_seconds), 0)::int AS total_active_seconds,
+            COALESCE(SUM(s.idle_seconds), 0)::int AS total_idle_seconds,
+            COALESCE(SUM(s.total_keystrokes), 0)::int AS total_keystrokes,
+            COALESCE(SUM(s.total_file_saves), 0)::int AS total_file_saves,
+            COUNT(*)::int AS session_count,
+            MAX(s.started_at)::text AS last_active
+          FROM activity_sessions s
+          JOIN users u ON u.id = s.user_id
+          WHERE s.external_project_id = ${projectId} ${fromFilter} ${toFilter}
+          GROUP BY u.id, u.full_name, u.email
+          ORDER BY total_active_seconds DESC`
+    );
+
+    // Daily breakdown
+    const dailyBreakdown = await db.execute<{
+      date: string;
+      total_active_seconds: number;
+      unique_developers: number;
+      session_count: number;
+    }>(
+      sql`SELECT
+            date(s.started_at) AS date,
+            COALESCE(SUM(s.active_seconds), 0)::int AS total_active_seconds,
+            COUNT(DISTINCT s.user_id)::int AS unique_developers,
+            COUNT(*)::int AS session_count
+          FROM activity_sessions s
+          WHERE s.external_project_id = ${projectId} ${fromFilter} ${toFilter}
+          GROUP BY date(s.started_at)
+          ORDER BY date DESC`
+    );
+
+    // Task breakdown
+    const taskBreakdown = await db.execute<{
+      task_id: number;
+      task_name: string;
+      total_active_seconds: number;
+      unique_developers: number;
+      session_count: number;
+    }>(
+      sql`SELECT
+            et.id AS task_id, et.name AS task_name,
+            COALESCE(SUM(s.active_seconds), 0)::int AS total_active_seconds,
+            COUNT(DISTINCT s.user_id)::int AS unique_developers,
+            COUNT(*)::int AS session_count
+          FROM activity_sessions s
+          JOIN external_tasks et ON et.id = s.external_task_id
+          WHERE s.external_project_id = ${projectId} ${fromFilter} ${toFilter}
+          GROUP BY et.id, et.name
+          ORDER BY total_active_seconds DESC`
+    );
+
+    return reply.send({
+      project,
+      users: Array.from(userBreakdown),
+      daily: Array.from(dailyBreakdown),
+      tasks: Array.from(taskBreakdown),
+    });
+  });
+
+  // Admin: user sessions with task names (for user detail view)
+  app.get("/api/admin/activity/user/:userId/sessions", { preHandler: admin }, async (request, reply) => {
+    const { userId } = z.object({ userId: z.string().uuid() }).parse(request.params);
+    const query = z.object({
+      from: z.string().datetime().optional(),
+      to: z.string().datetime().optional(),
+      limit: z.coerce.number().int().min(1).max(200).default(50),
+      offset: z.coerce.number().int().min(0).default(0),
+    }).parse(request.query);
+
+    const fromFilter = query.from ? sql`AND s.started_at >= ${query.from}::timestamptz` : sql``;
+    const toFilter = query.to ? sql`AND s.started_at <= ${query.to}::timestamptz` : sql``;
+
+    const sessions = await db.execute<{
+      id: string;
+      started_at: string;
+      ended_at: string | null;
+      active_seconds: number;
+      idle_seconds: number;
+      total_keystrokes: number;
+      total_file_saves: number;
+      project_name: string | null;
+      task_name: string | null;
+      os_platform: string | null;
+    }>(
+      sql`SELECT
+            s.id, s.started_at::text, s.ended_at::text,
+            COALESCE(s.active_seconds, 0) AS active_seconds,
+            COALESCE(s.idle_seconds, 0) AS idle_seconds,
+            COALESCE(s.total_keystrokes, 0) AS total_keystrokes,
+            COALESCE(s.total_file_saves, 0) AS total_file_saves,
+            ep.name AS project_name,
+            et.name AS task_name,
+            s.os_platform
+          FROM activity_sessions s
+          LEFT JOIN external_projects ep ON ep.id = s.external_project_id
+          LEFT JOIN external_tasks et ON et.id = s.external_task_id
+          WHERE s.user_id = ${userId} ${fromFilter} ${toFilter}
+          ORDER BY s.started_at DESC
+          LIMIT ${query.limit} OFFSET ${query.offset}`
+    );
+
+    return reply.send({ data: Array.from(sessions) });
+  });
+
+  // Admin: activity by date — all users breakdown for a specific date
+  app.get("/api/admin/activity/date/:date", { preHandler: admin }, async (request, reply) => {
+    const { date } = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }).parse(request.params);
+
+    const result = await db.execute<{
+      user_id: string;
+      full_name: string;
+      email: string;
+      total_active_seconds: number;
+      total_idle_seconds: number;
+      total_keystrokes: number;
+      total_file_saves: number;
+      session_count: number;
+      project_names: string;
+      task_names: string;
+    }>(
+      sql`SELECT
+            u.id AS user_id, u.full_name, u.email,
+            COALESCE(SUM(s.active_seconds), 0)::int AS total_active_seconds,
+            COALESCE(SUM(s.idle_seconds), 0)::int AS total_idle_seconds,
+            COALESCE(SUM(s.total_keystrokes), 0)::int AS total_keystrokes,
+            COALESCE(SUM(s.total_file_saves), 0)::int AS total_file_saves,
+            COUNT(*)::int AS session_count,
+            STRING_AGG(DISTINCT ep.name, ', ') AS project_names,
+            STRING_AGG(DISTINCT et.name, ', ') AS task_names
+          FROM activity_sessions s
+          JOIN users u ON u.id = s.user_id
+          LEFT JOIN external_projects ep ON ep.id = s.external_project_id
+          LEFT JOIN external_tasks et ON et.id = s.external_task_id
+          WHERE date(s.started_at) = ${date}::date
+          GROUP BY u.id, u.full_name, u.email
+          ORDER BY total_active_seconds DESC`
+    );
+
+    return reply.send({ data: Array.from(result) });
+  });
+
+  // Admin: AI usage per developer per day with task breakdown
+  app.get("/api/admin/ai-usage/user/:userId/daily", { preHandler: admin }, async (request, reply) => {
+    const { userId } = z.object({ userId: z.string().uuid() }).parse(request.params);
+    const query = z.object({
+      from: z.string().optional(),
+      to: z.string().optional(),
+      limit: z.coerce.number().int().min(1).max(100).default(30),
+    }).parse(request.query);
+
+    const fromFilter = query.from ? sql`AND a.date >= ${query.from.slice(0, 10)}` : sql``;
+    const toFilter = query.to ? sql`AND a.date <= ${query.to.slice(0, 10)}` : sql``;
+
+    const daily = await db.execute<{
+      date: string;
+      total_requests: number;
+      total_input_tokens: number;
+      total_output_tokens: number;
+      total_cost_usd: string;
+      model_breakdown: unknown;
+    }>(
+      sql`SELECT
+            a.date,
+            a.total_requests,
+            a.total_input_tokens,
+            a.total_output_tokens,
+            a.total_cost_usd,
+            a.model_breakdown
+          FROM ai_usage_daily a
+          WHERE a.user_id = ${userId} ${fromFilter} ${toFilter}
+          ORDER BY a.date DESC
+          LIMIT ${query.limit}`
+    );
+
+    return reply.send({ data: Array.from(daily) });
+  });
 }
