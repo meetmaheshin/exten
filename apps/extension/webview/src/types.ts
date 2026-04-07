@@ -35,6 +35,7 @@ export type IncomingMessage =
   | { type: "agent_turn_start"; conversationId: string; turnNumber: number }
   | { type: "agent_complete"; conversationId: string; totalUsage: AgentUsage }
   | { type: "budget_warning"; conversationId: string; currentCostUsd: number; budgetUsd: number; percentUsed: number }
+  | { type: "billing_suspended"; conversationId: string; reason: "SUSPENDED" | "CAP_REACHED"; message: string }
   | { type: "modelsLoaded"; models: AvailableModel[]; defaults?: { chatModel: string; codingModel: string } };
 
 export interface Conversation {

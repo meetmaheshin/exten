@@ -1,5 +1,5 @@
 // Agent protocol types are re-exported from ./agent
-import type { WsAgentMessage, WsToolResult, WsToolApproval, WsToolCall, WsToolResultAck, WsAgentTurnStart, WsAgentComplete, WsBudgetWarning, ImageAttachment } from "./agent.js";
+import type { WsAgentMessage, WsToolResult, WsToolApproval, WsToolCall, WsToolResultAck, WsAgentTurnStart, WsAgentComplete, WsBudgetWarning, WsBillingSuspended, ImageAttachment } from "./agent.js";
 
 export interface Conversation {
   id: string;
@@ -93,4 +93,5 @@ export type WsServerMessage =
   | WsToolResultAck
   | WsAgentTurnStart
   | WsAgentComplete
-  | WsBudgetWarning;
+  | WsBudgetWarning
+  | WsBillingSuspended;

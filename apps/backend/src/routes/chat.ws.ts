@@ -220,6 +220,31 @@ export function chatWsRoute(
             .limit(1);
           const projectId = conv?.projectId ?? null;
 
+          // Check billing status before allowing AI request
+          if (billingReporter && projectId) {
+            const billingStatus = await billingReporter.getBillingStatus(projectId);
+            if (billingStatus) {
+              if (billingStatus.billingStatus === "SUSPENDED") {
+                send(socket, {
+                  type: "billing_suspended",
+                  conversationId: msg.conversationId,
+                  reason: "SUSPENDED",
+                  message: "AI usage is suspended — wallet balance is empty. Please top up your wallet to continue.",
+                });
+                return;
+              }
+              if (billingStatus.capPercent >= 100) {
+                send(socket, {
+                  type: "billing_suspended",
+                  conversationId: msg.conversationId,
+                  reason: "CAP_REACHED",
+                  message: "Daily AI usage cap reached. Usage will resume tomorrow or when the cap is increased.",
+                });
+                return;
+              }
+            }
+          }
+
           // Save user message (store images as structured content)
           const hasImages = msg.images && msg.images.length > 0;
           await db
@@ -367,6 +392,31 @@ export function chatWsRoute(
             .where(eq(conversations.id, msg.conversationId))
             .limit(1);
           const agentProjectId = convRow?.projectId ?? null;
+
+          // Check billing status before allowing AI request
+          if (billingReporter && agentProjectId) {
+            const billingStatus = await billingReporter.getBillingStatus(agentProjectId);
+            if (billingStatus) {
+              if (billingStatus.billingStatus === "SUSPENDED") {
+                send(socket, {
+                  type: "billing_suspended",
+                  conversationId: msg.conversationId,
+                  reason: "SUSPENDED",
+                  message: "AI usage is suspended — wallet balance is empty. Please top up your wallet to continue.",
+                });
+                return;
+              }
+              if (billingStatus.capPercent >= 100) {
+                send(socket, {
+                  type: "billing_suspended",
+                  conversationId: msg.conversationId,
+                  reason: "CAP_REACHED",
+                  message: "Daily AI usage cap reached. Usage will resume tomorrow or when the cap is increased.",
+                });
+                return;
+              }
+            }
+          }
 
           await db
             .update(conversations)

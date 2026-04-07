@@ -99,6 +99,13 @@ export interface WsAgentComplete {
   totalUsage: AgentUsage;
 }
 
+export interface WsBillingSuspended {
+  type: "billing_suspended";
+  conversationId: string;
+  reason: "SUSPENDED" | "CAP_REACHED";
+  message: string;
+}
+
 export interface WsBudgetWarning {
   type: "budget_warning";
   conversationId: string;

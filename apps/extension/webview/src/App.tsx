@@ -352,6 +352,9 @@ export function App() {
       case "agent_complete":
         dispatch({ type: "AGENT_COMPLETE", usage: msg.totalUsage });
         break;
+      case "billing_suspended":
+        dispatch({ type: "STREAM_ERROR", error: msg.message });
+        break;
       case "modelsLoaded":
         dispatch({ type: "SET_MODELS", models: msg.models, defaults: msg.defaults });
         break;

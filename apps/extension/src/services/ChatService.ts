@@ -170,7 +170,7 @@ export class ChatService {
       callback(message);
 
       // Clean up callback when done
-      if (message.type === "stream_end" || message.type === "error" || message.type === "agent_complete") {
+      if (message.type === "stream_end" || message.type === "error" || message.type === "agent_complete" || message.type === "billing_suspended") {
         this.streamCallbacks.delete(conversationId);
       }
     }
