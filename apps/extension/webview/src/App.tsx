@@ -340,9 +340,9 @@ export function App() {
             isStreaming={state.isStreaming}
             agentMode={state.agentMode}
             agentType={state.agentType}
-            onToggleAgent={() => dispatch({ type: "TOGGLE_AGENT_MODE" })}
+            onToggleAgentMode={() => dispatch({ type: "TOGGLE_AGENT_MODE" })}
             onSetAgentType={(t) => dispatch({ type: "SET_AGENT_TYPE", agentType: t })}
-            models={state.availableModels}
+            availableModels={state.availableModels}
             selectedModel={state.selectedModel}
             onModelChange={(m) => dispatch({ type: "SET_SELECTED_MODEL", model: m })}
             onCancel={handleCancel}
