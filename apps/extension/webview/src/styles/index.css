@@ -336,6 +336,126 @@ body {
   margin-left: auto;
 }
 
+/* ========== Continuous Flow Chat ========== */
+.msg-row {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--vscode-widget-border, rgba(255,255,255,0.06));
+}
+
+.msg-user {
+  background: var(--vscode-sideBar-background);
+}
+
+.msg-assistant {
+  background: var(--vscode-editor-background, rgba(0,0,0,0.15));
+}
+
+.msg-role {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.msg-user .msg-role {
+  color: var(--vscode-terminal-ansiGreen, #4ec9b0);
+}
+
+.msg-assistant .msg-role {
+  color: var(--vscode-terminal-ansiBlue, #569cd6);
+}
+
+.msg-elapsed {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--vscode-descriptionForeground);
+  background: var(--vscode-badge-background, rgba(255,255,255,0.1));
+  padding: 1px 6px;
+  border-radius: 8px;
+}
+
+.msg-content {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--vscode-foreground);
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.msg-content p { margin: 0 0 8px 0; }
+.msg-content p:last-child { margin-bottom: 0; }
+.msg-content code {
+  background: var(--vscode-textCodeBlock-background, rgba(255,255,255,0.08));
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+}
+.msg-content pre {
+  background: var(--vscode-textCodeBlock-background, rgba(0,0,0,0.3));
+  padding: 10px 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 8px 0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.msg-content pre code {
+  background: none;
+  padding: 0;
+}
+.msg-content strong { color: var(--vscode-foreground); }
+.msg-content h1, .msg-content h2, .msg-content h3 {
+  margin: 12px 0 6px 0;
+  color: var(--vscode-foreground);
+}
+.msg-content ul, .msg-content ol {
+  padding-left: 20px;
+  margin: 4px 0 8px 0;
+}
+.msg-content hr {
+  border: none;
+  border-top: 1px solid var(--vscode-widget-border, rgba(255,255,255,0.1));
+  margin: 12px 0;
+}
+
+.msg-meta {
+  font-size: 10px;
+  color: var(--vscode-descriptionForeground);
+  margin-top: 6px;
+}
+
+/* Inline tool calls within the message flow */
+.msg-tools-inline {
+  margin: 6px 0;
+}
+
+.msg-inline-tool {
+  margin: 4px 0;
+}
+
+/* Streaming cursor */
+.streaming-cursor::after {
+  content: "\2588";
+  animation: blink 1s step-end infinite;
+  color: var(--vscode-terminal-ansiBrightWhite, #fff);
+  margin-left: 2px;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* Active streaming message */
+.msg-streaming {
+  border-left: 2px solid var(--vscode-terminal-ansiBlue, #569cd6);
+}
+
 /* ========== Input area ========== */
 /* ========== Image attachments ========== */
 .attached-images {
