@@ -2,52 +2,36 @@ import { useEffect, useRef, useState } from "react";
 import { ToolCallDisplay } from "./ToolCallDisplay";
 import { ApprovalCard } from "./ApprovalCard";
 import type { ChatMessage, PendingApproval, AgentUsage } from "../types";
-import type { StreamEvent } from "../App";
+import type { StreamItem } from "../App";
 import { renderMarkdown } from "../utils/markdown";
 
-function formatElapsed(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return m > 0 ? `${m}:${s.toString().padStart(2, "0")}` : `${s}s`;
+function formatElapsed(s: number): string {
+  const m = Math.floor(s / 60);
+  return m > 0 ? `${m}:${(s % 60).toString().padStart(2, "0")}` : `${s}s`;
 }
 
-interface MessageListProps {
+interface Props {
   messages: ChatMessage[];
   isStreaming: boolean;
-  streamTimeline: StreamEvent[];
+  stream: StreamItem[];
   pendingApprovals?: PendingApproval[];
-  onApprovalDecision?: (toolCallId: string, decision: "allow" | "allowAll" | "deny") => void;
+  onApprovalDecision?: (id: string, d: "allow" | "allowAll" | "deny") => void;
   agentUsage?: AgentUsage | null;
 }
 
-export function MessageList({
-  messages,
-  isStreaming,
-  streamTimeline,
-  pendingApprovals = [],
-  onApprovalDecision,
-  agentUsage,
-}: MessageListProps) {
+export function MessageList({ messages, isStreaming, stream, pendingApprovals = [], onApprovalDecision, agentUsage }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [elapsed, setElapsed] = useState(0);
-  const streamStartRef = useRef<number>(0);
+  const t0 = useRef(0);
 
   useEffect(() => {
-    if (isStreaming) {
-      streamStartRef.current = Date.now();
-      setElapsed(0);
-      const interval = setInterval(() => {
-        setElapsed(Math.floor((Date.now() - streamStartRef.current) / 1000));
-      }, 1000);
-      return () => clearInterval(interval);
-    }
+    if (isStreaming) { t0.current = Date.now(); setElapsed(0); const i = setInterval(() => setElapsed(Math.floor((Date.now() - t0.current) / 1000)), 1000); return () => clearInterval(i); }
     setElapsed(0);
   }, [isStreaming]);
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length, streamTimeline.length, pendingApprovals.length, agentUsage, isStreaming]);
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages.length, stream.length, isStreaming, agentUsage]);
 
+  // Empty state
   if (messages.length === 0 && !isStreaming) {
     return (
       <div className="messages-container">
@@ -61,99 +45,54 @@ export function MessageList({
 
   return (
     <div className="messages-container">
-      {/* ── History messages ── */}
+      {/* ── History ── */}
       {messages.map((msg, i) => (
-        <div key={msg.id ?? `msg-${i}`} className={`msg-row ${msg.role === "user" ? "msg-user" : "msg-assistant"}`}>
+        <div key={msg.id ?? `m${i}`} className={`msg-row ${msg.role === "user" ? "msg-user" : "msg-assistant"}`}>
           <div className="msg-role">{msg.role === "user" ? "YOU" : "AI"}</div>
-
-          {/* For saved assistant messages: render tool calls inline before text */}
-          {msg.role === "assistant" && msg.toolCalls && msg.toolCalls.map((tc) => (
+          {msg.role === "assistant" && msg.toolCalls?.map((tc) => (
             <ToolCallDisplay key={tc.toolCallId} toolCall={tc} />
           ))}
-
-          {msg.content && (
-            <div className="msg-content" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
-          )}
-
-          {msg.costUsd != null && msg.costUsd > 0 && (
-            <div className="msg-meta">${msg.costUsd.toFixed(4)}</div>
-          )}
+          {msg.content && <div className="msg-content" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />}
+          {msg.costUsd != null && msg.costUsd > 0 && <div className="msg-meta">${msg.costUsd.toFixed(4)}</div>}
         </div>
       ))}
 
-      {/* ── Active streaming: SINGLE continuous block from timeline ── */}
+      {/* ── Active stream: one continuous AI block ── */}
       {isStreaming && (
         <div className="msg-row msg-assistant msg-streaming">
-          <div className="msg-role">
-            AI
-            {elapsed > 0 && <span className="msg-elapsed">{formatElapsed(elapsed)}</span>}
-          </div>
+          <div className="msg-role">AI {elapsed > 0 && <span className="msg-elapsed">{formatElapsed(elapsed)}</span>}</div>
 
-          {/* Render timeline events in chronological order */}
-          {streamTimeline.map((event, idx) => {
-            if (event.kind === "text") {
-              const isLast = idx === streamTimeline.length - 1;
-              return (
-                <div
-                  key={`text-${idx}`}
-                  className={`msg-content ${isLast ? "streaming-cursor" : ""}`}
-                  dangerouslySetInnerHTML={{ __html: renderMarkdown(event.content) }}
-                />
-              );
+          {stream.map((item, idx) => {
+            if (item.kind === "text") {
+              const isLast = idx === stream.length - 1;
+              return <div key={`t${idx}`} className={`msg-content${isLast ? " streaming-cursor" : ""}`} dangerouslySetInnerHTML={{ __html: renderMarkdown(item.content) }} />;
             }
-
-            if (event.kind === "tool") {
-              // Check if there's a pending approval for this tool
-              const approval = pendingApprovals.find((a) => a.toolCallId === event.data.toolCallId);
+            if (item.kind === "tool") {
+              const approval = pendingApprovals.find((a) => a.toolCallId === item.data.toolCallId);
               return (
-                <div key={event.data.toolCallId}>
-                  <ToolCallDisplay
-                    toolCall={event.data}
-                    autoExpand={event.data.status === "running" || event.data.status === "pending"}
-                  />
-                  {approval && (
-                    <ApprovalCard
-                      approval={approval}
-                      onDecision={onApprovalDecision || (() => {})}
-                    />
-                  )}
+                <div key={item.data.toolCallId} className="msg-inline-tool">
+                  <ToolCallDisplay toolCall={item.data} autoExpand={item.data.status === "running"} />
+                  {approval && <ApprovalCard approval={approval} onDecision={onApprovalDecision || (() => {})} />}
                 </div>
               );
             }
-
-            if (event.kind === "approval") {
-              // Only render if not already rendered under its tool call
-              const hasToolInTimeline = streamTimeline.some(
-                (e) => e.kind === "tool" && e.data.toolCallId === event.data.toolCallId
-              );
-              if (hasToolInTimeline) return null;
-              return (
-                <ApprovalCard
-                  key={`approval-${event.data.toolCallId}`}
-                  approval={event.data}
-                  onDecision={onApprovalDecision || (() => {})}
-                />
-              );
+            if (item.kind === "approval") {
+              // Only render orphan approvals (not already under a tool)
+              if (stream.some((s) => s.kind === "tool" && s.data.toolCallId === item.data.toolCallId)) return null;
+              return <ApprovalCard key={`a${item.data.toolCallId}`} approval={item.data} onDecision={onApprovalDecision || (() => {})} />;
             }
-
             return null;
           })}
 
-          {/* If nothing in timeline yet, show thinking */}
-          {streamTimeline.length === 0 && (
-            <div className="msg-content streaming-cursor">Thinking...</div>
-          )}
+          {stream.length === 0 && <div className="msg-content streaming-cursor">Thinking...</div>}
         </div>
       )}
 
-      {/* ── Completion banner ── */}
+      {/* ── Done ── */}
       {!isStreaming && agentUsage && (
         <div className="agent-complete-banner">
           <span className="done-check">&#10003;</span>
-          <span>Completed</span>
-          <span className="done-stats">
-            {agentUsage.turnCount} turns &middot; {agentUsage.toolCallCount} tools &middot; ${agentUsage.costUsd.toFixed(4)}
-          </span>
+          Completed &middot; {agentUsage.turnCount} turns &middot; {agentUsage.toolCallCount} tools &middot; ${agentUsage.costUsd.toFixed(4)}
         </div>
       )}
 
