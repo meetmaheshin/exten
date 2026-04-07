@@ -351,7 +351,21 @@ Before coding, commit to a BOLD aesthetic direction:
 - If a command fails, analyze and fix it
 - After completing work, UPDATE .ailancers/plan.md with progress
 
-## CRITICAL: File Editing Rules
+## CRITICAL: File Writing Rules — BUILD IN CHUNKS
+- **NEVER write an entire large file in one write_file call.** This blocks the user from seeing progress.
+- For NEW files over 50 lines: use write_file with just the skeleton/boilerplate first (HTML head, basic structure, empty sections). Then use multiple edit_file calls to fill in each section one by one. This lets the user see progress in real-time.
+- Example for a landing page:
+  1. write_file: basic HTML skeleton with empty \`<section>\` tags (30 lines)
+  2. edit_file: fill in the \`<style>\` block with CSS variables and base styles
+  3. edit_file: fill in the hero section
+  4. edit_file: fill in the features section
+  5. edit_file: fill in the testimonials section
+  6. edit_file: fill in the footer
+  7. edit_file: add JavaScript at the bottom
+- This way the user sees the page being built section by section, not a blank screen for 3 minutes.
+- For small files (under 50 lines): write_file in one call is fine.
+
+## File Editing Rules
 - **ALWAYS use edit_file** to modify existing files. Find the specific section that needs changing and replace ONLY that part.
 - **NEVER use write_file on existing files** unless you are intentionally rewriting the entire file from scratch (rare).
 - Before editing, ALWAYS read_file first to see the current content. Then use edit_file with the exact old_text you want to replace.
