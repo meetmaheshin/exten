@@ -8,7 +8,7 @@ interface ChatInputProps {
   agentMode: boolean;
   agentType: "coder" | "qa" | "design";
   onToggleAgentMode: () => void;
-  onSetAgentType: (type: "coder" | "qa" | "design") => void;
+  onSetAgentType: (type: "coder" | "qa" | "design" | "supervisor") => void;
   availableModels: AvailableModel[];
   selectedModel: string;
   onModelChange: (model: string) => void;
@@ -103,9 +103,9 @@ export function ChatInput({
   };
 
   const placeholder = isStreaming
-    ? (agentType === "qa" ? "QA Agent is reviewing..." : agentType === "design" ? "Design review in progress..." : "AI is working...")
+    ? (agentType === "qa" ? "QA Agent is reviewing..." : agentType === "design" ? "Design review in progress..." : agentType === "supervisor" ? "Supervisor is reviewing..." : "AI is working...")
     : agentMode
-      ? (agentType === "qa" ? "Run QA review on your code..." : agentType === "design" ? "Review UI design quality..." : "Ask AI to code something...")
+      ? (agentType === "qa" ? "Run QA review on your code..." : agentType === "design" ? "Review UI design quality..." : agentType === "supervisor" ? "Review and improve the current work..." : "Ask AI to code something...")
       : "Ask me anything...";
 
   return (
@@ -199,6 +199,14 @@ export function ChatInput({
               title="Design reviewer: audits UI quality and suggests improvements"
             >
               Design
+            </button>
+            <button
+              className={`agent-type-btn ${agentType === "supervisor" ? "active" : ""}`}
+              onClick={() => onSetAgentType("supervisor")}
+              disabled={isStreaming}
+              title="Supervisor: reviews completed work and sends improvement commands"
+            >
+              Review
             </button>
           </div>
         )}

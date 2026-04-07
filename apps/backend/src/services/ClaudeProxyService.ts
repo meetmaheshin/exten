@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { Env } from "../config/env.js";
-import { AGENT_TOOL_DEFINITIONS, AGENT_SYSTEM_PROMPT, QA_SYSTEM_PROMPT, DESIGN_REVIEW_SYSTEM_PROMPT, PLANNING_SYSTEM_PROMPT, CHAT_SYSTEM_PROMPT, requiresApproval } from "./agentTools.js";
+import { AGENT_TOOL_DEFINITIONS, AGENT_SYSTEM_PROMPT, QA_SYSTEM_PROMPT, DESIGN_REVIEW_SYSTEM_PROMPT, PLANNING_SYSTEM_PROMPT, SUPERVISOR_SYSTEM_PROMPT, CHAT_SYSTEM_PROMPT, requiresApproval } from "./agentTools.js";
 import type { AgentUsage, ToolCallSummary } from "@ailancers/shared-types";
 
 // Pricing per million tokens (as of Feb 2026)
@@ -110,6 +110,7 @@ export class ClaudeProxyService {
     const systemPrompt = options?.agentType === "qa" ? QA_SYSTEM_PROMPT
       : options?.agentType === "design" ? DESIGN_REVIEW_SYSTEM_PROMPT
       : options?.agentType === "planning" ? PLANNING_SYSTEM_PROMPT
+      : options?.agentType === "supervisor" ? SUPERVISOR_SYSTEM_PROMPT
       : AGENT_SYSTEM_PROMPT;
     const msgs: Anthropic.MessageParam[] = [...conversationMessages];
 
@@ -136,7 +137,9 @@ export class ClaudeProxyService {
       totalUsage.turnCount = turn;
 
       try {
-        const response = await this.client.messages.create({
+        // Use STREAMING so text and tool calls appear in real-time
+        // instead of waiting for the entire response to complete
+        const stream = this.client.messages.stream({
           model,
           max_tokens: this.agentMaxTokens,
           system: systemPrompt,
@@ -144,6 +147,29 @@ export class ClaudeProxyService {
           messages: msgs,
           thinking: { type: "adaptive" },
         });
+
+        const toolUseBlocks: Anthropic.ContentBlock[] = [];
+        let turnText = "";
+
+        // Stream text deltas to the client in real-time
+        for await (const event of stream) {
+          if (options?.abortSignal?.aborted) {
+            stream.abort();
+            break;
+          }
+
+          if (event.type === "content_block_delta") {
+            if (event.delta.type === "text_delta") {
+              turnText += event.delta.text;
+              callbacks.onDelta(event.delta.text);
+            }
+          } else if (event.type === "content_block_stop") {
+            // After a block finishes, check if the accumulated blocks contain tool_use
+            // We'll collect them from the final message below
+          }
+        }
+
+        const response = await stream.finalMessage();
 
         // Accumulate token usage
         const turnInput = response.usage.input_tokens;
@@ -153,15 +179,9 @@ export class ClaudeProxyService {
         totalUsage.outputTokens += turnOutput;
         totalUsage.costUsd += turnCost;
 
-        // Process content blocks: stream text, collect tool_use blocks
-        const toolUseBlocks: Anthropic.ContentBlock[] = [];
-        let turnText = "";
-
+        // Collect tool_use blocks from the final message
         for (const block of response.content) {
-          if (block.type === "text") {
-            turnText += block.text;
-            callbacks.onDelta(block.text);
-          } else if (block.type === "tool_use") {
+          if (block.type === "tool_use") {
             toolUseBlocks.push(block);
           }
         }

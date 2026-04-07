@@ -21,7 +21,7 @@ interface AppState {
   pendingImages: ImageAttachment[] | null;
   // Agent mode state
   agentMode: boolean;
-  agentType: "coder" | "qa" | "design";
+  agentType: "coder" | "qa" | "design" | "supervisor";
   agentTurnNumber: number;
   agentToolCalls: ToolCallDisplay[];
   agentUsage: AgentUsage | null;
@@ -48,7 +48,7 @@ type Action =
   | { type: "SET_PENDING"; content: string; images?: ImageAttachment[] | null }
   | { type: "TOGGLE_CONVERSATIONS" }
   | { type: "TOGGLE_AGENT_MODE" }
-  | { type: "SET_AGENT_TYPE"; agentType: "coder" | "qa" | "design" }
+  | { type: "SET_AGENT_TYPE"; agentType: "coder" | "qa" | "design" | "supervisor" }
   | { type: "SET_MODELS"; models: AvailableModel[]; defaults?: { chatModel: string; codingModel: string } }
   | { type: "SET_SELECTED_MODEL"; model: string }
   // Agent actions

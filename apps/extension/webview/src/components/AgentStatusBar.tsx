@@ -34,6 +34,7 @@ export function AgentStatusBar({ turnNumber, toolCallCount, usage, isActive, age
   const label = agentType === "qa" ? "QA Agent"
     : agentType === "design" ? "Design Review"
     : agentType === "planning" ? "Planning Agent"
+    : agentType === "supervisor" ? "Supervisor"
     : "Coding Agent";
 
   return (
