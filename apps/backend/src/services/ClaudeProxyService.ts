@@ -100,8 +100,126 @@ export class ClaudeProxyService {
    * Run the agentic loop: Claude calls tools, we execute them, feed results back, repeat.
    * The loop continues until Claude produces a final text response (stop_reason=end_turn)
    * or we exceed budget/turn limits.
+   *
+   * For "coder" agentType: after the coding agent finishes, an automatic supervisor review
+   * runs. If the supervisor finds improvements, they're injected back into the coding agent
+   * for another pass. Max 3 review cycles to avoid infinite loops.
    */
   async runAgentLoop(
+    conversationMessages: Anthropic.MessageParam[],
+    callbacks: AgentCallbacks,
+    options?: { model?: string; abortSignal?: AbortSignal; budgetRemainingUsd?: number; agentType?: string }
+  ): Promise<AgentResult> {
+    const isCodingAgent = !options?.agentType || options.agentType === "coder";
+    const MAX_REVIEW_CYCLES = 2; // supervisor reviews up to 2 times
+
+    // Run the core agent loop
+    const result = await this._runAgentLoopInner(conversationMessages, callbacks, options);
+
+    // Auto-supervisor: after coding agent finishes, run supervisor review
+    if (isCodingAgent && !options?.abortSignal?.aborted && result.usage.costUsd < (options?.budgetRemainingUsd ?? 999)) {
+      for (let cycle = 0; cycle < MAX_REVIEW_CYCLES; cycle++) {
+        if (options?.abortSignal?.aborted) break;
+
+        callbacks.onDelta("\n\n---\n🔍 **Supervisor reviewing your work...**\n\n");
+
+        // Run supervisor as a separate Claude call (not tool-using, just reads the coder's output)
+        const supervisorResult = await this._runSupervisorReview(
+          conversationMessages,
+          result.fullText,
+          callbacks,
+          options
+        );
+
+        if (!supervisorResult || supervisorResult.approved) {
+          callbacks.onDelta("\n✅ **Supervisor approved the work.**\n");
+          break;
+        }
+
+        // Supervisor found improvements — feed them back to the coding agent
+        callbacks.onDelta(`\n🔧 **Supervisor found improvements. Implementing...**\n\n`);
+
+        // Add supervisor feedback as a new user message and continue coding
+        const feedbackMsg: Anthropic.MessageParam = {
+          role: "user",
+          content: `The supervisor reviewed your work and found the following improvements needed. Please implement ALL of them:\n\n${supervisorResult.feedback}`,
+        };
+
+        const improveResult = await this._runAgentLoopInner(
+          [...conversationMessages, { role: "assistant", content: result.fullText }, feedbackMsg],
+          callbacks,
+          options
+        );
+
+        // Accumulate usage
+        result.usage.inputTokens += improveResult.usage.inputTokens + (supervisorResult.usage?.inputTokens ?? 0);
+        result.usage.outputTokens += improveResult.usage.outputTokens + (supervisorResult.usage?.outputTokens ?? 0);
+        result.usage.costUsd += improveResult.usage.costUsd + (supervisorResult.usage?.costUsd ?? 0);
+        result.usage.turnCount += improveResult.usage.turnCount;
+        result.usage.toolCallCount += improveResult.usage.toolCallCount;
+        result.fullText += "\n" + improveResult.fullText;
+        result.toolCalls.push(...improveResult.toolCalls);
+      }
+    }
+
+    callbacks.onEnd(result);
+    return result;
+  }
+
+  /**
+   * Run a supervisor review: Claude reads the coder's output and decides if improvements are needed.
+   * Returns null if review fails, { approved: true } if work is good, or { approved: false, feedback } with improvement instructions.
+   */
+  private async _runSupervisorReview(
+    originalMessages: Anthropic.MessageParam[],
+    coderOutput: string,
+    callbacks: AgentCallbacks,
+    options?: { model?: string; abortSignal?: AbortSignal }
+  ): Promise<{ approved: boolean; feedback: string; usage?: { inputTokens: number; outputTokens: number; costUsd: number } } | null> {
+    const model = options?.model || this.defaultModel;
+
+    try {
+      const stream = this.client.messages.stream({
+        model,
+        max_tokens: 4096,
+        system: SUPERVISOR_SYSTEM_PROMPT,
+        messages: [
+          ...originalMessages,
+          { role: "assistant", content: coderOutput },
+          { role: "user", content: "Review the work that was just completed. If it meets professional standards, respond with exactly 'APPROVED'. If improvements are needed, list them as specific numbered instructions the coding agent should implement. Be concise — max 5 high-impact improvements." },
+        ],
+        tools: AGENT_TOOL_DEFINITIONS,
+        thinking: { type: "adaptive" },
+      });
+
+      let reviewText = "";
+      for await (const event of stream) {
+        if (options?.abortSignal?.aborted) { stream.abort(); break; }
+        if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+          reviewText += event.delta.text;
+          callbacks.onDelta(event.delta.text);
+        }
+      }
+
+      const finalMsg = await stream.finalMessage();
+      const usage = {
+        inputTokens: finalMsg.usage.input_tokens,
+        outputTokens: finalMsg.usage.output_tokens,
+        costUsd: this.calculateCost(model, finalMsg.usage.input_tokens, finalMsg.usage.output_tokens),
+      };
+
+      // Check if supervisor approved
+      const approved = reviewText.trim().toUpperCase().includes("APPROVED") && !reviewText.toUpperCase().includes("NEEDS IMPROVEMENT");
+
+      return { approved, feedback: reviewText, usage };
+    } catch (err) {
+      console.error("[Supervisor] Review failed:", err);
+      return null;
+    }
+  }
+
+  /** Inner agent loop — the actual tool-calling loop */
+  private async _runAgentLoopInner(
     conversationMessages: Anthropic.MessageParam[],
     callbacks: AgentCallbacks,
     options?: { model?: string; abortSignal?: AbortSignal; budgetRemainingUsd?: number; agentType?: string }
@@ -191,7 +309,6 @@ export class ClaudeProxyService {
         // If Claude is done (no tool calls), we're finished
         if (response.stop_reason === "end_turn" || toolUseBlocks.length === 0) {
           const result: AgentResult = { fullText, usage: totalUsage, toolCalls: allToolCalls };
-          callbacks.onEnd(result);
           return result;
         }
 

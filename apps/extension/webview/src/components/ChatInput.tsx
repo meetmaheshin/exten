@@ -200,14 +200,7 @@ export function ChatInput({
             >
               Design
             </button>
-            <button
-              className={`agent-type-btn ${agentType === "supervisor" ? "active" : ""}`}
-              onClick={() => onSetAgentType("supervisor")}
-              disabled={isStreaming}
-              title="Supervisor: reviews completed work and sends improvement commands"
-            >
-              Review
-            </button>
+            {/* Supervisor runs automatically after coding agent — no manual button needed */}
           </div>
         )}
         <span className="input-controls-spacer" />
