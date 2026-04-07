@@ -189,15 +189,16 @@ export class ClaudeProxyService {
           { role: "user", content: "Review the work that was just completed. If it meets professional standards, respond with exactly 'APPROVED'. If improvements are needed, list them as specific numbered instructions the coding agent should implement. Be concise — max 5 high-impact improvements." },
         ],
         tools: AGENT_TOOL_DEFINITIONS,
-        thinking: { type: "adaptive" },
       });
 
       let reviewText = "";
       for await (const event of stream) {
         if (options?.abortSignal?.aborted) { stream.abort(); break; }
-        if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-          reviewText += event.delta.text;
-          callbacks.onDelta(event.delta.text);
+        if (event.type === "content_block_delta") {
+          if (event.delta.type === "text_delta") {
+            reviewText += event.delta.text;
+            callbacks.onDelta(event.delta.text);
+          }
         }
       }
 
@@ -255,15 +256,13 @@ export class ClaudeProxyService {
       totalUsage.turnCount = turn;
 
       try {
-        // Use STREAMING so text and tool calls appear in real-time
-        // instead of waiting for the entire response to complete
+        // Use STREAMING so text appears in real-time
         const stream = this.client.messages.stream({
           model,
           max_tokens: this.agentMaxTokens,
           system: systemPrompt,
           tools: AGENT_TOOL_DEFINITIONS,
           messages: msgs,
-          thinking: { type: "adaptive" },
         });
 
         const toolUseBlocks: Anthropic.ContentBlock[] = [];
@@ -277,13 +276,15 @@ export class ClaudeProxyService {
           }
 
           if (event.type === "content_block_delta") {
-            if (event.delta.type === "text_delta") {
+            if ("text" in event.delta && typeof (event.delta as { text?: string }).text === "string") {
+              const text = (event.delta as { text: string }).text;
+              turnText += text;
+              callbacks.onDelta(text);
+            } else if (event.delta.type === "text_delta") {
               turnText += event.delta.text;
               callbacks.onDelta(event.delta.text);
             }
-          } else if (event.type === "content_block_stop") {
-            // After a block finishes, check if the accumulated blocks contain tool_use
-            // We'll collect them from the final message below
+            // Ignore thinking_delta and input_json_delta — not shown to user
           }
         }
 
@@ -372,7 +373,7 @@ export class ClaudeProxyService {
     }
 
     const result: AgentResult = { fullText, usage: totalUsage, toolCalls: allToolCalls };
-    callbacks.onEnd(result);
+    // NOTE: onEnd is called by the outer runAgentLoop, not here
     return result;
   }
 
