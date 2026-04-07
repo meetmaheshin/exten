@@ -269,22 +269,42 @@ export class ClaudeProxyService {
         let turnText = "";
 
         // Stream text deltas to the client in real-time
+        let currentToolName = "";
+        let toolInputSize = 0;
+        let lastProgressUpdate = 0;
+
         for await (const event of stream) {
           if (options?.abortSignal?.aborted) {
             stream.abort();
             break;
           }
 
-          if (event.type === "content_block_delta") {
-            if ("text" in event.delta && typeof (event.delta as { text?: string }).text === "string") {
-              const text = (event.delta as { text: string }).text;
-              turnText += text;
-              callbacks.onDelta(text);
-            } else if (event.delta.type === "text_delta") {
+          if (event.type === "content_block_start") {
+            // Track when a tool_use block starts so we can show progress
+            if (event.content_block.type === "tool_use") {
+              currentToolName = event.content_block.name;
+              toolInputSize = 0;
+              callbacks.onDelta(`\n⏳ Generating ${currentToolName === "write_file" ? "file content" : currentToolName}...`);
+            }
+          } else if (event.type === "content_block_delta") {
+            if (event.delta.type === "text_delta") {
               turnText += event.delta.text;
               callbacks.onDelta(event.delta.text);
+            } else if (event.delta.type === "input_json_delta") {
+              // Tool input being generated — send periodic progress dots
+              // so the client knows we're still alive (prevents 3-min timeout)
+              toolInputSize += event.delta.partial_json.length;
+              const now = Date.now();
+              if (now - lastProgressUpdate > 5000) {
+                lastProgressUpdate = now;
+                callbacks.onDelta(".");
+              }
             }
-            // Ignore thinking_delta and input_json_delta — not shown to user
+          } else if (event.type === "content_block_stop") {
+            if (currentToolName) {
+              callbacks.onDelta(` done (${Math.round(toolInputSize / 1024)}KB)\n`);
+              currentToolName = "";
+            }
           }
         }
 
