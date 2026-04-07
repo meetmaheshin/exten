@@ -96,13 +96,22 @@
     let allProjects = [];
 
     async function loadProjects() {
-      const result = await window.ailancers.getProjects();
-      if (!result.ok || !result.data.length) {
-        projectList.innerHTML = '<div class="empty">No projects assigned to you.</div>';
-        return;
+      try {
+        const result = await window.ailancers.getProjects();
+        console.log("getProjects result:", JSON.stringify(result).slice(0, 200));
+        if (!result || !result.ok) {
+          projectList.innerHTML = '<div class="empty">Failed to load: ' + (result?.error || 'Unknown error') + '</div>';
+          return;
+        }
+        if (!result.data || result.data.length === 0) {
+          projectList.innerHTML = '<div class="empty">No projects assigned to you.</div>';
+          return;
+        }
+        allProjects = result.data;
+        renderProjects(allProjects);
+      } catch (err) {
+        projectList.innerHTML = '<div class="empty">Error: ' + err.message + '</div>';
       }
-      allProjects = result.data;
-      renderProjects(allProjects);
     }
 
     async function loadCurrent() {

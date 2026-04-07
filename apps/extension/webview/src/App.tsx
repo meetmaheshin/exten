@@ -9,6 +9,12 @@ import { ConversationList } from "./components/ConversationList";
 import { AgentStatusBar } from "./components/AgentStatusBar";
 import type { ChatMessage, Conversation, IncomingMessage, TokenUsage, AgentUsage, ToolCallDisplay, AvailableModel, PendingApproval, ImageAttachment } from "./types";
 
+/** A single event in the streaming timeline — text chunk, tool call, or approval */
+export type StreamEvent =
+  | { kind: "text"; content: string }
+  | { kind: "tool"; data: ToolCallDisplay }
+  | { kind: "approval"; data: PendingApproval };
+
 interface AppState {
   authenticated: boolean;
   conversations: Conversation[];
@@ -16,6 +22,8 @@ interface AppState {
   messages: ChatMessage[];
   isStreaming: boolean;
   streamingContent: string;
+  /** Chronological timeline of text + tool + approval events during streaming */
+  streamTimeline: StreamEvent[];
   showConversations: boolean;
   pendingMessage: string | null;
   pendingImages: ImageAttachment[] | null;
@@ -67,6 +75,7 @@ const initialState: AppState = {
   messages: [],
   isStreaming: false,
   streamingContent: "",
+  streamTimeline: [],
   showConversations: false,
   pendingMessage: null,
   pendingImages: null,
@@ -117,14 +126,27 @@ function reducer(state: AppState, action: Action): AppState {
         messages: [...state.messages, { role: "user", content: action.content, images: action.images }],
         isStreaming: true,
         streamingContent: "",
+        streamTimeline: [],
         agentToolCalls: [],
         agentTurnNumber: 0,
         agentUsage: null,
+        pendingApprovals: [],
       };
     case "STREAM_START":
-      return { ...state, isStreaming: true, streamingContent: "" };
-    case "STREAM_DELTA":
-      return { ...state, streamingContent: state.streamingContent + action.delta.replace(/\u2588/g, "") };
+      return { ...state, isStreaming: true, streamingContent: "", streamTimeline: [] };
+    case "STREAM_DELTA": {
+      const delta = action.delta.replace(/\u2588/g, "");
+      const newContent = state.streamingContent + delta;
+      // Append to the latest text event in timeline, or create a new one
+      const tl = [...state.streamTimeline];
+      const last = tl[tl.length - 1];
+      if (last && last.kind === "text") {
+        tl[tl.length - 1] = { kind: "text", content: last.content + delta };
+      } else {
+        tl.push({ kind: "text", content: delta });
+      }
+      return { ...state, streamingContent: newContent, streamTimeline: tl };
+    }
     case "STREAM_END":
       return {
         ...state,
@@ -198,17 +220,24 @@ function reducer(state: AppState, action: Action): AppState {
         toolInput: action.toolInput,
         status: "running",
       };
-      return { ...state, agentToolCalls: [...state.agentToolCalls, newCall] };
+      // Add to timeline chronologically
+      const tlTool = [...state.streamTimeline, { kind: "tool" as const, data: newCall }];
+      return { ...state, agentToolCalls: [...state.agentToolCalls, newCall], streamTimeline: tlTool };
     }
-    case "TOOL_CALL_COMPLETED":
-      return {
-        ...state,
-        agentToolCalls: state.agentToolCalls.map((tc) =>
-          tc.toolCallId === action.toolCallId
-            ? { ...tc, status: action.isError ? "error" as const : "completed" as const, result: action.result, isError: action.isError }
-            : tc
-        ),
-      };
+    case "TOOL_CALL_COMPLETED": {
+      const updatedCalls = state.agentToolCalls.map((tc) =>
+        tc.toolCallId === action.toolCallId
+          ? { ...tc, status: action.isError ? "error" as const : "completed" as const, result: action.result, isError: action.isError }
+          : tc
+      );
+      // Also update in timeline
+      const tlComplete = state.streamTimeline.map((ev) =>
+        ev.kind === "tool" && ev.data.toolCallId === action.toolCallId
+          ? { ...ev, data: { ...ev.data, status: action.isError ? "error" as const : "completed" as const, result: action.result, isError: action.isError } }
+          : ev
+      );
+      return { ...state, agentToolCalls: updatedCalls, streamTimeline: tlComplete };
+    }
     case "AGENT_COMPLETE":
       return {
         ...state,
@@ -216,11 +245,15 @@ function reducer(state: AppState, action: Action): AppState {
         isStreaming: false,
         pendingApprovals: [],
       };
-    case "ADD_PENDING_APPROVAL":
+    case "ADD_PENDING_APPROVAL": {
+      // Add approval inline in timeline right after its tool call
+      const tlApproval = [...state.streamTimeline, { kind: "approval" as const, data: action.approval }];
       return {
         ...state,
         pendingApprovals: [...state.pendingApprovals, action.approval],
+        streamTimeline: tlApproval,
       };
+    }
     case "REMOVE_PENDING_APPROVAL":
       return {
         ...state,
@@ -444,8 +477,7 @@ export function App() {
           <MessageList
             messages={state.messages}
             isStreaming={state.isStreaming}
-            streamingContent={state.streamingContent}
-            activeToolCalls={state.isStreaming ? state.agentToolCalls : []}
+            streamTimeline={state.streamTimeline}
             pendingApprovals={state.pendingApprovals}
             onApprovalDecision={handleApprovalDecision}
             agentUsage={state.agentUsage}

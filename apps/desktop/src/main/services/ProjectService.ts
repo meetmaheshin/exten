@@ -49,6 +49,7 @@ export class ProjectService {
 
   async fetchProjects(): Promise<ExternalProject[]> {
     if (Date.now() - this.cacheTime < this.cacheTTL && this.projects.length > 0) {
+      console.log(`[ProjectService] Returning ${this.projects.length} cached projects`);
       return this.projects;
     }
 
@@ -60,12 +61,18 @@ export class ProjectService {
         candidates?: Array<{ id: number; name: string }>;
       }>("/api/projects/mine");
 
-      if (!resp.mapped) return [];
+      console.log(`[ProjectService] API response: mapped=${resp.mapped}, projects=${resp.data?.length ?? 0}, needsConfirm=${resp.needsIdentityConfirmation}`);
+
+      if (!resp.mapped) {
+        console.log("[ProjectService] User not mapped to external platform");
+        return [];
+      }
 
       this.projects = resp.data;
       this.cacheTime = Date.now();
       return this.projects;
-    } catch {
+    } catch (err) {
+      console.error("[ProjectService] Failed to fetch projects:", err);
       return this.projects;
     }
   }
