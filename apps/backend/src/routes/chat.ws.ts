@@ -167,6 +167,8 @@ export function chatWsRoute(
       return;
     }
 
+    console.log(`[Chat WS] User connected: userId=${userId}, platformUserId=${platformUserId || "none"}`);
+
     const abortControllers = new Map<string, AbortController>();
     // Map of pending tool calls keyed by toolCallId
     const pendingToolCalls = new Map<string, PendingToolCall>();
