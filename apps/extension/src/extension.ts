@@ -34,7 +34,8 @@ export async function activate(context: vscode.ExtensionContext) {
   const systemIdleService = new SystemIdleService();
   systemIdleService.start();
   const activityTracker = new ActivityTracker(systemIdleService);
-  const projectPicker = new ProjectPickerService(apiClient, context);
+  const projectPicker = new ProjectPickerService(authService, context);
+  chatService.setProjectPicker(projectPicker);
   const telemetryService = new TelemetryService(apiClient, activityTracker, projectPicker);
   const screenCaptureService = new ScreenCaptureService(context, apiClient, activityTracker);
   const autoStartService = new AutoStartService(context);

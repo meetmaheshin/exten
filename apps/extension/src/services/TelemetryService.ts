@@ -78,7 +78,8 @@ export class TelemetryService {
         sessionId: this.sessionId,
         ...metrics,
         externalProjectId: this.projectPicker?.activeProjectId ?? null,
-        externalTaskId: this.projectPicker?.activeTaskId ?? null,
+        externalTaskId: null,
+        subProjectId: this.projectPicker?.activeSubProjectId ?? null,
       });
     } catch {
       // Queue for retry on next flush — keeping simple for now

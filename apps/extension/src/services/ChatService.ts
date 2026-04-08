@@ -14,6 +14,8 @@ export class ChatService {
   /** Tools auto-approved for the rest of the session via "Allow All" */
   private sessionAutoApproved = new Set<string>();
 
+  private projectPicker?: import("./ProjectPickerService").ProjectPickerService;
+
   constructor(
     private apiClient: ApiClient,
     private wsClient: WebSocketClient,
@@ -51,6 +53,10 @@ export class ChatService {
     );
   }
 
+  setProjectPicker(picker: import("./ProjectPickerService").ProjectPickerService): void {
+    this.projectPicker = picker;
+  }
+
   /** Send a regular chat message (non-agent) */
   sendMessage(conversationId: string, content: string, callback: StreamCallback, model?: string, images?: unknown[]): void {
     this.streamCallbacks.set(conversationId, callback);
@@ -59,6 +65,7 @@ export class ChatService {
       conversationId,
       content,
       model,
+      subProjectId: this.projectPicker?.activeSubProjectId ?? null,
       ...(images ? { images } : {}),
     } as import("@ailancers/shared-types").WsClientMessage);
   }
@@ -72,6 +79,7 @@ export class ChatService {
       content,
       model,
       agentType,
+      subProjectId: this.projectPicker?.activeSubProjectId ?? null,
       ...(images ? { images } : {}),
     } as import("@ailancers/shared-types").WsClientMessage);
   }

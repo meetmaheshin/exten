@@ -1,41 +1,40 @@
 import * as vscode from "vscode";
-import type { ApiClient } from "./ApiClient";
+import type { AuthService } from "./AuthService";
 
-export interface ExternalTask {
-  id: number;
-  name: string;
-  state: string | null;
-  stageName: string | null;
-  priority: string | null;
-  dateDeadline: string | null;
+const PLATFORM_URL = "https://staging-backend.ailancers.com";
+
+// ─── Types from v2 API ───
+
+export interface PlatformProject {
+  id: string;
+  project_code: string;
+  title: string;
+  total_budget: number;
+  currency: string;
+  status: string;
+  priority: string;
+  sub_project_count: number;
 }
 
-export interface ExternalProject {
-  id: number;
-  name: string;
-  stageName: string | null;
-  ownerName: string | null;
-  businessUnit: string | null;
-  taskCount: number;
-  dateEnd: string | null;
-  myTasks: ExternalTask[];
+export interface PlatformSubProject {
+  id: string;              // ← THIS is the sub_project_id for billing
+  project_id: string;
+  title: string;
+  budget: number;
+  priority: string;
+  assigned_to: string | null;
 }
 
 export interface ActiveSelection {
-  projectId: number;
+  projectId: string;
   projectName: string;
-  taskId: number | null;
-  taskName: string | null;
-}
-
-export interface ExternalUserCandidate {
-  id: number;
-  name: string;
+  subProjectId: string | null;   // ← billing ID
+  subProjectName: string | null;
 }
 
 const STORAGE_KEY = "ailancers.activeSelection";
 const CACHE_KEY = "ailancers.projectsCache";
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL_MS = 5 * 60 * 1000;
 
 export class ProjectPickerService implements vscode.Disposable {
   private _activeSelection: ActiveSelection | null = null;
@@ -43,10 +42,9 @@ export class ProjectPickerService implements vscode.Disposable {
   readonly onDidChange = this._onDidChange.event;
 
   constructor(
-    private apiClient: ApiClient,
+    private authService: AuthService,
     private context: vscode.ExtensionContext
   ) {
-    // Restore persisted selection
     this._activeSelection = context.globalState.get<ActiveSelection>(STORAGE_KEY) ?? null;
   }
 
@@ -54,168 +52,133 @@ export class ProjectPickerService implements vscode.Disposable {
     return this._activeSelection;
   }
 
-  get activeProjectId(): number | null {
+  get activeProjectId(): string | null {
     return this._activeSelection?.projectId ?? null;
   }
 
-  get activeTaskId(): number | null {
-    return this._activeSelection?.taskId ?? null;
+  /** The sub_project_id used for billing */
+  get activeSubProjectId(): string | null {
+    return this._activeSelection?.subProjectId ?? null;
   }
 
-  /** Fetch projects assigned to the current user. Uses a short cache.
-   *  Returns empty array if identity confirmation is needed (caller should call promptIdentityConfirmation). */
-  async fetchMyProjects(skipCache = false): Promise<ExternalProject[]> {
-    if (!skipCache) {
-      const cached = this.context.globalState.get<{ data: ExternalProject[]; at: number }>(CACHE_KEY);
-      if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
-        return cached.data;
-      }
+  // ─── Fetch from v2 API ───
+
+  async fetchProjects(): Promise<PlatformProject[]> {
+    const cached = this.context.globalState.get<{ data: PlatformProject[]; at: number }>(CACHE_KEY);
+    if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
+      return cached.data;
     }
 
+    const token = this.authService.getAccessToken();
+    if (!token) return [];
+
     try {
-      const resp = await this.apiClient.get<{
-        data: ExternalProject[];
-        mapped: boolean;
-        externalUserId?: number | null;
-        needsIdentityConfirmation?: boolean;
-        candidates?: ExternalUserCandidate[];
-      }>("/api/projects/mine");
-
-      this._log(`API /projects/mine → mapped=${resp.mapped}, externalUserId=${resp.externalUserId ?? "null"}, projects=${resp.data?.length ?? 0}, needsConfirm=${resp.needsIdentityConfirmation ?? false}`);
-
-      if (resp.needsIdentityConfirmation && resp.candidates?.length) {
-        await this.promptIdentityConfirmation(resp.candidates);
-        return [];
+      const resp = await fetch(`${PLATFORM_URL}/api/v2/projects?page_size=100`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!resp.ok) {
+        console.error(`[ProjectPicker] v2/projects failed: ${resp.status}`);
+        return cached?.data ?? [];
       }
-
-      if (!resp.mapped) {
-        this._log("Not mapped to any external user — no projects to show");
-        return [];
-      }
-      await this.context.globalState.update(CACHE_KEY, { data: resp.data, at: Date.now() });
-      return resp.data;
+      const data = await resp.json() as { items: PlatformProject[] };
+      const projects = data.items || [];
+      await this.context.globalState.update(CACHE_KEY, { data: projects, at: Date.now() });
+      return projects;
     } catch (err) {
-      this._log(`Error fetching projects: ${err instanceof Error ? err.message : String(err)}`);
-      const cached = this.context.globalState.get<{ data: ExternalProject[]; at: number }>(CACHE_KEY);
+      console.error("[ProjectPicker] Failed to fetch projects:", err);
       return cached?.data ?? [];
     }
   }
 
-  private _log(msg: string): void {
-    const ch = this._outputChannel;
-    if (ch) ch.appendLine(`[ProjectPicker] ${msg}`);
-  }
-
-  private get _outputChannel(): vscode.OutputChannel | null {
-    // Reuse the global output channel if available
-    return (globalThis as Record<string, unknown>).__ailancersOutput as vscode.OutputChannel | null ?? null;
-  }
-
-  /** When multiple platform users share the same name, ask which one they are. */
-  async promptIdentityConfirmation(candidates: ExternalUserCandidate[]): Promise<void> {
-    const items = candidates.map((c) => ({
-      label: c.name,
-      description: `Platform ID: ${c.id}`,
-      candidate: c,
-    }));
-
-    const pick = await vscode.window.showQuickPick(items, {
-      title: "Ailancers — Confirm Your Identity",
-      placeHolder: `Multiple people named "${candidates[0].name}" found. Which one are you?`,
-      ignoreFocusOut: true,
-    });
-
-    if (!pick) return; // user cancelled — will be asked again next time
+  async fetchSubProjects(projectId: string): Promise<PlatformSubProject[]> {
+    const token = this.authService.getAccessToken();
+    if (!token) return [];
 
     try {
-      await this.apiClient.post("/api/projects/confirm-identity", {
-        externalUserId: pick.candidate.id,
-        externalUserName: pick.candidate.name,
+      const resp = await fetch(`${PLATFORM_URL}/api/v2/projects/${projectId}/sub-projects?page_size=100`, {
+        headers: { Authorization: `Bearer ${token}` },
       });
-      // Invalidate cache so next fetch uses the confirmed mapping
-      this.invalidateCache();
-    } catch (err) {
-      vscode.window.showErrorMessage("Failed to confirm identity: " + (err instanceof Error ? err.message : String(err)));
+      if (!resp.ok) return [];
+      const data = await resp.json() as { items: PlatformSubProject[] };
+      return data.items || [];
+    } catch {
+      return [];
     }
   }
 
-  /** Show the QuickPick UI for choosing project → task. */
+  // ─── Picker UI ───
+
   async promptPicker(): Promise<void> {
-    const projects = await this.fetchMyProjects();
+    const projects = await this.fetchProjects();
 
     if (projects.length === 0) {
-      vscode.window.showInformationMessage(
-        "No projects assigned to you in the Ailancers platform. Ask your admin to sync and verify your account."
-      );
+      vscode.window.showInformationMessage("No projects found on the Ailancers platform.");
       return;
     }
 
     // Step 1: Pick project
     const projectItems: vscode.QuickPickItem[] = [
-      { label: "$(x) No project / Clear selection", description: "Stop tracking project time" },
+      { label: "$(x) Clear selection", description: "Stop tracking project" },
       ...projects.map((p) => ({
-        label: `$(project) ${p.name}`,
-        description: [p.stageName, p.businessUnit].filter(Boolean).join(" · "),
-        detail: p.myTasks.length > 0
-          ? `${p.myTasks.length} task${p.myTasks.length !== 1 ? "s" : ""} assigned to you`
-          : "No tasks assigned to you",
+        label: `$(project) ${p.title}`,
+        description: `${p.project_code} · ${p.status} · $${p.total_budget}`,
+        detail: `${p.sub_project_count} sub-project${p.sub_project_count !== 1 ? "s" : ""}`,
       })),
     ];
 
     const projectPick = await vscode.window.showQuickPick(projectItems, {
-      title: "Ailancers — Select Active Project",
+      title: "Ailancers — Select Project",
       placeHolder: "Which project are you working on?",
       matchOnDescription: true,
-      matchOnDetail: true,
     });
-    if (!projectPick) return; // cancelled
+    if (!projectPick) return;
 
     if (projectPick.label.startsWith("$(x)")) {
       await this.clearSelection();
       return;
     }
 
-    const selectedProject = projects.find(
-      (p) => `$(project) ${p.name}` === projectPick.label
-    );
+    const selectedProject = projects.find((p) => `$(project) ${p.title}` === projectPick.label);
     if (!selectedProject) return;
 
-    // Step 2: Pick task (if there are tasks)
-    let selectedTask: ExternalTask | null = null;
-    if (selectedProject.myTasks.length > 0) {
-      const taskItems: vscode.QuickPickItem[] = [
-        { label: "$(dash) No specific task", description: "Track time at project level only" },
-        ...selectedProject.myTasks.map((t) => ({
-          label: `$(tasklist) ${t.name}`,
-          description: [t.stageName, t.state ? stateLabel(t.state) : null].filter(Boolean).join(" · "),
-          detail: t.dateDeadline
-            ? `Deadline: ${new Date(t.dateDeadline).toLocaleDateString()}`
-            : undefined,
+    // Step 2: Fetch and pick sub-project
+    const subProjects = await fetchWithProgress(
+      () => this.fetchSubProjects(selectedProject.id),
+      "Loading sub-projects..."
+    );
+
+    let selectedSub: PlatformSubProject | null = null;
+
+    if (subProjects.length > 0) {
+      const subItems: vscode.QuickPickItem[] = [
+        { label: "$(dash) Project level only", description: "No specific sub-project" },
+        ...subProjects.map((sp) => ({
+          label: `$(tasklist) ${sp.title}`,
+          description: `${sp.priority} · $${sp.budget}`,
         })),
       ];
 
-      const taskPick = await vscode.window.showQuickPick(taskItems, {
-        title: `Ailancers — Select Task in "${selectedProject.name}"`,
-        placeHolder: "Which task are you working on?",
+      const subPick = await vscode.window.showQuickPick(subItems, {
+        title: `Ailancers — Sub-project in "${selectedProject.title}"`,
+        placeHolder: "Which sub-project?",
         matchOnDescription: true,
-        matchOnDetail: true,
       });
-      if (!taskPick) return; // cancelled
+      if (!subPick) return;
 
-      if (!taskPick.label.startsWith("$(dash)")) {
-        selectedTask = selectedProject.myTasks.find(
-          (t) => `$(tasklist) ${t.name}` === taskPick.label
-        ) ?? null;
+      if (!subPick.label.startsWith("$(dash)")) {
+        selectedSub = subProjects.find((sp) => `$(tasklist) ${sp.title}` === subPick.label) ?? null;
       }
     }
 
     await this.setSelection({
       projectId: selectedProject.id,
-      projectName: selectedProject.name,
-      taskId: selectedTask?.id ?? null,
-      taskName: selectedTask?.name ?? null,
+      projectName: selectedProject.title,
+      subProjectId: selectedSub?.id ?? null,
+      subProjectName: selectedSub?.title ?? null,
     });
   }
+
+  // ─── Selection management ───
 
   async setSelection(selection: ActiveSelection): Promise<void> {
     this._activeSelection = selection;
@@ -229,7 +192,6 @@ export class ProjectPickerService implements vscode.Disposable {
     this._onDidChange.fire(null);
   }
 
-  /** Invalidate cache so next fetchMyProjects hits the API */
   invalidateCache(): void {
     this.context.globalState.update(CACHE_KEY, undefined);
   }
@@ -239,12 +201,9 @@ export class ProjectPickerService implements vscode.Disposable {
   }
 }
 
-function stateLabel(state: string): string {
-  const map: Record<string, string> = {
-    "01_in_progress": "In Progress",
-    "04_waiting_normal": "Waiting",
-    "1_done": "Done",
-    "03_cancelled": "Cancelled",
-  };
-  return map[state] ?? state;
+async function fetchWithProgress<T>(fn: () => Promise<T>, message: string): Promise<T> {
+  return vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Notification, title: message },
+    () => fn()
+  );
 }

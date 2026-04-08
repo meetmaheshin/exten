@@ -35,6 +35,7 @@ export interface WsSendMessage {
   content: string;
   model?: string;
   images?: ImageAttachment[];
+  subProjectId?: string | null;
 }
 
 export interface WsCancelMessage {

@@ -219,10 +219,11 @@ export function chatWsRoute(
             .where(eq(conversations.id, msg.conversationId))
             .limit(1);
           const projectId = conv?.projectId ?? null;
+          const subProjectId = (msg as { subProjectId?: string }).subProjectId ?? null;
 
           // Check billing status before allowing AI request
-          if (billingReporter && projectId) {
-            const billingStatus = await billingReporter.getBillingStatus(projectId);
+          if (billingReporter && subProjectId) {
+            const billingStatus = await billingReporter.getBillingStatus(subProjectId);
             if (billingStatus) {
               if (billingStatus.billingStatus === "SUSPENDED") {
                 send(socket, {
@@ -332,9 +333,9 @@ export function chatWsRoute(
               });
 
               // Report to ailancers billing (batched, async)
-              if (billingReporter && projectId) {
+              if (billingReporter && subProjectId) {
                 billingReporter.recordUsage(
-                  projectId,
+                  subProjectId,
                   msg.model || "claude-sonnet-4-6",
                   result.inputTokens,
                   result.outputTokens,
@@ -392,10 +393,11 @@ export function chatWsRoute(
             .where(eq(conversations.id, msg.conversationId))
             .limit(1);
           const agentProjectId = convRow?.projectId ?? null;
+          const agentSubProjectId = (msg as { subProjectId?: string }).subProjectId ?? null;
 
           // Check billing status before allowing AI request
-          if (billingReporter && agentProjectId) {
-            const billingStatus = await billingReporter.getBillingStatus(agentProjectId);
+          if (billingReporter && agentSubProjectId) {
+            const billingStatus = await billingReporter.getBillingStatus(agentSubProjectId);
             if (billingStatus) {
               if (billingStatus.billingStatus === "SUSPENDED") {
                 send(socket, {
@@ -555,9 +557,9 @@ export function chatWsRoute(
                 });
 
                 // Report to ailancers billing (batched, async)
-                if (billingReporter && agentProjectId) {
+                if (billingReporter && agentSubProjectId) {
                   billingReporter.recordUsage(
-                    agentProjectId,
+                    agentSubProjectId,
                     msg.model || "claude-sonnet-4-6",
                     result.usage.inputTokens,
                     result.usage.outputTokens,

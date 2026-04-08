@@ -53,6 +53,7 @@ export interface WsAgentMessage {
   model?: string;
   agentType?: AgentType;
   images?: ImageAttachment[];
+  subProjectId?: string | null;
 }
 
 export interface WsToolResult {
