@@ -100,7 +100,7 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("ailancers.refreshProjects", async () => {
       projectPicker.invalidateCache();
       log("Refreshing projects (cache cleared)...");
-      const projects = await projectPicker.fetchMyProjects(true);
+      const projects = await projectPicker.fetchProjects();
       const msg = `Ailancers: Refreshed — ${projects.length} project${projects.length !== 1 ? "s" : ""} found`;
       log(msg);
       if (projects.length === 0) {
@@ -147,7 +147,7 @@ export async function activate(context: vscode.ExtensionContext) {
       log("Screen capture started");
     }
     // Pre-fetch user's projects in background so picker is instant
-    projectPicker.fetchMyProjects().catch(() => {});
+    projectPicker.fetchProjects().catch(() => {});
     // Prompt auto-start on first login
     autoStartService.promptOnFirstLogin().catch(() => {});
   }
@@ -162,7 +162,7 @@ export async function activate(context: vscode.ExtensionContext) {
       }
       // Pre-cache projects after login
       projectPicker.invalidateCache();
-      projectPicker.fetchMyProjects().catch(() => {});
+      projectPicker.fetchProjects().catch(() => {});
       // Prompt auto-start on first login
       autoStartService.promptOnFirstLogin().catch(() => {});
     } else {
