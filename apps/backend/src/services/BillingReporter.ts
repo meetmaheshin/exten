@@ -12,6 +12,7 @@ import type { Env } from "../config/env.js";
 
 interface UsageBatch {
   subProjectId: string;
+  lancerUserId: string;
   model: string;
   inputTokens: number;
   outputTokens: number;
@@ -75,6 +76,7 @@ export class BillingReporter {
    */
   recordUsage(
     subProjectId: string,
+    lancerUserId: string,
     model: string,
     inputTokens: number,
     outputTokens: number,
@@ -92,6 +94,7 @@ export class BillingReporter {
     } else {
       this.accumulator.set(key, {
         subProjectId,
+        lancerUserId,
         model,
         inputTokens,
         outputTokens,
@@ -160,7 +163,7 @@ export class BillingReporter {
     const payload = {
       batch_id: batchId,
       sub_project_id: batch.subProjectId,
-      lancer_user_id: "", // Will be filled by chat-ui from HMAC context
+      lancer_user_id: batch.lancerUserId,
       model: batch.model,
       input_tokens: batch.inputTokens,
       output_tokens: batch.outputTokens,

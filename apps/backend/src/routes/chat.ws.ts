@@ -336,6 +336,7 @@ export function chatWsRoute(
               if (billingReporter && subProjectId) {
                 billingReporter.recordUsage(
                   subProjectId,
+                  userId,
                   msg.model || "claude-sonnet-4-6",
                   result.inputTokens,
                   result.outputTokens,
@@ -560,6 +561,7 @@ export function chatWsRoute(
                 if (billingReporter && agentSubProjectId) {
                   billingReporter.recordUsage(
                     agentSubProjectId,
+                    userId,
                     msg.model || "claude-sonnet-4-6",
                     result.usage.inputTokens,
                     result.usage.outputTokens,
