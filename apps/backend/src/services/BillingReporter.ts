@@ -173,6 +173,10 @@ export class BillingReporter {
     const signature = this.sign(timestamp, bodyStr);
 
     const url = `${this.apiUrl}/ai-billing/usage`;
+    console.log(`[BillingReporter] Sending to ${url}:`);
+    console.log(`[BillingReporter] Payload: ${bodyStr}`);
+    console.log(`[BillingReporter] Headers: X-Billing-Timestamp=${timestamp}, X-Billing-Signature=sha256=${signature.slice(0, 16)}...`);
+
     const response = await fetch(url, {
       method: "POST",
       headers: {
@@ -185,8 +189,11 @@ export class BillingReporter {
 
     if (!response.ok) {
       const text = await response.text().catch(() => "");
+      console.error(`[BillingReporter] Response ${response.status}: ${text}`);
       throw new Error(`HTTP ${response.status}: ${text}`);
     }
+
+    console.log(`[BillingReporter] Response ${response.status}: OK`);
 
     // Update cached billing status from response
     const data = await response.json() as Record<string, unknown>;
