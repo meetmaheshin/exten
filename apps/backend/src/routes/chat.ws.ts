@@ -148,15 +148,18 @@ export function chatWsRoute(
     }
 
     let userId: string;
+    let platformUserId: string | undefined;
     try {
       // Try local JWT first
       try {
         const payload = authService.verifyAccessToken(token);
         userId = payload.sub;
+        platformUserId = payload.platformUserId;
       } catch {
         // verifyPlatformToken has internal caching — won't call external API on every reconnect
         const payload = await authService.verifyPlatformToken(token);
         userId = payload.sub;
+        platformUserId = payload.platformUserId;
       }
     } catch {
       send(socket, { type: "error", conversationId: "", error: "Invalid auth token" });
@@ -336,7 +339,7 @@ export function chatWsRoute(
               if (billingReporter && subProjectId) {
                 billingReporter.recordUsage(
                   subProjectId,
-                  userId,
+                  platformUserId || userId,
                   msg.model || "claude-sonnet-4-6",
                   result.inputTokens,
                   result.outputTokens,
@@ -561,7 +564,7 @@ export function chatWsRoute(
                 if (billingReporter && agentSubProjectId) {
                   billingReporter.recordUsage(
                     agentSubProjectId,
-                    userId,
+                    platformUserId || userId,
                     msg.model || "claude-sonnet-4-6",
                     result.usage.inputTokens,
                     result.usage.outputTokens,

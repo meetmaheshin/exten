@@ -16,6 +16,7 @@ export interface JwtPayload {
   sub: string;
   email: string;
   role: string;
+  platformUserId?: string;
 }
 
 export class AuthService {
@@ -192,6 +193,7 @@ export class AuthService {
       sub: localUser.id,
       email: localUser.email,
       role: localUser.role,
+      platformUserId: platformUser.id,
     };
 
     // Cache the result
