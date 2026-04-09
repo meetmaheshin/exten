@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 
-const GITHUB_RELEASES_URL = "https://github.com/meetmaheshin/exten/releases";
+// Google Drive direct-download URLs
+const VSIX_URL = "https://drive.google.com/uc?export=download&id=1fEHytm4817ligiYhucoiSUHKFEdYnlVX";
+const DESKTOP_WIN_URL = "https://drive.google.com/uc?export=download&id=1pqb46xDO6fzA0M_KcQL9gbCxw6ut6As3";
 
 interface DownloadCard {
   title: string;
@@ -11,7 +13,7 @@ interface DownloadCard {
   audience: string;
   downloads: Array<{
     label: string;
-    filename: string;
+    url: string;
     platform: string;
     size?: string;
   }>;
@@ -25,7 +27,7 @@ const cards: DownloadCard[] = [
     icon: "💻",
     audience: "Developers, Engineers",
     downloads: [
-      { label: "Download .vsix", filename: "ailancers-code-0.2.0.vsix", platform: "all", size: "~450 KB" },
+      { label: "Download .vsix", url: VSIX_URL, platform: "all", size: "~450 KB" },
     ],
     steps: [
       "Install VS Code if you don't have it",
@@ -41,9 +43,9 @@ const cards: DownloadCard[] = [
     icon: "🖥️",
     audience: "Non-developers, All teams",
     downloads: [
-      { label: "Download for Windows", filename: "Ailancers-Tracker-Setup-0.1.0.exe", platform: "windows", size: "~80 MB" },
-      { label: "Download for macOS", filename: "Ailancers-Tracker-0.1.0.dmg", platform: "mac", size: "~90 MB" },
-      { label: "Download for Linux", filename: "Ailancers-Tracker-0.1.0.AppImage", platform: "linux", size: "~85 MB" },
+      { label: "Download for Windows", url: DESKTOP_WIN_URL, platform: "windows", size: "~106 MB" },
+      { label: "Download for macOS (coming soon)", url: "#", platform: "mac", size: "~90 MB" },
+      { label: "Download for Linux (coming soon)", url: "#", platform: "linux", size: "~85 MB" },
     ],
     steps: [
       "Download the installer for your operating system",
@@ -112,30 +114,35 @@ export default function DownloadsPage() {
 
               {/* Download buttons */}
               <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
-                {card.downloads.map((dl) => (
-                  <a
-                    key={dl.filename}
-                    href={`${GITHUB_RELEASES_URL}/latest/download/${dl.filename}`}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      padding: "12px 16px",
-                      background: "#6366f1",
-                      color: "white",
-                      borderRadius: 8,
-                      fontWeight: 600,
-                      fontSize: 14,
-                      textDecoration: "none",
-                      transition: "background 0.2s",
-                    }}
-                    onMouseOver={(e) => (e.currentTarget.style.background = "#4f46e5")}
-                    onMouseOut={(e) => (e.currentTarget.style.background = "#6366f1")}
-                  >
-                    <span>⬇ {dl.label}</span>
-                    {dl.size && <span style={{ fontSize: 11, opacity: 0.8 }}>{dl.size}</span>}
-                  </a>
-                ))}
+                {card.downloads.map((dl) => {
+                  const isDisabled = dl.url === "#";
+                  return (
+                    <a
+                      key={dl.label}
+                      href={dl.url}
+                      onClick={(e) => { if (isDisabled) e.preventDefault(); }}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        padding: "12px 16px",
+                        background: isDisabled ? "#2a2d3e" : "#6366f1",
+                        color: isDisabled ? "#64748b" : "white",
+                        borderRadius: 8,
+                        fontWeight: 600,
+                        fontSize: 14,
+                        textDecoration: "none",
+                        transition: "background 0.2s",
+                        cursor: isDisabled ? "not-allowed" : "pointer",
+                      }}
+                      onMouseOver={(e) => { if (!isDisabled) e.currentTarget.style.background = "#4f46e5"; }}
+                      onMouseOut={(e) => { if (!isDisabled) e.currentTarget.style.background = "#6366f1"; }}
+                    >
+                      <span>⬇ {dl.label}</span>
+                      {dl.size && <span style={{ fontSize: 11, opacity: 0.8 }}>{dl.size}</span>}
+                    </a>
+                  );
+                })}
               </div>
 
               {/* Steps */}
