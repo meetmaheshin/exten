@@ -62,7 +62,7 @@
       "properties": {
         "ailancers.serverUrl": {
           "type": "string",
-          "default": "https://exten-production.up.railway.app",
+          "default": "https://apivscode.ailancers.com",
           "description": "Backend server URL"
         },
         "ailancers.idleTimeoutSeconds": {

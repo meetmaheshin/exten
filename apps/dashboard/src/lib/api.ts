@@ -1,4 +1,4 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://exten-production.up.railway.app";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://apivscode.ailancers.com";
 
 export { API_BASE };
 

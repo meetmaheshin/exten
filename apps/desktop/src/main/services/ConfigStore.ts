@@ -13,7 +13,7 @@ export interface DesktopConfig {
 }
 
 const DEFAULTS: DesktopConfig = {
-  serverUrl: "https://exten-production.up.railway.app",
+  serverUrl: "https://apivscode.ailancers.com",
   trackingEnabled: true,
   idleTimeoutSeconds: 600,
   telemetryIntervalSeconds: 60,
@@ -38,6 +38,12 @@ export class ConfigStore {
         const raw = fs.readFileSync(this.configPath, "utf-8");
         const parsed = JSON.parse(raw);
         this.data = { ...DEFAULTS, ...parsed };
+
+        // Migration: replace stale Railway URL with new production domain
+        if (typeof this.data.serverUrl === "string" && this.data.serverUrl.includes("exten-production.up.railway.app")) {
+          this.data.serverUrl = DEFAULTS.serverUrl;
+          this.save();
+        }
       }
     } catch {
       this.data = { ...DEFAULTS };
