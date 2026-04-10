@@ -10,6 +10,7 @@ import type { Database } from "./config/database.js";
 import { AuthService } from "./services/AuthService.js";
 import { AIService } from "./services/AIService.js";
 import { BillingReporter } from "./services/BillingReporter.js";
+import { HourlyTrackerReporter } from "./services/HourlyTrackerReporter.js";
 import { authRoutes } from "./routes/auth.routes.js";
 import { chatRoutes } from "./routes/chat.routes.js";
 import { chatWsRoute } from "./routes/chat.ws.js";
@@ -18,6 +19,7 @@ import { screenshotRoutes } from "./routes/screenshot.routes.js";
 import { activityRoutes } from "./routes/activity.routes.js";
 import { externalProjectsRoutes } from "./routes/externalProjects.routes.js";
 import { billingRoutes } from "./routes/billing.routes.js";
+import { trackerRoutes } from "./routes/tracker.routes.js";
 import { AppError } from "./utils/errors.js";
 import { ZodError } from "zod";
 
@@ -119,6 +121,7 @@ export async function buildApp(env: Env, db: Database) {
   const aiService = new AIService(env);
   const billingReporter = new BillingReporter(env);
   billingReporter.start();
+  const hourlyTrackerReporter = new HourlyTrackerReporter(env);
 
   // Model discovery endpoint — includes recommended defaults per mode
   app.get("/api/models", async () => ({
@@ -135,6 +138,7 @@ export async function buildApp(env: Env, db: Database) {
   activityRoutes(app, authService, db);
   externalProjectsRoutes(app, authService, db);
   billingRoutes(app, authService, billingReporter);
+  trackerRoutes(app, authService, hourlyTrackerReporter, db);
 
   return app;
 }
