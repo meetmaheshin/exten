@@ -61,20 +61,17 @@ export class StatusBarProvider implements vscode.Disposable {
     this.statusBarItem.tooltip = `Active time: ${timeStr}\nAI requests: ${aiRequests}\nClick to open chat`;
     this.statusBarItem.command = "ailancers.openChat";
 
-    // Project/task bar — older code referenced `taskName`, current ActiveSelection
-    // uses `subProjectName`. Read defensively from either.
-    const sel = this.projectPicker.activeSelection as
-      | (typeof this.projectPicker.activeSelection & { taskName?: string | null })
-      | null;
+    // Project / sub-project bar
+    const sel = this.projectPicker.activeSelection;
     if (sel) {
-      const taskName = sel.subProjectName ?? sel.taskName ?? null;
-      const taskPart = taskName ? ` / ${truncate(taskName, 28)}` : "";
-      this.projectBarItem.text = `$(project) ${truncate(sel.projectName, 24)}${taskPart}`;
+      const subProjectName = sel.subProjectName;
+      const subPart = subProjectName ? ` / ${truncate(subProjectName, 28)}` : "";
+      this.projectBarItem.text = `$(project) ${truncate(sel.projectName, 24)}${subPart}`;
       this.projectBarItem.tooltip = [
         `Project: ${sel.projectName}`,
-        taskName ? `Task: ${taskName}` : null,
+        subProjectName ? `Sub-project: ${subProjectName}` : null,
         "",
-        "Click to change project/task",
+        "Click to change project / sub-project",
       ].filter((x) => x !== null).join("\n");
       this.projectBarItem.backgroundColor = undefined;
     } else {

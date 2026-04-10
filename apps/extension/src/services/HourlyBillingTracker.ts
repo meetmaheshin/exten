@@ -269,8 +269,12 @@ export class HourlyBillingTracker implements vscode.Disposable {
   }
 
   private async captureScreenshotForCurrentSlot(): Promise<void> {
-    if (!this.slot || this.slot.screenshotScheduled) return;
-    this.slot.screenshotScheduled = true;
+    // Capture an identity reference to THIS slot. If the active slot
+    // changes mid-capture (sub-project switch, suspend, etc.), we discard
+    // the result instead of mutating the new slot's fields.
+    const targetSlot = this.slot;
+    if (!targetSlot || targetSlot.screenshotScheduled) return;
+    targetSlot.screenshotScheduled = true;
 
     // Skip if OS is idle
     if (this.activityTracker.isOsIdle) {
@@ -281,20 +285,33 @@ export class HourlyBillingTracker implements vscode.Disposable {
     let filePath: string | null = null;
     try {
       filePath = await this.takeScreenshot();
-      if (!filePath || !this.slot) return;
+      if (!filePath) return;
+      // Slot may have been replaced or cleared while we were capturing
+      if (this.slot !== targetSlot) {
+        this.log("Slot changed during screenshot capture — discarding");
+        return;
+      }
 
       const fileBuffer = await fs.promises.readFile(filePath);
       const base64Data = fileBuffer.toString("base64");
 
-      // Upload to existing /api/telemetry/screenshot endpoint
-      const id = await this.uploadScreenshot(base64Data, path.basename(filePath));
-      if (!id || !this.slot) return;
+      // Upload to existing /api/telemetry/screenshot endpoint, passing the
+      // slot identity into metadata so the upload can be linked to the right
+      // slot even if a switch happens before this method returns.
+      const slotIdStr = `${targetSlot.subProjectId}:${targetSlot.lancerUserId}:${targetSlot.slotStart.toISOString()}`;
+      const id = await this.uploadScreenshot(base64Data, path.basename(filePath), slotIdStr);
+      if (!id) return;
+      // Final identity check after the upload await
+      if (this.slot !== targetSlot) {
+        this.log("Slot changed during screenshot upload — discarding URL");
+        return;
+      }
 
       // Build the public URL the chat-ui dashboard will use to render the image
       const apiBase = this.authService.getServerUrl();
       const url = `${apiBase}/api/tracker/screenshots/${id}`;
-      this.slot.screenshotUrl = url;
-      this.slot.screenshotTakenAt = new Date();
+      targetSlot.screenshotUrl = url;
+      targetSlot.screenshotTakenAt = new Date();
       this.log(`Screenshot uploaded: ${url}`);
     } catch (err) {
       this.log(`Screenshot capture/upload failed: ${err}`);
@@ -306,7 +323,11 @@ export class HourlyBillingTracker implements vscode.Disposable {
     }
   }
 
-  private async uploadScreenshot(base64Data: string, filename: string): Promise<string | null> {
+  private async uploadScreenshot(
+    base64Data: string,
+    filename: string,
+    slotIdStr: string,
+  ): Promise<string | null> {
     if (!this.telemetrySessionId) {
       this.log("No telemetry sessionId — cannot upload screenshot");
       return null;
@@ -321,9 +342,7 @@ export class HourlyBillingTracker implements vscode.Disposable {
           capturedAt: new Date().toISOString(),
           metadata: {
             tracker: "hourly_billing",
-            slotId: this.slot
-              ? `${this.slot.subProjectId}:${this.slot.lancerUserId}:${this.slot.slotStart.toISOString()}`
-              : null,
+            slotId: slotIdStr,
           },
         },
       );

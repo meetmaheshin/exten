@@ -87,9 +87,10 @@ export function trackerRoutes(
   // The chat-ui dashboard renders <img src="...this URL..."> and the
   // business user is NOT authenticated to the extension backend, so
   // this endpoint is public. The UUID is unguessable (acts as bearer).
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   app.get("/api/tracker/screenshots/:id", async (request, reply) => {
     const { id } = request.params as { id: string };
-    if (!id || id.length < 10) {
+    if (!id || !UUID_RE.test(id)) {
       return reply.status(400).send({ error: "Invalid screenshot id" });
     }
 
