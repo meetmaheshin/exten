@@ -25,6 +25,14 @@ export async function activate(context: vscode.ExtensionContext) {
   // Expose output channel globally for debug logging in services
   (globalThis as Record<string, unknown>).__ailancersOutput = outputChannel;
 
+  // Migration: auto-update stale serverUrl from old Railway domain to new production domain
+  const cfg = vscode.workspace.getConfiguration("ailancers");
+  const currentUrl = cfg.get<string>("serverUrl");
+  if (currentUrl && currentUrl.includes("exten-production.up.railway.app")) {
+    await cfg.update("serverUrl", "https://apivscode.ailancers.com", vscode.ConfigurationTarget.Global);
+    log("Migrated serverUrl from old Railway domain to apivscode.ailancers.com");
+  }
+
   // Initialize services
   const authService = new AuthService(context.secrets);
   const apiClient = new ApiClient(authService);

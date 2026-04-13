@@ -526,6 +526,6 @@ npx electron-builder --win --dir
 
 - **Repo (GitHub):** https://github.com/meetmaheshin/exten
 - **Repo (GitLab):** https://gitlab.com/rovidevs/ailancers-vscode-ext (branch: `dev-mahesh`)
-- **Production:** https://exten-production.up.railway.app
-- **Dashboard:** https://exten-production.up.railway.app/dashboard/
-- **Downloads page:** https://exten-production.up.railway.app/dashboard/downloads/
+- **Production:** https://apivscode.ailancers.com
+- **Dashboard:** https://apivscode.ailancers.com/dashboard/
+- **Downloads page:** https://apivscode.ailancers.com/dashboard/downloads/
