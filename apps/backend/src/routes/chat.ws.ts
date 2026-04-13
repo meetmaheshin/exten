@@ -228,7 +228,7 @@ export function chatWsRoute(
 
           // Check billing status before allowing AI request
           if (billingReporter && subProjectId) {
-            const billingStatus = await billingReporter.getBillingStatus(subProjectId);
+            const billingStatus = await billingReporter.getBillingStatus(subProjectId, platformUserId || userId);
             if (billingStatus) {
               if (billingStatus.billingStatus === "SUSPENDED") {
                 send(socket, {
@@ -403,7 +403,7 @@ export function chatWsRoute(
 
           // Check billing status before allowing AI request
           if (billingReporter && agentSubProjectId) {
-            const billingStatus = await billingReporter.getBillingStatus(agentSubProjectId);
+            const billingStatus = await billingReporter.getBillingStatus(agentSubProjectId, platformUserId || userId);
             if (billingStatus) {
               if (billingStatus.billingStatus === "SUSPENDED") {
                 send(socket, {

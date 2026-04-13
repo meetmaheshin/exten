@@ -33,6 +33,7 @@ interface BillingStatus {
 export class BillingReporter {
   private accumulator: Map<string, UsageBatch> = new Map();
   private statusCache: Map<string, BillingStatus> = new Map();
+  private userIdByProject: Map<string, string> = new Map(); // subProjectId → userId
   private flushInterval: ReturnType<typeof setInterval> | null = null;
   private statusPollInterval: ReturnType<typeof setInterval> | null = null;
   private blockedProjects: Set<string> = new Set(); // Projects with cap reached or suspended
@@ -83,6 +84,9 @@ export class BillingReporter {
   ): void {
     if (!this.enabled || !subProjectId) return;
 
+    // Track user ID per sub-project for status checks
+    this.userIdByProject.set(subProjectId, lancerUserId);
+
     const key = `${subProjectId}:${model}`;
     const existing = this.accumulator.get(key);
     const now = new Date();
@@ -108,8 +112,13 @@ export class BillingReporter {
    * Get cached billing status for a sub-project.
    * On cold start (no cache), fetches from chat-ui synchronously.
    */
-  async getBillingStatus(subProjectId: string): Promise<BillingStatus | null> {
+  async getBillingStatus(subProjectId: string, userId?: string): Promise<BillingStatus | null> {
     if (!this.enabled || !subProjectId) return null;
+
+    // Store userId for status checks if provided
+    if (userId) {
+      this.userIdByProject.set(subProjectId, userId);
+    }
 
     const cached = this.statusCache.get(subProjectId);
     // Cache valid for 5 minutes
@@ -273,7 +282,11 @@ export class BillingReporter {
 
   private async fetchStatusFromServer(subProjectId: string): Promise<BillingStatus | null> {
     try {
-      const url = `${this.apiUrl}/ai-billing/status?sub_project_id=${encodeURIComponent(subProjectId)}`;
+      const userId = this.userIdByProject.get(subProjectId);
+      let url = `${this.apiUrl}/ai-billing/status?sub_project_id=${encodeURIComponent(subProjectId)}`;
+      if (userId) {
+        url += `&user_id=${encodeURIComponent(userId)}`;
+      }
       const timestamp = Math.floor(Date.now() / 1000).toString();
       const signature = this.sign(timestamp, "");
 

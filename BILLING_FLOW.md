@@ -198,7 +198,7 @@ this.wsClient.send({
 3. Checks billing status before allowing the AI call:
    ```typescript
    if (billingReporter && subProjectId) {
-     const status = await billingReporter.getBillingStatus(subProjectId);
+     const status = await billingReporter.getBillingStatus(subProjectId, platformUserId || userId);
      if (status?.billingStatus === "SUSPENDED") {
        send(socket, { type: "billing_suspended", ... });
        return;
@@ -281,7 +281,7 @@ This is cached locally. If `cap_percent >= 100` or `billing_status === "SUSPENDE
 
 ### Blocked Project Polling
 
-If any sub-project becomes blocked (cap reached or suspended), `BillingReporter` starts a separate polling loop that hits `GET /ai-billing/status?sub_project_id=X` every 3 minutes to detect when it becomes unblocked. When all projects are unblocked, polling stops.
+If any sub-project becomes blocked (cap reached or suspended), `BillingReporter` starts a separate polling loop that hits `GET /ai-billing/status?sub_project_id=X&user_id=Y` every 3 minutes to detect when it becomes unblocked. When all projects are unblocked, polling stops.
 
 ---
 
