@@ -73,7 +73,7 @@ export class ProjectPickerService implements vscode.Disposable {
     if (!token) return [];
 
     try {
-      const resp = await fetch(`${PLATFORM_URL}/api/v2/projects?page_size=100`, {
+      const resp = await fetch(`${PLATFORM_URL}/api/v2/projects?page_size=100&member_only=true`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!resp.ok) {
