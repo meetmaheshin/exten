@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { eq, desc, and, gte, lte } from "drizzle-orm";
+import { eq, desc, and, gte, lte, sql } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../middleware/requireAuth.js";
 import type { AuthService } from "../services/AuthService.js";
 import type { Database } from "../config/database.js";
@@ -170,5 +170,47 @@ export function screenshotRoutes(
     }
 
     return reply.status(404).send({ error: "Screenshot image not found" });
+  });
+
+  // Admin: delete a single screenshot
+  app.delete("/api/admin/screenshots/:id", { preHandler: admin }, async (request, reply) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+
+    const deleted = await db
+      .delete(screenshots)
+      .where(eq(screenshots.id, id))
+      .returning({ id: screenshots.id });
+
+    if (deleted.length === 0) {
+      return reply.status(404).send({ error: "Screenshot not found" });
+    }
+
+    return reply.send({ ok: true, deleted: deleted[0].id });
+  });
+
+  // Admin: bulk delete screenshots
+  app.post("/api/admin/screenshots/bulk-delete", { preHandler: admin }, async (request, reply) => {
+    const body = z.object({
+      ids: z.array(z.string().uuid()).min(1).max(500),
+    }).parse(request.body);
+
+    const deleted = await db
+      .delete(screenshots)
+      .where(sql`${screenshots.id} = ANY(${body.ids}::uuid[])`)
+      .returning({ id: screenshots.id });
+
+    return reply.send({ ok: true, deletedCount: deleted.length });
+  });
+
+  // Admin: delete all screenshots for a user
+  app.delete("/api/admin/screenshots/user/:userId", { preHandler: admin }, async (request, reply) => {
+    const { userId } = z.object({ userId: z.string().uuid() }).parse(request.params);
+
+    const deleted = await db
+      .delete(screenshots)
+      .where(eq(screenshots.userId, userId))
+      .returning({ id: screenshots.id });
+
+    return reply.send({ ok: true, deletedCount: deleted.length });
   });
 }
