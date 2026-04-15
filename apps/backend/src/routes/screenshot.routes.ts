@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { eq, desc, and, gte, lte, sql } from "drizzle-orm";
+import { eq, desc, and, gte, lte, inArray } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../middleware/requireAuth.js";
 import type { AuthService } from "../services/AuthService.js";
 import type { Database } from "../config/database.js";
@@ -196,7 +196,7 @@ export function screenshotRoutes(
 
     const deleted = await db
       .delete(screenshots)
-      .where(sql`${screenshots.id} = ANY(${body.ids}::uuid[])`)
+      .where(inArray(screenshots.id, body.ids))
       .returning({ id: screenshots.id });
 
     return reply.send({ ok: true, deletedCount: deleted.length });
