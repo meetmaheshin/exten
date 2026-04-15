@@ -174,43 +174,39 @@ export function screenshotRoutes(
 
   // Admin: delete a single screenshot
   app.delete("/api/admin/screenshots/:id", { preHandler: admin }, async (request, reply) => {
-    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
-
-    const deleted = await db
-      .delete(screenshots)
-      .where(eq(screenshots.id, id))
-      .returning({ id: screenshots.id });
-
-    if (deleted.length === 0) {
-      return reply.status(404).send({ error: "Screenshot not found" });
+    try {
+      const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+      await db.delete(screenshots).where(eq(screenshots.id, id));
+      return reply.send({ ok: true });
+    } catch (err) {
+      console.error("[Screenshots] Delete failed:", err);
+      return reply.status(500).send({ error: "Delete failed", message: String(err) });
     }
-
-    return reply.send({ ok: true, deleted: deleted[0].id });
   });
 
   // Admin: bulk delete screenshots
   app.post("/api/admin/screenshots/bulk-delete", { preHandler: admin }, async (request, reply) => {
-    const body = z.object({
-      ids: z.array(z.string().uuid()).min(1).max(500),
-    }).parse(request.body);
-
-    const deleted = await db
-      .delete(screenshots)
-      .where(inArray(screenshots.id, body.ids))
-      .returning({ id: screenshots.id });
-
-    return reply.send({ ok: true, deletedCount: deleted.length });
+    try {
+      const body = z.object({
+        ids: z.array(z.string().uuid()).min(1).max(500),
+      }).parse(request.body);
+      await db.delete(screenshots).where(inArray(screenshots.id, body.ids));
+      return reply.send({ ok: true });
+    } catch (err) {
+      console.error("[Screenshots] Bulk delete failed:", err);
+      return reply.status(500).send({ error: "Bulk delete failed", message: String(err) });
+    }
   });
 
   // Admin: delete all screenshots for a user
   app.delete("/api/admin/screenshots/user/:userId", { preHandler: admin }, async (request, reply) => {
-    const { userId } = z.object({ userId: z.string().uuid() }).parse(request.params);
-
-    const deleted = await db
-      .delete(screenshots)
-      .where(eq(screenshots.userId, userId))
-      .returning({ id: screenshots.id });
-
-    return reply.send({ ok: true, deletedCount: deleted.length });
+    try {
+      const { userId } = z.object({ userId: z.string().uuid() }).parse(request.params);
+      await db.delete(screenshots).where(eq(screenshots.userId, userId));
+      return reply.send({ ok: true });
+    } catch (err) {
+      console.error("[Screenshots] User delete failed:", err);
+      return reply.status(500).send({ error: "Delete failed", message: String(err) });
+    }
   });
 }
