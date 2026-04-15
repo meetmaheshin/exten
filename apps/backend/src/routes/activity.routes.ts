@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { eq, and, gte, lte, desc, sql, asc } from "drizzle-orm";
-import { requireAuth, requireAdmin } from "../middleware/requireAuth.js";
+import { requireAuth, requireAdmin, requireManager } from "../middleware/requireAuth.js";
 import type { AuthService } from "../services/AuthService.js";
 import type { Database } from "../config/database.js";
 import { activitySessions, users, aiUsageDaily } from "../models/index.js";
@@ -252,5 +252,63 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
       .orderBy(desc(users.createdAt));
 
     return reply.send({ data: allUsers });
+  });
+
+  // ─── Manager: my team members ───
+  app.get("/api/my-team", { preHandler: requireManager(authService) }, async (request, reply) => {
+    const query = dateRangeSchema.parse(request.query);
+
+    // Find the manager's name to match against employee_directory
+    const [me] = await db
+      .select({ fullName: users.fullName })
+      .from(users)
+      .where(eq(users.id, request.user.sub))
+      .limit(1);
+
+    if (!me) return reply.send({ data: [] });
+
+    // Find team members: users whose team matches this manager, OR
+    // from employee_directory where manager = this user's name
+    const conditions = [];
+    if (query.from) conditions.push(gte(activitySessions.startedAt, new Date(query.from)));
+    if (query.to) conditions.push(lte(activitySessions.startedAt, new Date(query.to)));
+
+    // Get all users on this manager's team
+    const teamMembers = await db
+      .select({
+        userId: users.id,
+        email: users.email,
+        fullName: users.fullName,
+        role: users.role,
+        team: users.team,
+        isActive: users.isActive,
+      })
+      .from(users)
+      .where(eq(users.team, me.fullName))
+      .orderBy(users.fullName);
+
+    // For each team member, get activity stats
+    const enriched = await Promise.all(
+      teamMembers.map(async (member) => {
+        const memberConditions = [eq(activitySessions.userId, member.userId)];
+        if (query.from) memberConditions.push(gte(activitySessions.startedAt, new Date(query.from)));
+        if (query.to) memberConditions.push(lte(activitySessions.startedAt, new Date(query.to)));
+
+        const [stats] = await db
+          .select({
+            totalActiveSeconds: sql<number>`coalesce(sum(${activitySessions.activeSeconds}), 0)::int`,
+            totalIdleSeconds: sql<number>`coalesce(sum(${activitySessions.idleSeconds}), 0)::int`,
+            totalKeystrokes: sql<number>`coalesce(sum(${activitySessions.totalKeystrokes}), 0)::int`,
+            sessionCount: sql<number>`count(*)::int`,
+            lastActive: sql<string>`max(${activitySessions.startedAt})`,
+          })
+          .from(activitySessions)
+          .where(and(...memberConditions));
+
+        return { ...member, ...stats };
+      })
+    );
+
+    return reply.send({ data: enriched });
   });
 }

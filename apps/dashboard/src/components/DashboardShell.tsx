@@ -6,7 +6,7 @@ import { useAuth } from "@/lib/auth";
 import { Sidebar } from "./Sidebar";
 
 export function DashboardShell({ children }: { children: ReactNode }) {
-  const { user, isAdmin } = useAuth();
+  const { user } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
@@ -17,17 +17,6 @@ export function DashboardShell({ children }: { children: ReactNode }) {
 
   if (!user) {
     return <div className="loading">Loading...</div>;
-  }
-
-  if (!isAdmin) {
-    return (
-      <div className="login-page">
-        <div className="login-card">
-          <div className="login-title">Access Denied</div>
-          <div className="login-subtitle">You need admin privileges to access this dashboard.</div>
-        </div>
-      </div>
-    );
   }
 
   return (

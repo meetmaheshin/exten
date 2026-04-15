@@ -42,3 +42,26 @@ export function requireAdmin(authService: AuthService) {
     }
   };
 }
+
+export function requireManager(authService: AuthService) {
+  return async (request: FastifyRequest, reply: FastifyReply) => {
+    await requireAuth(authService)(request, reply);
+    if (reply.sent) return;
+
+    const allowed = ["super_admin", "admin", "manager"];
+    if (!allowed.includes(request.user.role)) {
+      return reply.status(403).send({ error: "Forbidden", message: "Manager access required" });
+    }
+  };
+}
+
+export function requireSuperAdmin(authService: AuthService) {
+  return async (request: FastifyRequest, reply: FastifyReply) => {
+    await requireAuth(authService)(request, reply);
+    if (reply.sent) return;
+
+    if (request.user.role !== "super_admin") {
+      return reply.status(403).send({ error: "Forbidden", message: "Super admin access required" });
+    }
+  };
+}

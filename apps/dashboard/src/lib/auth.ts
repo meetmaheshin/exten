@@ -16,6 +16,7 @@ export interface AuthState {
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   isAdmin: boolean;
+  isManager: boolean;
 }
 
 export const AuthContext = createContext<AuthState>({
@@ -24,6 +25,7 @@ export const AuthContext = createContext<AuthState>({
   login: async () => {},
   logout: () => {},
   isAdmin: false,
+  isManager: false,
 });
 
 export function useAuth() {

@@ -207,6 +207,11 @@ export class AuthService {
     return jwt.sign(payload, this.env.JWT_SECRET, { expiresIn: this.env.JWT_ACCESS_EXPIRY as StringValue });
   }
 
+  /** Public wrapper — generate a local JWT for a user (used for platform-login) */
+  generateAccessTokenForUser(user: { id: string; email: string; role: string }): string {
+    return this.generateAccessToken(user);
+  }
+
   private generateRefreshToken() {
     const refreshToken = crypto.randomBytes(64).toString("hex");
     const tokenHash = this.hashToken(refreshToken);

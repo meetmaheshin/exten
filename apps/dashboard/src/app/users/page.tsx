@@ -105,9 +105,33 @@ export default function UsersPage() {
                     </div>
                   </td>
                   <td>
-                    <span className={`badge ${u.role === "admin" || u.role === "super_admin" ? "badge-primary" : ""}`}>
-                      {u.role}
-                    </span>
+                    <select
+                      value={u.role}
+                      onChange={async (e) => {
+                        const newRole = e.target.value;
+                        if (!confirm(`Change ${u.fullName}'s role to ${newRole}?`)) return;
+                        try {
+                          await apiFetch(`/api/admin/users/${u.id}/role`, {
+                            token: accessToken!,
+                            method: "PUT",
+                            body: JSON.stringify({ role: newRole }),
+                          });
+                          setUsers((prev) => prev.map((x) => x.id === u.id ? { ...x, role: newRole } : x));
+                        } catch (err) {
+                          alert("Failed: " + (err instanceof Error ? err.message : String(err)));
+                        }
+                      }}
+                      style={{
+                        background: "var(--bg-card)", color: "var(--text)", border: "1px solid var(--border)",
+                        borderRadius: 4, padding: "2px 8px", fontSize: 12, cursor: "pointer",
+                      }}
+                    >
+                      <option value="employee">Employee</option>
+                      <option value="developer">Developer</option>
+                      <option value="manager">Manager</option>
+                      <option value="admin">Admin</option>
+                      <option value="super_admin">Super Admin</option>
+                    </select>
                   </td>
                   <td style={{ color: u.team ? "var(--text)" : "var(--text-muted)" }}>
                     {u.team || "—"}

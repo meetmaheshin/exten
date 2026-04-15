@@ -29,10 +29,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearSession();
   }, []);
 
-  const isAdmin = true; // Platform users who can log in are treated as admins
+  const isAdmin = user?.role === "admin" || user?.role === "super_admin";
+  const isManager = isAdmin || user?.role === "manager";
 
   return (
-    <AuthContext.Provider value={{ user, accessToken, login, logout, isAdmin }}>
+    <AuthContext.Provider value={{ user, accessToken, login, logout, isAdmin, isManager }}>
       {children}
     </AuthContext.Provider>
   );
