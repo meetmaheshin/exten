@@ -9,7 +9,11 @@ interface FetchOptions extends RequestInit {
 export async function apiFetch<T>(path: string, options: FetchOptions = {}): Promise<T> {
   const { token, ...fetchOptions } = options;
   const headers = new Headers(fetchOptions.headers);
-  headers.set("Content-Type", "application/json");
+
+  // Only set Content-Type for requests with a body
+  if (fetchOptions.body) {
+    headers.set("Content-Type", "application/json");
+  }
 
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
