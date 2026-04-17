@@ -8,7 +8,7 @@ files:
   - resources/**/*
 win:
   target:
-    - target: dir
+    - target: nsis
       arch: x64
   icon: resources/icon.png
 mac:
@@ -20,7 +20,13 @@ linux:
   icon: resources/icon.png
   category: Utility
 nsis:
-  oneClick: true
-  allowToChangeInstallationDirectory: false
+  oneClick: false
+  allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
+  shortcutName: Ailancers Tracker
+  installerIcon: resources/icon.png
+  uninstallerIcon: resources/icon.png
+  installerHeaderIcon: resources/icon.png
+  license: null
+  perMachine: false
