@@ -10,7 +10,7 @@ win:
   target:
     - target: nsis
       arch: x64
-  icon: resources/icon.png
+  icon: resources/icon.ico
 mac:
   target: [dmg]
   icon: resources/icon.png
@@ -25,8 +25,8 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: Ailancers Tracker
-  installerIcon: resources/icon.png
-  uninstallerIcon: resources/icon.png
-  installerHeaderIcon: resources/icon.png
+  installerIcon: resources/icon.ico
+  uninstallerIcon: resources/icon.ico
+  installerHeaderIcon: resources/icon.ico
   license: null
   perMachine: false
