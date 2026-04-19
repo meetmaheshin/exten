@@ -64,6 +64,21 @@ export class AuthService extends EventEmitter {
     return data.user;
   }
 
+  /** Login with a pre-obtained token (from browser auth bridge) */
+  async loginWithToken(token: string, userHint?: { name: string }): Promise<void> {
+    this.accessToken = token;
+    this.user = {
+      id: "",
+      name: userHint?.name || "User",
+      email: "",
+      role: "developer",
+    };
+
+    this.secureStore.set(TOKEN_KEY, token);
+    this.secureStore.set(USER_KEY, JSON.stringify(this.user));
+    this.emit("authenticated", true);
+  }
+
   async tryRestoreSession(): Promise<boolean> {
     const token = this.secureStore.get(TOKEN_KEY);
     if (!token) return false;

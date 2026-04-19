@@ -46,7 +46,7 @@
       transition: border-color 0.2s;
     }
     input:focus { border-color: #818cf8; }
-    button {
+    .btn-primary {
       width: 100%;
       padding: 12px;
       background: #6366f1;
@@ -58,8 +58,36 @@
       cursor: pointer;
       transition: background 0.2s;
     }
-    button:hover { background: #4f46e5; }
-    button:disabled { background: #475569; cursor: not-allowed; }
+    .btn-primary:hover { background: #4f46e5; }
+    .btn-primary:disabled { background: #475569; cursor: not-allowed; }
+    .btn-browser {
+      width: 100%;
+      padding: 12px;
+      background: transparent;
+      color: #818cf8;
+      border: 1px solid #818cf8;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 12px;
+      transition: all 0.2s;
+    }
+    .btn-browser:hover { background: #818cf810; }
+    .divider {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 16px 0;
+      color: #475569;
+      font-size: 12px;
+    }
+    .divider::before, .divider::after {
+      content: "";
+      flex: 1;
+      height: 1px;
+      background: #334155;
+    }
     .error {
       color: #f87171;
       font-size: 12px;
@@ -73,20 +101,38 @@
       color: #64748b;
       margin-top: 16px;
     }
+    .status {
+      text-align: center;
+      font-size: 13px;
+      color: #818cf8;
+      margin-top: 12px;
+      display: none;
+    }
+    .status.active { display: block; }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="logo">Ailancers <span>Tracker</span></div>
+
+    <!-- Browser login -->
+    <button class="btn-browser" id="browserLoginBtn" onclick="loginWithBrowser()">
+      Login with Ailancers
+    </button>
+    <div class="status" id="statusMsg">Opening browser... Waiting for login.</div>
+
+    <div class="divider">or sign in with email</div>
+
+    <!-- Email/password login -->
     <form id="loginForm">
       <label for="email">Email</label>
-      <input type="email" id="email" placeholder="you@company.com" required autofocus>
+      <input type="email" id="email" placeholder="you@company.com" required>
       <label for="password">Password</label>
       <input type="password" id="password" placeholder="••••••••" required>
-      <button type="submit" id="submitBtn">Sign In</button>
+      <button type="submit" class="btn-primary" id="submitBtn">Sign In</button>
     </form>
     <div class="error" id="errorMsg"></div>
-    <div class="hint">Your activity will be tracked while this app is running.</div>
+    <div class="hint">Use your Ailancers platform credentials</div>
   </div>
 
   <script>
@@ -95,7 +141,10 @@
     const passwordInput = document.getElementById("password");
     const submitBtn = document.getElementById("submitBtn");
     const errorMsg = document.getElementById("errorMsg");
+    const statusMsg = document.getElementById("statusMsg");
+    const browserBtn = document.getElementById("browserLoginBtn");
 
+    // Email/password login
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       errorMsg.textContent = "";
@@ -116,6 +165,31 @@
         submitBtn.textContent = "Sign In";
       }
     });
+
+    // Browser-based login
+    async function loginWithBrowser() {
+      errorMsg.textContent = "";
+      statusMsg.classList.add("active");
+      browserBtn.disabled = true;
+      browserBtn.textContent = "Waiting for login...";
+
+      try {
+        const result = await window.ailancers.loginWithBrowser();
+        if (result.ok) {
+          statusMsg.textContent = "Login successful!";
+          setTimeout(() => window.close(), 500);
+        } else {
+          errorMsg.textContent = result.error || "Browser login failed";
+          statusMsg.classList.remove("active");
+        }
+      } catch (err) {
+        errorMsg.textContent = "Browser login failed. Try email/password instead.";
+        statusMsg.classList.remove("active");
+      } finally {
+        browserBtn.disabled = false;
+        browserBtn.textContent = "Login with Ailancers";
+      }
+    }
   </script>
 </body>
 </html>

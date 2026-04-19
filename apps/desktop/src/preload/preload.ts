@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer } from "electron";
 contextBridge.exposeInMainWorld("ailancers", {
   // Auth
   login: (email: string, password: string) => ipcRenderer.invoke("auth:login", email, password),
+  loginWithBrowser: () => ipcRenderer.invoke("auth:loginWithBrowser"),
   logout: () => ipcRenderer.invoke("auth:logout"),
   getUser: () => ipcRenderer.invoke("auth:user"),
 
