@@ -9,8 +9,8 @@ contextBridge.exposeInMainWorld("ailancers", {
 
   // Projects
   getProjects: () => ipcRenderer.invoke("projects:list"),
-  selectProject: (projectId: number, projectName: string, taskId: number | null, taskName: string | null) =>
-    ipcRenderer.invoke("projects:select", projectId, projectName, taskId, taskName),
+  selectProject: (projectId: string, projectName: string, subProjectId: string | null, subProjectName: string | null) =>
+    ipcRenderer.invoke("projects:select", projectId, projectName, subProjectId, subProjectName),
   clearProject: () => ipcRenderer.invoke("projects:clear"),
   getActiveSelection: () => ipcRenderer.invoke("projects:active"),
 

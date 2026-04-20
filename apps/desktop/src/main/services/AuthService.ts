@@ -66,6 +66,7 @@ export class AuthService extends EventEmitter {
 
   /** Login with a pre-obtained token (from browser auth bridge) */
   async loginWithToken(token: string, userHint?: { name: string }): Promise<void> {
+    console.log(`[Auth] loginWithToken called, token length=${token?.length}, starts with: ${token?.slice(0, 20)}...`);
     this.accessToken = token;
     this.user = {
       id: "",
@@ -76,6 +77,7 @@ export class AuthService extends EventEmitter {
 
     this.secureStore.set(TOKEN_KEY, token);
     this.secureStore.set(USER_KEY, JSON.stringify(this.user));
+    console.log(`[Auth] Token stored, emitting authenticated`);
     this.emit("authenticated", true);
   }
 

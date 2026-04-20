@@ -34,7 +34,7 @@ app.whenReady().then(async () => {
   const activityTracker = new ActivityTracker(systemIdle, configStore);
   const telemetryService = new TelemetryService(apiClient, activityTracker, configStore);
   const screenCapture = new ScreenCaptureService(apiClient, activityTracker, configStore, telemetryService);
-  const projectService = new ProjectService(apiClient);
+  const projectService = new ProjectService(authService);
 
   // Use Electron's built-in idle detection (more reliable than PowerShell)
   systemIdle.setElectronIdleProvider(() => powerMonitor.getSystemIdleTime());
@@ -56,7 +56,7 @@ app.whenReady().then(async () => {
   setInterval(() => {
     telemetryService.setActiveProject(
       projectService.activeProjectId,
-      projectService.activeTaskId
+      projectService.activeSubProjectId
     );
   }, 5000);
 
@@ -87,7 +87,7 @@ app.whenReady().then(async () => {
       // Sync initial project selection to telemetry
       telemetryService.setActiveProject(
         projectService.activeProjectId,
-        projectService.activeTaskId
+        projectService.activeSubProjectId
       );
     } catch {
       // Non-critical

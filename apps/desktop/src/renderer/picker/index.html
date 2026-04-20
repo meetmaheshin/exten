@@ -117,7 +117,7 @@
     async function loadCurrent() {
       const sel = await window.ailancers.getActiveSelection();
       if (sel) {
-        currentDiv.innerHTML = `<strong>${sel.projectName}</strong>${sel.taskName ? " > " + sel.taskName : ""}` +
+        currentDiv.innerHTML = `<strong>${sel.projectName}</strong>${sel.subProjectName ? " > " + sel.subProjectName : ""}` +
           ' <button class="clear-btn" onclick="clearSelection()">Clear</button>';
       }
     }
@@ -129,33 +129,17 @@
       }
 
       projectList.innerHTML = projects.map(p => `
-        <div class="project-item" onclick="selectProject(${p.id}, '${esc(p.name)}')">
-          <div class="project-name">${esc(p.name)}</div>
-          <div class="project-meta">${p.stageName || ""} ${p.businessUnit ? "· " + p.businessUnit : ""} · ${p.myTasks.length} tasks</div>
-          ${p.myTasks.length > 0 ? `<div class="task-list">
-            ${p.myTasks.map(t => `
-              <div class="task-item" onclick="event.stopPropagation(); selectTask(${p.id}, '${esc(p.name)}', ${t.id}, '${esc(t.name)}')">
-                ${esc(t.name)} <span class="task-state">${stateLabel(t.state)}</span>
-              </div>
-            `).join("")}
-          </div>` : ""}
+        <div class="project-item" onclick="selectProject('${esc(p.id)}', '${esc(p.title)}')">
+          <div class="project-name">${esc(p.title)}</div>
+          <div class="project-meta">${p.project_code || ""} · ${p.status || ""} · $${p.total_budget || 0} · ${p.sub_project_count || 0} sub-projects</div>
         </div>
       `).join("");
     }
 
-    function esc(s) { return (s || "").replace(/'/g, "\\'").replace(/</g, "&lt;"); }
-    function stateLabel(s) {
-      const m = { "01_in_progress": "In Progress", "04_waiting_normal": "Waiting", "1_done": "Done" };
-      return m[s] || s || "";
-    }
+    function esc(s) { return (s || "").replace(/'/g, "\\'").replace(/</g, "&lt;").replace(/"/g, "&quot;"); }
 
     async function selectProject(id, name) {
       await window.ailancers.selectProject(id, name, null, null);
-      window.close();
-    }
-
-    async function selectTask(projectId, projectName, taskId, taskName) {
-      await window.ailancers.selectProject(projectId, projectName, taskId, taskName);
       window.close();
     }
 
@@ -167,9 +151,8 @@
     searchInput.addEventListener("input", () => {
       const q = searchInput.value.toLowerCase();
       const filtered = allProjects.filter(p =>
-        p.name.toLowerCase().includes(q) ||
-        (p.businessUnit || "").toLowerCase().includes(q) ||
-        p.myTasks.some(t => t.name.toLowerCase().includes(q))
+        (p.title || "").toLowerCase().includes(q) ||
+        (p.project_code || "").toLowerCase().includes(q)
       );
       renderProjects(filtered);
     });

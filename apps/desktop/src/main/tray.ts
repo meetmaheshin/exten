@@ -55,7 +55,7 @@ export class TrayManager {
     }
 
     const projectLabel = selection
-      ? `${selection.projectName}${selection.taskName ? ` > ${selection.taskName}` : ""}`
+      ? `${selection.projectName}${selection.subProjectName ? ` > ${selection.subProjectName}` : ""}`
       : "No project selected";
 
     const template: Electron.MenuItemConstructorOptions[] = [

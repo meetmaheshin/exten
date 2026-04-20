@@ -70,8 +70,8 @@ export function registerIpcHandlers(
     }
   });
 
-  ipcMain.handle("projects:select", (_event, projectId: number, projectName: string, taskId: number | null, taskName: string | null) => {
-    projectService.setSelection({ projectId, projectName, taskId, taskName });
+  ipcMain.handle("projects:select", (_event, projectId: string, projectName: string, taskId: string | null, taskName: string | null) => {
+    projectService.setSelection({ projectId, projectName, subProjectId: taskId, subProjectName: taskName });
     return { ok: true };
   });
 

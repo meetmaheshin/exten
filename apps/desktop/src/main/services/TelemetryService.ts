@@ -11,8 +11,8 @@ export interface TelemetryFlushResult {
 export class TelemetryService {
   private _sessionId: string | null = null;
   private flushInterval: ReturnType<typeof setInterval> | null = null;
-  private activeProjectId: number | null = null;
-  private activeTaskId: number | null = null;
+  private activeProjectId: string | null = null;
+  private activeTaskId: string | null = null;
   private onFlushCallback: ((result: TelemetryFlushResult) => void) | null = null;
 
   constructor(
@@ -29,7 +29,7 @@ export class TelemetryService {
     this.onFlushCallback = cb;
   }
 
-  setActiveProject(projectId: number | null, taskId: number | null): void {
+  setActiveProject(projectId: string | null, taskId: string | null): void {
     this.activeProjectId = projectId;
     this.activeTaskId = taskId;
   }
