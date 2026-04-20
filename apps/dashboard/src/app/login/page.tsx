@@ -30,8 +30,8 @@ export default function LoginPage() {
   return (
     <div className="login-page">
       <div className="login-card">
-        <div className="login-title">Ailancers Admin</div>
-        <div className="login-subtitle">Sign in with your admin account to access the dashboard.</div>
+        <div className="login-title">Ailancers Dashboard</div>
+        <div className="login-subtitle">Sign in with your Ailancers account.</div>
 
         {error && <div className="login-error">{error}</div>}
 

@@ -34,6 +34,29 @@ export async function apiFetch<T>(path: string, options: FetchOptions = {}): Pro
 
 /** Login via backend — returns JWT token + user */
 export async function apiLogin(email: string, password: string) {
+  // Try platform proxy login first (works for all Ailancers users)
+  const platformResp = await fetch(`${API_BASE}/api/auth/platform-proxy-login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+
+  if (platformResp.ok) {
+    const platformData = await platformResp.json() as { token: string };
+    // Exchange platform token for local JWT
+    const exchangeResp = await fetch(`${API_BASE}/api/auth/platform-login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ platformToken: platformData.token }),
+    });
+
+    if (exchangeResp.ok) {
+      const data = await exchangeResp.json() as { accessToken: string; user: { id: string; email: string; fullName: string; role: string; team: string | null } };
+      return { token: data.accessToken, user: data.user };
+    }
+  }
+
+  // Fallback: try local backend login
   const response = await fetch(`${API_BASE}/api/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -42,7 +65,7 @@ export async function apiLogin(email: string, password: string) {
 
   const data = await response.json();
   if (!response.ok) {
-    throw new Error(data.message || data.error || "Login failed");
+    throw new Error(data.message || data.error || data.detail || "Login failed");
   }
 
   return {
