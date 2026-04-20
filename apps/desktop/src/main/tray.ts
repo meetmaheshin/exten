@@ -1,4 +1,4 @@
-import { Tray, Menu, nativeImage, BrowserWindow, app } from "electron";
+import { Tray, Menu, nativeImage, BrowserWindow, app, Notification } from "electron";
 import * as path from "node:path";
 import type { AuthService } from "./services/AuthService";
 import type { ProjectService } from "./services/ProjectService";
@@ -141,7 +141,25 @@ export class TrayManager {
     });
 
     this.pickerWindow.loadFile(path.join(__dirname, "..", "renderer", "picker", "index.html"));
-    this.pickerWindow.on("closed", () => { this.pickerWindow = null; });
+    this.pickerWindow.on("closed", () => {
+      this.pickerWindow = null;
+      // Show notification that app is running in tray
+      const selection = this.projectService.activeSelection;
+      if (selection) {
+        new Notification({
+          title: "Ailancers Tracker",
+          body: `Tracking "${selection.projectName}". The app is running in your system tray (bottom-right, near the clock).`,
+          icon: path.join(__dirname, "..", "..", "resources", "icon.png"),
+        }).show();
+      } else {
+        new Notification({
+          title: "Ailancers Tracker",
+          body: "The app is running in your system tray (bottom-right, near the clock). Right-click the icon to select a project.",
+          icon: path.join(__dirname, "..", "..", "resources", "icon.png"),
+        }).show();
+      }
+      this.rebuildMenu();
+    });
   }
 
   closeWindows(): void {

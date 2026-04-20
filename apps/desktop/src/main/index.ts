@@ -110,6 +110,10 @@ app.whenReady().then(async () => {
   authService.on("authenticated", async (isAuth: boolean) => {
     if (isAuth) {
       await startTracking();
+      // After login, show project picker so user selects a project
+      if (!projectService.activeSelection) {
+        trayManager.showPickerWindow();
+      }
     } else {
       stopTracking();
     }
