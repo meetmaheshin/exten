@@ -74,6 +74,14 @@ export class AuthService {
     }
   }
 
+  /** Login with a pre-obtained token (from browser auth bridge) */
+  async loginWithPlatformToken(token: string): Promise<void> {
+    this.accessToken = token;
+    this.userName = "User";
+    await this.secrets.store("ailancers.platformToken", token);
+    this.notifyListeners(true);
+  }
+
   /** Legacy: prompt login via VS Code input boxes (fallback) */
   async promptLogin(): Promise<void> {
     const email = await vscode.window.showInputBox({

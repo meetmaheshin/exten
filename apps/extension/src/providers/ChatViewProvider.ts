@@ -99,6 +99,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           }
           break;
         }
+        case "loginWithBrowser": {
+          this.handleBrowserLogin();
+          break;
+        }
         case "getAuthState": {
           this.postToWebview({
             type: "authState",
@@ -121,6 +125,45 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   private postToWebview(message: unknown): void {
     this.view?.webview.postMessage(message);
+  }
+
+  private async handleBrowserLogin(): Promise<void> {
+    const serverUrl = this.authService.getServerUrl();
+    try {
+      // Step 1: Get device code
+      const codeResp = await fetch(`${serverUrl}/api/auth/device-code`, { method: "POST" });
+      if (!codeResp.ok) {
+        this.postToWebview({ type: "loginResult", success: false, error: "Failed to get login code" });
+        return;
+      }
+      const { code } = await codeResp.json() as { code: string };
+
+      // Step 2: Open browser
+      vscode.env.openExternal(vscode.Uri.parse(`${serverUrl}/auth-bridge?code=${code}`));
+
+      // Step 3: Poll for completion
+      for (let i = 0; i < 150; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        try {
+          const pollResp = await fetch(`${serverUrl}/api/auth/device-code/poll?code=${code}`);
+          if (!pollResp.ok) continue;
+          const poll = await pollResp.json() as { status: string; accessToken?: string; user?: { fullName?: string } };
+          if (poll.status === "complete" && poll.accessToken) {
+            // Store the token and authenticate
+            await this.authService.loginWithPlatformToken(poll.accessToken);
+            this.postToWebview({ type: "loginResult", success: true });
+            return;
+          }
+          if (poll.status === "expired") {
+            this.postToWebview({ type: "loginResult", success: false, error: "Login expired. Try again." });
+            return;
+          }
+        } catch { /* retry */ }
+      }
+      this.postToWebview({ type: "loginResult", success: false, error: "Login timed out" });
+    } catch (err) {
+      this.postToWebview({ type: "loginResult", success: false, error: err instanceof Error ? err.message : "Browser login failed" });
+    }
   }
 
   private getHtml(webview: vscode.Webview): string {

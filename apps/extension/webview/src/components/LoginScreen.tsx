@@ -12,6 +12,7 @@ export function LoginScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [browserLoading, setBrowserLoading] = useState(false);
   const [error, setError] = useState("");
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -22,11 +23,18 @@ export function LoginScreen() {
     getVsCodeApi().postMessage({ type: "login", email, password });
   };
 
+  const handleBrowserLogin = () => {
+    setBrowserLoading(true);
+    setError("");
+    getVsCodeApi().postMessage({ type: "loginWithBrowser" });
+  };
+
   // Listen for login result from extension host
   const handler = (event: MessageEvent) => {
     const msg = event.data;
     if (msg.type === "loginResult") {
       setLoading(false);
+      setBrowserLoading(false);
       if (!msg.success) {
         setError(msg.error || "Login failed");
       }
@@ -47,6 +55,27 @@ export function LoginScreen() {
         <div className="login-version">AI-Powered Development</div>
       </div>
 
+      {/* Browser login — primary */}
+      <div className="login-form">
+        <button
+          className="login-btn login-btn-browser"
+          onClick={handleBrowserLogin}
+          disabled={browserLoading || loading}
+        >
+          {browserLoading ? "Waiting for login..." : "Login with Ailancers"}
+        </button>
+        {browserLoading && (
+          <div className="login-browser-hint">
+            A browser window has opened. Sign in there to continue.
+          </div>
+        )}
+      </div>
+
+      <div className="login-divider">
+        <span>or sign in with email</span>
+      </div>
+
+      {/* Email/password — fallback */}
       <form className="login-form" onSubmit={handleSubmit}>
         <input
           className="login-input"
@@ -54,9 +83,8 @@ export function LoginScreen() {
           placeholder="Email address"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          disabled={loading}
+          disabled={loading || browserLoading}
           autoComplete="email"
-          autoFocus
         />
         <input
           className="login-input"
@@ -64,11 +92,11 @@ export function LoginScreen() {
           placeholder="Password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          disabled={loading}
+          disabled={loading || browserLoading}
           autoComplete="current-password"
         />
         {error && <div className="login-error">{error}</div>}
-        <button className="login-btn" type="submit" disabled={loading || !email || !password}>
+        <button className="login-btn" type="submit" disabled={loading || browserLoading || !email || !password}>
           {loading ? "Signing in..." : "Sign In"}
         </button>
       </form>
