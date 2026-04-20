@@ -34,10 +34,11 @@ export function registerIpcHandlers(
         await new Promise((r) => setTimeout(r, 2000));
         const pollResp = await fetch(`${serverUrl}/api/auth/device-code/poll?code=${code}`);
         if (!pollResp.ok) continue;
-        const poll = await pollResp.json() as { status: string; accessToken?: string; user?: unknown };
+        const poll = await pollResp.json() as { status: string; accessToken?: string; platformToken?: string; user?: unknown };
         if (poll.status === "complete" && poll.accessToken) {
-          // Login with the received token
-          await authService.loginWithToken(poll.accessToken, poll.user as { name: string });
+          // Login with the platform token (needed for project fetching from staging-backend)
+          const tokenToUse = poll.platformToken || poll.accessToken;
+          await authService.loginWithToken(tokenToUse, poll.user as { name: string });
           return { ok: true };
         }
         if (poll.status === "expired") {

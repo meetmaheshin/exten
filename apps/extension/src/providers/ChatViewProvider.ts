@@ -147,10 +147,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         try {
           const pollResp = await fetch(`${serverUrl}/api/auth/device-code/poll?code=${code}`);
           if (!pollResp.ok) continue;
-          const poll = await pollResp.json() as { status: string; accessToken?: string; user?: { fullName?: string } };
-          if (poll.status === "complete" && poll.accessToken) {
-            // Store the token and authenticate
-            await this.authService.loginWithPlatformToken(poll.accessToken);
+          const poll = await pollResp.json() as { status: string; accessToken?: string; platformToken?: string; user?: { fullName?: string } };
+          if (poll.status === "complete" && (poll.platformToken || poll.accessToken)) {
+            // Store the platform token (needed for project fetching from staging-backend)
+            await this.authService.loginWithPlatformToken(poll.platformToken || poll.accessToken!);
             this.postToWebview({ type: "loginResult", success: true });
             return;
           }

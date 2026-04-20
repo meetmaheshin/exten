@@ -64,12 +64,12 @@ export function authRoutes(app: FastifyInstance, authService: AuthService, db: D
 
   // ─── Browser-based login for desktop app ───
   // In-memory store for pending login codes (code → token)
-  const pendingLogins = new Map<string, { token: string | null; user: unknown; expiresAt: number }>();
+  const pendingLogins = new Map<string, { token: string | null; platformToken: string | null; user: unknown; expiresAt: number }>();
 
   // Desktop app calls this to create a login code, then opens browser
   app.post("/api/auth/device-code", async (_request, reply) => {
     const code = Math.random().toString(36).slice(2, 10).toUpperCase();
-    pendingLogins.set(code, { token: null, user: null, expiresAt: Date.now() + 5 * 60 * 1000 });
+    pendingLogins.set(code, { token: null, platformToken: null, user: null, expiresAt: Date.now() + 5 * 60 * 1000 });
     // Clean up expired codes
     for (const [k, v] of pendingLogins) { if (v.expiresAt < Date.now()) pendingLogins.delete(k); }
     return reply.send({ code, expiresIn: 300 });
@@ -92,6 +92,7 @@ export function authRoutes(app: FastifyInstance, authService: AuthService, db: D
       if (!user) return reply.status(404).send({ error: "User not found" });
       const localToken = authService.generateAccessTokenForUser(user);
       pending.token = localToken;
+      pending.platformToken = body.platformToken;
       pending.user = user;
       return reply.send({ ok: true });
     } catch {
@@ -109,7 +110,7 @@ export function authRoutes(app: FastifyInstance, authService: AuthService, db: D
     }
     if (pending.token) {
       pendingLogins.delete(code);
-      return reply.send({ status: "complete", accessToken: pending.token, user: pending.user });
+      return reply.send({ status: "complete", accessToken: pending.token, platformToken: pending.platformToken, user: pending.user });
     }
     return reply.send({ status: "pending" });
   });
