@@ -4,7 +4,7 @@ import { useState } from "react";
 
 // Google Drive direct-download URLs
 const VSIX_URL = "https://drive.google.com/uc?export=download&id=1fEHytm4817ligiYhucoiSUHKFEdYnlVX";
-const DESKTOP_WIN_URL = "https://drive.google.com/uc?export=download&id=1pqb46xDO6fzA0M_KcQL9gbCxw6ut6As3";
+const DESKTOP_WIN_URL = "https://drive.google.com/uc?export=download&id=1akdGout7A5__VwKEDc1KM8dq5P8vcpu5";
 
 const sectionStyle = { background: "#1c1e2e", borderRadius: 12, border: "1px solid #2a2d3e", padding: 28, marginBottom: 24 };
 const headingStyle = { fontSize: 16, fontWeight: 700 as const, color: "#818cf8", marginBottom: 16 };
