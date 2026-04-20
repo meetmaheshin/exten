@@ -114,6 +114,25 @@ export function authRoutes(app: FastifyInstance, authService: AuthService, db: D
     return reply.send({ status: "pending" });
   });
 
+  // Proxy login to staging backend (avoids CORS issues from browser)
+  app.post("/api/auth/platform-proxy-login", async (request, reply) => {
+    const body = z.object({ email: z.string().email(), password: z.string().min(1) }).parse(request.body);
+    try {
+      const resp = await fetch("https://staging-backend.ailancers.com/api/v1/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        return reply.status(resp.status).send(data);
+      }
+      return reply.send(data);
+    } catch (err) {
+      return reply.status(502).send({ error: "Failed to reach Ailancers platform" });
+    }
+  });
+
   // Serve the browser login page
   app.get("/auth-bridge", async (request, reply) => {
     const { code } = request.query as { code?: string };
@@ -160,7 +179,7 @@ const btn=document.getElementById("btn");
 const err=document.getElementById("err");
 err.textContent="";btn.disabled=true;btn.textContent="Connecting...";
 try{
-const r=await fetch("https://staging-backend.ailancers.com/api/v1/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:document.getElementById("email").value,password:document.getElementById("password").value})});
+const r=await fetch("/api/auth/platform-proxy-login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:document.getElementById("email").value,password:document.getElementById("password").value})});
 const d=await r.json();
 if(!r.ok)throw new Error(d.detail||d.message||"Login failed");
 const r2=await fetch("/api/auth/device-code/complete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code,platformToken:d.token})});
