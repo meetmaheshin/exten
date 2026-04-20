@@ -114,6 +114,35 @@ export function authRoutes(app: FastifyInstance, authService: AuthService, db: D
     return reply.send({ status: "pending" });
   });
 
+  // Google OAuth callback — completes device-code flow after Google login
+  app.get("/api/auth/google/callback", async (request, reply) => {
+    const { token, device_code } = request.query as { token?: string; device_code?: string };
+    if (!token || !device_code) {
+      return reply.status(400).send("Missing token or device_code");
+    }
+
+    const pending = pendingLogins.get(device_code);
+    if (!pending || pending.expiresAt < Date.now()) {
+      return reply.type("text/html").send("<h2>Login expired. Please try again from the app.</h2>");
+    }
+
+    try {
+      const payload = await authService.verifyPlatformToken(token);
+      const [user] = await db
+        .select({ id: users.id, email: users.email, fullName: users.fullName, role: users.role, team: users.team })
+        .from(users)
+        .where(eq(users.id, payload.sub))
+        .limit(1);
+      if (!user) return reply.type("text/html").send("<h2>User not found.</h2>");
+      const localToken = authService.generateAccessTokenForUser(user);
+      pending.token = localToken;
+      pending.user = user;
+      return reply.type("text/html").send(`<html><body style="background:#0f0f23;color:#22c55e;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;font-size:20px"><div style="text-align:center">Connected! You can close this tab.</div></body></html>`);
+    } catch {
+      return reply.type("text/html").send("<h2>Authentication failed. Please try again.</h2>");
+    }
+  });
+
   // Proxy login to staging backend (avoids CORS issues from browser)
   app.post("/api/auth/platform-proxy-login", async (request, reply) => {
     const body = z.object({ email: z.string().email(), password: z.string().min(1) }).parse(request.body);
@@ -140,55 +169,140 @@ export function authRoutes(app: FastifyInstance, authService: AuthService, db: D
 
     const html = `<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Ailancers — Connect Desktop Tracker</title>
+<title>Ailancers — Connect Tracker</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#0f0f23;color:#e2e8f0;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
-.card{max-width:380px;width:100%;background:#1c1e2e;border-radius:12px;padding:32px;border:1px solid #2a2d3e}
+.card{max-width:400px;width:100%;background:#1c1e2e;border-radius:12px;padding:32px;border:1px solid #2a2d3e}
 h2{color:#818cf8;margin-bottom:8px;font-size:20px}
 p{color:#94a3b8;font-size:13px;margin-bottom:20px}
 label{display:block;font-size:12px;color:#94a3b8;margin-bottom:4px;text-transform:uppercase}
 input{width:100%;padding:10px 14px;background:#0f0f23;border:1px solid #334155;border-radius:8px;color:#e2e8f0;font-size:14px;margin-bottom:16px;outline:none}
 input:focus{border-color:#818cf8}
-button{width:100%;padding:12px;background:#6366f1;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer}
-button:hover{background:#4f46e5}
-button:disabled{background:#475569;cursor:not-allowed}
+.btn{width:100%;padding:12px;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:8px}
+.btn-primary{background:#6366f1;color:#fff}
+.btn-primary:hover{background:#4f46e5}
+.btn-google{background:#fff;color:#333;border:1px solid #ddd}
+.btn-google:hover{background:#f5f5f5}
+.btn:disabled{background:#475569;cursor:not-allowed;color:#94a3b8}
+.divider{display:flex;align-items:center;gap:10px;margin:16px 0;color:#475569;font-size:12px}
+.divider::before,.divider::after{content:"";flex:1;height:1px;background:#334155}
 .error{color:#f87171;font-size:12px;margin-top:8px}
-.success{color:#22c55e;font-size:16px;text-align:center;margin-top:16px}
+.success{color:#22c55e;font-size:16px;text-align:center;padding:20px 0}
+.auto-msg{text-align:center;color:#818cf8;font-size:14px;padding:20px 0}
 .code-badge{display:inline-block;background:#818cf820;color:#818cf8;padding:2px 8px;border-radius:4px;font-family:monospace;font-size:12px}
 </style></head>
 <body>
 <div class="card">
-<h2>Connect Desktop Tracker</h2>
-<p>Sign in with your Ailancers account to connect the desktop tracker. Code: <span class="code-badge">${code}</span></p>
-<form id="form">
+<h2>Connect Tracker</h2>
+<p id="subtitle">Connecting to your Ailancers account... Code: <span class="code-badge">${code}</span></p>
+
+<!-- Auto-login status -->
+<div class="auto-msg" id="autoMsg" style="display:none">Checking existing session...</div>
+
+<!-- Google OAuth -->
+<button class="btn btn-google" id="googleBtn" onclick="loginGoogle()" style="display:none">
+  <svg width="18" height="18" viewBox="0 0 48 48" style="vertical-align:middle;margin-right:8px"><path fill="#4285F4" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#34A853" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#EA4335" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+  Continue with Google
+</button>
+
+<div class="divider" id="divider" style="display:none"><span>or sign in with email</span></div>
+
+<!-- Email/password form -->
+<form id="form" style="display:none">
 <label>Email</label>
-<input type="email" id="email" placeholder="you@company.com" required autofocus>
+<input type="email" id="email" placeholder="you@company.com" required>
 <label>Password</label>
 <input type="password" id="password" placeholder="Password" required>
-<button type="submit" id="btn">Connect</button>
+<button type="submit" class="btn btn-primary" id="btn">Connect</button>
 </form>
+
 <div class="error" id="err"></div>
 <div class="success" id="ok" style="display:none">Connected! You can close this tab.</div>
 </div>
 <script>
 const code="${code}";
+
+// Try auto-login from shared cookie first
+async function tryAutoLogin(){
+  const autoMsg=document.getElementById("autoMsg");
+  autoMsg.style.display="block";
+
+  // Check for ailance_token cookie (set by ailancers.com)
+  const cookies=document.cookie.split(";").map(c=>c.trim());
+  const tokenCookie=cookies.find(c=>c.startsWith("ailance_token="));
+
+  if(tokenCookie){
+    const token=tokenCookie.split("=").slice(1).join("=");
+    if(token){
+      autoMsg.textContent="Found existing session, connecting...";
+      try{
+        const r=await fetch("/api/auth/device-code/complete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code,platformToken:token})});
+        if(r.ok){
+          showSuccess();
+          return;
+        }
+      }catch{}
+    }
+  }
+
+  // Also check localStorage (some Ailancers pages store here)
+  try{
+    const lsToken=localStorage.getItem("ailance_token");
+    if(lsToken){
+      autoMsg.textContent="Found saved session, connecting...";
+      try{
+        const r=await fetch("/api/auth/device-code/complete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code,platformToken:lsToken})});
+        if(r.ok){
+          showSuccess();
+          return;
+        }
+      }catch{}
+    }
+  }catch{}
+
+  // No auto-login possible — show login form
+  autoMsg.style.display="none";
+  document.getElementById("subtitle").textContent="Sign in with your Ailancers account. Code: ${code}";
+  document.getElementById("googleBtn").style.display="block";
+  document.getElementById("divider").style.display="flex";
+  document.getElementById("form").style.display="block";
+}
+
+function showSuccess(){
+  document.getElementById("autoMsg").style.display="none";
+  document.getElementById("form").style.display="none";
+  document.getElementById("googleBtn").style.display="none";
+  document.getElementById("divider").style.display="none";
+  document.getElementById("ok").style.display="block";
+  document.getElementById("subtitle").textContent="Connected successfully!";
+}
+
+// Google OAuth
+function loginGoogle(){
+  const redirect=encodeURIComponent(window.location.origin+"/api/auth/google/callback?device_code="+code);
+  window.location.href="https://staging-backend.ailancers.com/api/v1/auth/google/login?redirect_uri="+redirect;
+}
+
+// Email/password
 document.getElementById("form").addEventListener("submit",async e=>{
-e.preventDefault();
-const btn=document.getElementById("btn");
-const err=document.getElementById("err");
-err.textContent="";btn.disabled=true;btn.textContent="Connecting...";
-try{
-const r=await fetch("/api/auth/platform-proxy-login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:document.getElementById("email").value,password:document.getElementById("password").value})});
-const d=await r.json();
-if(!r.ok)throw new Error(d.detail||d.message||"Login failed");
-const r2=await fetch("/api/auth/device-code/complete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code,platformToken:d.token})});
-if(!r2.ok){const e2=await r2.json();throw new Error(e2.error||"Failed");}
-document.getElementById("form").style.display="none";
-document.getElementById("ok").style.display="block";
-}catch(ex){err.textContent=ex.message;}
-finally{btn.disabled=false;btn.textContent="Connect";}
+  e.preventDefault();
+  const btn=document.getElementById("btn");
+  const err=document.getElementById("err");
+  err.textContent="";btn.disabled=true;btn.textContent="Connecting...";
+  try{
+    const r=await fetch("/api/auth/platform-proxy-login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:document.getElementById("email").value,password:document.getElementById("password").value})});
+    const d=await r.json();
+    if(!r.ok)throw new Error(d.detail||d.message||"Login failed");
+    const r2=await fetch("/api/auth/device-code/complete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code,platformToken:d.token})});
+    if(!r2.ok){const e2=await r2.json();throw new Error(e2.error||"Failed");}
+    showSuccess();
+  }catch(ex){err.textContent=ex.message;}
+  finally{btn.disabled=false;btn.textContent="Connect";}
 });
+
+// Start
+tryAutoLogin();
 </script>
 </body></html>`;
 
