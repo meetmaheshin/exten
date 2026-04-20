@@ -70,6 +70,15 @@ export function registerIpcHandlers(
     }
   });
 
+  ipcMain.handle("projects:subprojects", async (_event, projectId: string) => {
+    try {
+      const subs = await projectService.fetchSubProjects(projectId);
+      return { ok: true, data: subs };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
   ipcMain.handle("projects:select", (_event, projectId: string, projectName: string, taskId: string | null, taskName: string | null) => {
     projectService.setSelection({ projectId, projectName, subProjectId: taskId, subProjectName: taskName });
     return { ok: true };

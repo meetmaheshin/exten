@@ -138,9 +138,53 @@
 
     function esc(s) { return (s || "").replace(/'/g, "\\'").replace(/</g, "&lt;").replace(/"/g, "&quot;"); }
 
+    let selectedProjectId = null;
+    let selectedProjectName = null;
+
     async function selectProject(id, name) {
-      await window.ailancers.selectProject(id, name, null, null);
+      selectedProjectId = id;
+      selectedProjectName = name;
+
+      // Fetch sub-projects
+      projectList.innerHTML = '<div class="loading">Loading sub-projects...</div>';
+      const result = await window.ailancers.getSubProjects(id);
+
+      if (!result.ok || !result.data || result.data.length === 0) {
+        // No sub-projects — select project directly
+        await window.ailancers.selectProject(id, name, null, null);
+        window.close();
+        return;
+      }
+
+      // Show sub-project picker
+      searchInput.style.display = "none";
+      currentDiv.innerHTML = '<strong>Project:</strong> ' + esc(name) +
+        ' <button class="clear-btn" onclick="backToProjects()">← Back</button>';
+
+      projectList.innerHTML = `
+        <div class="project-item" onclick="selectSubProject(null, null)" style="opacity:0.7">
+          <div class="project-name">No specific sub-project</div>
+          <div class="project-meta">Track at project level only</div>
+        </div>
+      ` + result.data.map(sp => `
+        <div class="project-item" onclick="selectSubProject('${esc(sp.id)}', '${esc(sp.title)}')">
+          <div class="project-name">${esc(sp.title)}</div>
+          <div class="project-meta">${sp.priority || ""} · $${sp.budget || 0}</div>
+        </div>
+      `).join("");
+    }
+
+    async function selectSubProject(subId, subName) {
+      await window.ailancers.selectProject(selectedProjectId, selectedProjectName, subId, subName);
       window.close();
+    }
+
+    function backToProjects() {
+      selectedProjectId = null;
+      selectedProjectName = null;
+      searchInput.style.display = "";
+      loadCurrent();
+      renderProjects(allProjects);
     }
 
     async function clearSelection() {
