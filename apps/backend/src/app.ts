@@ -96,7 +96,8 @@ export async function buildApp(env: Env, db: Database) {
       }
       return reply.status(204).send();
     });
-    // Redirect /dashboard → /dashboard/
+    // Redirect / and /dashboard → /dashboard/
+    app.get("/", async (_req, reply) => reply.redirect("/dashboard/"));
     app.get("/dashboard", async (_req, reply) => reply.redirect("/dashboard/"));
     // Serve all /dashboard/* requests — static files or index.html fallback
     app.get("/dashboard/*", async (request, reply) => {

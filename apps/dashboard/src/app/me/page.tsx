@@ -46,12 +46,12 @@ export default function MyPerformancePage() {
     if (!accessToken) return;
     setLoading(true);
     Promise.all([
-      apiFetch<MySummary>(`/api/activity/me/summary?from=${fromParam}`, { token: accessToken }),
+      apiFetch<{ data: MySummary }>(`/api/activity/me/summary?from=${fromParam}`, { token: accessToken }),
       apiFetch<{ data: MyDaily[] }>(`/api/activity/me/daily?from=${fromParam}&limit=30`, { token: accessToken }),
       apiFetch<{ data: MyScreenshot[] }>("/api/telemetry/screenshots/me?limit=8", { token: accessToken }),
     ])
       .then(([sum, d, ss]) => {
-        setSummary(sum);
+        setSummary(sum.data);
         setDaily(d.data || []);
         setScreenshots(ss.data || []);
       })

@@ -387,12 +387,12 @@ export class ActivityDashboardProvider {
         return;
       }
 
-      const maxSeconds = Math.max(...daily.map(d => d.activeSeconds), 1);
+      const maxSeconds = Math.max(...daily.map(d => d.totalActiveSeconds), 1);
 
       chart.innerHTML = daily.map(d => {
-        const heightPct = Math.max((d.activeSeconds / maxSeconds) * 100, 2);
+        const heightPct = Math.max((d.totalActiveSeconds / maxSeconds) * 100, 2);
         const dateLabel = new Date(d.date).toLocaleDateString('en', { month: 'short', day: 'numeric' });
-        return '<div class="bar-group"><div class="bar" style="height:' + heightPct + '%" title="' + formatTime(d.activeSeconds) + '"></div><div class="bar-label">' + dateLabel + '</div></div>';
+        return '<div class="bar-group"><div class="bar" style="height:' + heightPct + '%" title="' + formatTime(d.totalActiveSeconds) + '"></div><div class="bar-label">' + dateLabel + '</div></div>';
       }).join('');
     }
 

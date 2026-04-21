@@ -40,9 +40,9 @@ export class TelemetryService {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const resp = await this.apiClient.get<{
-        totalActiveSeconds: number;
+        data: { totalActiveSeconds: number };
       }>(`/api/activity/me/summary?from=${today.toISOString()}`);
-      return resp.totalActiveSeconds || 0;
+      return resp.data?.totalActiveSeconds || 0;
     } catch {
       return 0;
     }

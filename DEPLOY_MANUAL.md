@@ -67,6 +67,7 @@ pnpm run db:seed
 cd ../../  # back to repo root
 pnpm --filter @ailancers/shared-types run build
 pnpm --filter @ailancers/dashboard run build
+rm -rf apps/backend/dist/dashboard-dist
 cp -r apps/dashboard/out/ apps/backend/dist/dashboard-dist
 ```
 

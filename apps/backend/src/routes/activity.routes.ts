@@ -76,11 +76,11 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
     const daily = await db
       .select({
         date: sql<string>`date(${activitySessions.startedAt})`,
-        activeSeconds: sql<number>`coalesce(sum(${activitySessions.activeSeconds}), 0)::int`,
-        idleSeconds: sql<number>`coalesce(sum(${activitySessions.idleSeconds}), 0)::int`,
-        keystrokes: sql<number>`coalesce(sum(${activitySessions.totalKeystrokes}), 0)::int`,
-        fileSaves: sql<number>`coalesce(sum(${activitySessions.totalFileSaves}), 0)::int`,
-        sessions: sql<number>`count(*)::int`,
+        totalActiveSeconds: sql<number>`coalesce(sum(${activitySessions.activeSeconds}), 0)::int`,
+        totalIdleSeconds: sql<number>`coalesce(sum(${activitySessions.idleSeconds}), 0)::int`,
+        totalKeystrokes: sql<number>`coalesce(sum(${activitySessions.totalKeystrokes}), 0)::int`,
+        totalFileSaves: sql<number>`coalesce(sum(${activitySessions.totalFileSaves}), 0)::int`,
+        sessionCount: sql<number>`count(*)::int`,
       })
       .from(activitySessions)
       .where(and(...conditions))

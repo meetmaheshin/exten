@@ -70,7 +70,7 @@ export class TrayManager {
         { label: projectLabel, type: "normal", enabled: false },
         { type: "separator" },
         { label: "Select Project/Task...", click: () => this.showPickerWindow() },
-        { label: "Open Dashboard", click: () => shell.openExternal("https://apivscode.ailancers.com/dashboard/login") },
+        { label: "Open Dashboard", click: () => shell.openExternal("https://apivscode.ailancers.com/dashboard/") },
         { type: "separator" },
         { label: "Logout", click: () => this.handleLogout() }
       );
