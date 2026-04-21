@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { DashboardShell } from "@/components/DashboardShell";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
@@ -166,7 +167,7 @@ export default function ProjectsPage() {
                     <td>{formatNumber(u.total_file_saves)}</td>
                     <td>{u.session_count}</td>
                     <td>{u.last_active ? new Date(u.last_active).toLocaleDateString() : "—"}</td>
-                    <td><a href={`/screenshots?userId=${u.user_id}`} style={{ color: "var(--primary)" }}>View</a></td>
+                    <td><Link href={`/screenshots?userId=${u.user_id}`} style={{ color: "var(--primary)" }}>View</Link></td>
                   </tr>
                 ))}
                 {selectedProject.users.length === 0 && (
