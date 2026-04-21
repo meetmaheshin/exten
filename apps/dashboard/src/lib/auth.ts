@@ -14,6 +14,7 @@ export interface AuthState {
   user: AuthUser | null;
   accessToken: string | null;
   login: (email: string, password: string) => Promise<void>;
+  loginWithToken: (token: string, user: AuthUser) => void;
   logout: () => void;
   isAdmin: boolean;
   isManager: boolean;
@@ -23,6 +24,7 @@ export const AuthContext = createContext<AuthState>({
   user: null,
   accessToken: null,
   login: async () => {},
+  loginWithToken: () => {},
   logout: () => {},
   isAdmin: false,
   isManager: false,

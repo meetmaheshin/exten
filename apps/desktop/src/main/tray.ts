@@ -1,4 +1,4 @@
-import { Tray, Menu, nativeImage, BrowserWindow, app, Notification } from "electron";
+import { Tray, Menu, nativeImage, BrowserWindow, app, Notification, shell } from "electron";
 import * as path from "node:path";
 import type { AuthService } from "./services/AuthService";
 import type { ProjectService } from "./services/ProjectService";
@@ -70,6 +70,7 @@ export class TrayManager {
         { label: projectLabel, type: "normal", enabled: false },
         { type: "separator" },
         { label: "Select Project/Task...", click: () => this.showPickerWindow() },
+        { label: "Open Dashboard", click: () => shell.openExternal("https://apivscode.ailancers.com/dashboard/me") },
         { type: "separator" },
         { label: "Logout", click: () => this.handleLogout() }
       );
