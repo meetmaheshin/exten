@@ -71,6 +71,7 @@ export default function LoginPage() {
   return (
     <div className="login-page">
       <div className="login-card">
+        <img src="/dashboard/logo.png" alt="Ailancers" style={{ width: 48, height: 48, marginBottom: 8 }} />
         <div className="login-title">Ailancers Dashboard</div>
         <div className="login-subtitle">Sign in with your Ailancers account.</div>
 

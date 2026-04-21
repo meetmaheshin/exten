@@ -50,8 +50,8 @@ export function LoginScreen() {
   return (
     <div className="login-container">
       <div className="login-brand">
-        <div className="login-logo">A</div>
-        <div className="login-title">Ailancers Code</div>
+        <div className="login-logo" style={{ background: "#f5c518", color: "#0f0f23" }}>A</div>
+        <div className="login-title" style={{ color: "#f5c518" }}>Ailancers Code</div>
         <div className="login-version">AI-Powered Development</div>
       </div>
 

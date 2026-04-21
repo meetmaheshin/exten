@@ -52,7 +52,10 @@ export function Sidebar() {
 
   return (
     <aside className="sidebar">
-      <div className="sidebar-logo">Ailancers</div>
+      <div className="sidebar-logo" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <img src="/dashboard/logo.png" alt="Ailancers" style={{ width: 28, height: 28 }} />
+        Ailancers
+      </div>
       <nav className="sidebar-nav">
         {visibleItems.map((item) => (
           <Link

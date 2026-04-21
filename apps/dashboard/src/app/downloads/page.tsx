@@ -21,8 +21,9 @@ export default function DownloadsPage() {
     <div style={{ minHeight: "100vh", background: "#0f1117", color: "#e4e4e7" }}>
       {/* Header */}
       <header style={{ padding: "40px 24px 32px", textAlign: "center", borderBottom: "1px solid #2a2d3e", background: "linear-gradient(180deg, #161822 0%, #0f1117 100%)" }}>
+        <img src="/dashboard/logo.png" alt="Ailancers" style={{ width: 56, height: 56, marginBottom: 12 }} />
         <div style={{ fontSize: 36, marginBottom: 8 }}>
-          <span style={{ color: "#6366f1", fontWeight: 800 }}>Ailancers</span>{" "}
+          <span style={{ color: "#f5c518", fontWeight: 800 }}>Ailancers</span>{" "}
           <span style={{ fontWeight: 300 }}>Tracker</span>
         </div>
         <p style={{ color: "#8b8d98", fontSize: 16, maxWidth: 600, margin: "0 auto" }}>
