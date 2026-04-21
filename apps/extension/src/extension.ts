@@ -183,6 +183,10 @@ export async function activate(context: vscode.ExtensionContext) {
     projectPicker.fetchProjects().catch(() => {});
     // Prompt auto-start on first login
     autoStartService.promptOnFirstLogin().catch(() => {});
+    // Check for updates
+    checkForUpdates(apiClient, log);
+    // Schedule midnight session reset
+    scheduleMidnightReset(telemetryService, screenCaptureService, log);
   }
 
   // Listen for auth changes
@@ -216,6 +220,52 @@ export async function activate(context: vscode.ExtensionContext) {
   });
 
   log("Ailancers Code extension activated");
+}
+
+const CURRENT_VERSION = "0.2.0";
+
+async function checkForUpdates(apiClient: import("./services/ApiClient").ApiClient, log: (msg: string) => void): Promise<void> {
+  try {
+    const resp = await apiClient.get<{ extension: { version: string; downloadUrl: string } }>("/api/version");
+    if (resp.extension.version !== CURRENT_VERSION) {
+      const action = await vscode.window.showInformationMessage(
+        `Ailancers Code update available: v${resp.extension.version} (you have v${CURRENT_VERSION})`,
+        "Download Update"
+      );
+      if (action === "Download Update") {
+        vscode.env.openExternal(vscode.Uri.parse(resp.extension.downloadUrl));
+      }
+    } else {
+      log(`Version check: up to date (v${CURRENT_VERSION})`);
+    }
+  } catch {
+    // Silent fail
+  }
+}
+
+function scheduleMidnightReset(
+  telemetryService: import("./services/TelemetryService").TelemetryService,
+  screenCaptureService: import("./services/ScreenCaptureService").ScreenCaptureService,
+  log: (msg: string) => void
+): void {
+  const now = new Date();
+  const midnight = new Date(now);
+  midnight.setHours(24, 0, 0, 0);
+  const msUntilMidnight = midnight.getTime() - now.getTime();
+
+  setTimeout(async () => {
+    log("Midnight — resetting session for new day");
+    await telemetryService.endSession();
+    const newSessionId = await telemetryService.startSession();
+    if (newSessionId) {
+      screenCaptureService.stop();
+      screenCaptureService.start(newSessionId);
+    }
+    // Schedule next midnight
+    scheduleMidnightReset(telemetryService, screenCaptureService, log);
+  }, msUntilMidnight);
+
+  log(`Midnight reset scheduled in ${Math.round(msUntilMidnight / 60000)}m`);
 }
 
 export function deactivate() {

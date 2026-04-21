@@ -11,6 +11,9 @@ import { AuthService } from "./services/AuthService.js";
 import { AIService } from "./services/AIService.js";
 import { BillingReporter } from "./services/BillingReporter.js";
 import { HourlyTrackerReporter } from "./services/HourlyTrackerReporter.js";
+import { eq, and, desc, isNull, like } from "drizzle-orm";
+import { activitySessions } from "./models/index.js";
+import { requireAuth } from "./middleware/requireAuth.js";
 import { authRoutes } from "./routes/auth.routes.js";
 import { chatRoutes } from "./routes/chat.routes.js";
 import { chatWsRoute } from "./routes/chat.ws.js";
@@ -123,11 +126,34 @@ export async function buildApp(env: Env, db: Database) {
   billingReporter.start();
   const hourlyTrackerReporter = new HourlyTrackerReporter(env);
 
-  // Model discovery endpoint — includes recommended defaults per mode
+  // Model discovery endpoint
   app.get("/api/models", async () => ({
     models: aiService.getAvailableModels(),
     defaults: aiService.getDefaultModels(),
   }));
+
+  // Version endpoint — clients check this on startup for updates
+  app.get("/api/version", async () => ({
+    extension: { version: "0.2.0", downloadUrl: "https://apivscode.ailancers.com/dashboard/downloads/" },
+    desktop: { version: "0.1.0", downloadUrl: "https://apivscode.ailancers.com/dashboard/downloads/" },
+  }));
+
+  // Check if user has an active session from a specific source (for duplicate detection)
+  app.get("/api/telemetry/active-session", { preHandler: requireAuth(authService) }, async (request, reply) => {
+    const { source } = request.query as { source?: string };
+    const [session] = await db
+      .select({ id: activitySessions.id, editorVersion: activitySessions.editorVersion, startedAt: activitySessions.startedAt })
+      .from(activitySessions)
+      .where(and(
+        eq(activitySessions.userId, request.user.sub),
+        isNull(activitySessions.endedAt),
+        source ? like(activitySessions.editorVersion, `%${source}%`) : undefined,
+      ))
+      .orderBy(desc(activitySessions.startedAt))
+      .limit(1);
+
+    return reply.send({ hasActiveSession: !!session, session: session || null });
+  });
 
   // Routes
   authRoutes(app, authService, db);

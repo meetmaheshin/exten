@@ -60,13 +60,57 @@ app.whenReady().then(async () => {
     );
   }, 5000);
 
+  // ─── Midnight session reset ───
+  function scheduleMidnightReset(): void {
+    const now = new Date();
+    const midnight = new Date(now);
+    midnight.setHours(24, 0, 0, 0);
+    const msUntilMidnight = midnight.getTime() - now.getTime();
+
+    setTimeout(async () => {
+      console.log("[Ailancers] Midnight — resetting session for new day");
+      await telemetryService.endSession();
+      trayManager.resetActiveTime();
+      await telemetryService.startSession();
+      trayManager.rebuildMenu();
+      // Schedule next midnight
+      scheduleMidnightReset();
+    }, msUntilMidnight);
+
+    console.log(`[Ailancers] Midnight reset scheduled in ${Math.round(msUntilMidnight / 60000)}m`);
+  }
+
   // ─── Start/stop services based on auth state ───
   async function startTracking(): Promise<void> {
     console.log("[Ailancers] User authenticated — starting tracking");
+
+    // Check if VS Code extension already has an active session
+    try {
+      const checkResp = await apiClient.get<{ hasActiveSession: boolean }>("/api/telemetry/active-session?source=Code");
+      if (checkResp.hasActiveSession) {
+        console.log("[Ailancers] VS Code extension is already tracking — desktop tracker will skip tracking");
+        const { Notification: ElectronNotification } = await import("electron");
+        new ElectronNotification({
+          title: "Ailancers Tracker",
+          body: "VS Code extension is already tracking your activity. Desktop tracker is paused to avoid duplicate time.",
+        }).show();
+        trayManager.rebuildMenu();
+        // Still fetch projects and restore time, just don't start a new session
+        try {
+          const todaySeconds = await telemetryService.fetchTodayActiveSeconds();
+          if (todaySeconds > 0) trayManager.setTotalActiveSeconds(todaySeconds);
+        } catch {}
+        return;
+      }
+    } catch {
+      // Can't check — proceed with tracking
+    }
+
     systemIdle.start();
     activityTracker.start();
     await telemetryService.startSession();
     screenCapture.start();
+    scheduleMidnightReset();
 
     // Restore today's active time so tray doesn't show 0m after re-login
     try {
@@ -123,6 +167,8 @@ app.whenReady().then(async () => {
   const restored = await authService.tryRestoreSession();
   if (restored) {
     await startTracking();
+    // Check for updates
+    checkForUpdates(configStore);
   } else {
     console.log("[Ailancers] No saved session — showing login");
     trayManager.showLoginWindow();
@@ -147,3 +193,25 @@ app.whenReady().then(async () => {
 
   console.log("[Ailancers] Desktop tracker ready");
 });
+
+const DESKTOP_VERSION = "0.1.0";
+
+async function checkForUpdates(configStore: import("./services/ConfigStore").ConfigStore): Promise<void> {
+  try {
+    const serverUrl = configStore.get("serverUrl");
+    const resp = await fetch(`${serverUrl}/api/version`);
+    if (!resp.ok) return;
+    const data = await resp.json() as { desktop: { version: string; downloadUrl: string } };
+    if (data.desktop.version !== DESKTOP_VERSION) {
+      const { Notification: ElectronNotification, shell } = await import("electron");
+      const notif = new ElectronNotification({
+        title: "Ailancers Tracker Update Available",
+        body: `Version ${data.desktop.version} is available (you have ${DESKTOP_VERSION}). Click to download.`,
+      });
+      notif.on("click", () => shell.openExternal(data.desktop.downloadUrl));
+      notif.show();
+    }
+  } catch {
+    // Silent fail
+  }
+}
