@@ -10,7 +10,9 @@ export class ApiClient {
   async fetch(path: string, options: RequestInit = {}): Promise<Response> {
     const url = `${this.getBaseUrl()}${path}`;
     const headers = new Headers(options.headers);
-    headers.set("Content-Type", "application/json");
+    if (options.body) {
+      headers.set("Content-Type", "application/json");
+    }
 
     const token = this.authService.getAccessToken();
     if (token) {

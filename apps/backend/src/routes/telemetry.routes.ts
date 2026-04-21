@@ -24,9 +24,10 @@ const heartbeatSchema = z.object({
   languageSeconds: z.record(z.number()),
   isCurrentlyIdle: z.boolean(),
   appUsage: z.record(z.number()).optional(),
-  // External platform project/task being worked on
-  externalProjectId: z.number().int().positive().optional().nullable(),
-  externalTaskId: z.number().int().positive().optional().nullable(),
+  // External platform project/task being worked on (int for old habitnetwork, string UUID for v2 platform)
+  externalProjectId: z.union([z.number().int().positive(), z.string()]).optional().nullable(),
+  externalTaskId: z.union([z.number().int().positive(), z.string()]).optional().nullable(),
+  subProjectId: z.string().uuid().optional().nullable(),
 });
 
 const sessionEndSchema = z.object({
