@@ -268,7 +268,7 @@ export function App() {
       case "tool_approval_request": dispatch({ type: "ADD_PENDING_APPROVAL", approval: { toolCallId: msg.toolCallId, toolName: msg.toolName, toolInput: msg.toolInput, conversationId: msg.conversationId } }); break;
       case "tool_result_ack": dispatch({ type: "TOOL_CALL_COMPLETED", toolCallId: msg.toolCallId, result: msg.result, isError: msg.isError }); break;
       case "agent_complete": dispatch({ type: "AGENT_COMPLETE", usage: msg.totalUsage }); break;
-      case "billing_suspended": dispatch({ type: "STREAM_ERROR", error: msg.message }); break;
+      case "billing_suspended": dispatch({ type: "STREAM_ERROR", error: `__BILLING__${msg.reason}__${msg.message}` }); break;
       case "modelsLoaded": dispatch({ type: "SET_MODELS", models: msg.models, defaults: msg.defaults }); break;
     }
   }, []);

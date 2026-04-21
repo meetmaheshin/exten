@@ -52,7 +52,11 @@ export function MessageList({ messages, isStreaming, stream, pendingApprovals = 
           {msg.role === "assistant" && msg.toolCalls?.map((tc) => (
             <ToolCallDisplay key={tc.toolCallId} toolCall={tc} />
           ))}
-          {msg.content && <div className="msg-content" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />}
+          {msg.content && msg.content.startsWith("Error: __BILLING__") ? (
+            <BillingCard message={msg.content} />
+          ) : msg.content ? (
+            <div className="msg-content" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
+          ) : null}
           {msg.costUsd != null && msg.costUsd > 0 && <div className="msg-meta">${msg.costUsd.toFixed(4)}</div>}
         </div>
       ))}
@@ -97,6 +101,58 @@ export function MessageList({ messages, isStreaming, stream, pendingApprovals = 
       )}
 
       <div ref={bottomRef} />
+    </div>
+  );
+}
+
+function BillingCard({ message }: { message: string }) {
+  // Parse: "Error: __BILLING__SUSPENDED__actual message" or "Error: __BILLING__CAP_REACHED__message"
+  const match = message.match(/__BILLING__(SUSPENDED|CAP_REACHED)__(.+)/);
+  const reason = match?.[1] || "SUSPENDED";
+  const text = match?.[2] || "AI usage is suspended.";
+  const isCap = reason === "CAP_REACHED";
+
+  return (
+    <div style={{
+      background: isCap ? "#92400e20" : "#7f1d1d20",
+      border: `1px solid ${isCap ? "#f59e0b" : "#ef4444"}`,
+      borderRadius: 8,
+      padding: 16,
+      margin: "8px 0",
+    }}>
+      <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6, color: isCap ? "#f59e0b" : "#ef4444" }}>
+        {isCap ? "⚠️ Daily Cap Reached" : "🚫 Insufficient Balance"}
+      </div>
+      <div style={{ fontSize: 13, color: "#e2e8f0", marginBottom: 12, lineHeight: 1.5 }}>
+        {text}
+      </div>
+      <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 12 }}>
+        {isCap
+          ? "Your daily AI usage limit has been reached. It will reset tomorrow, or ask your admin to increase the cap."
+          : "Your wallet balance is empty. Top up your wallet on the Ailancers platform to continue using AI features."}
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <a
+          href="https://staging-backend.ailancers.com"
+          target="_blank"
+          rel="noopener"
+          style={{
+            padding: "8px 16px",
+            background: isCap ? "#f59e0b" : "#ef4444",
+            color: "#fff",
+            borderRadius: 6,
+            fontSize: 13,
+            fontWeight: 600,
+            textDecoration: "none",
+            cursor: "pointer",
+          }}
+        >
+          {isCap ? "View Usage" : "Top Up Wallet"}
+        </a>
+        <div style={{ fontSize: 11, color: "#64748b", alignSelf: "center" }}>
+          After recharging, just send a new message — it will work automatically.
+        </div>
+      </div>
     </div>
   );
 }
