@@ -95,14 +95,30 @@ export class ScreenCaptureService implements vscode.Disposable {
       if (!filePath) return null;
 
       // Upload to backend
-      await this.uploadScreenshot(filePath);
+      const screenshotId = await this.uploadScreenshot(filePath);
+
+      // Show notification with delete option
+      if (screenshotId) {
+        const action = await vscode.window.showInformationMessage(
+          "Screenshot captured",
+          { detail: "A screenshot was taken and uploaded.", modal: false },
+          "Delete"
+        );
+        if (action === "Delete") {
+          try {
+            await this.apiClient.fetch(`/api/telemetry/screenshots/${screenshotId}`, { method: "DELETE" });
+            vscode.window.showInformationMessage("Screenshot deleted. Time for this interval will not be counted.");
+          } catch {
+            vscode.window.showErrorMessage("Failed to delete screenshot.");
+          }
+        }
+      }
 
       // Cleanup old local screenshots
       await this.cleanupLocalScreenshots();
 
       return filePath;
     } catch (err) {
-      // Screen capture is non-critical, log and continue
       console.error("Screen capture failed:", err);
       return null;
     } finally {
@@ -186,15 +202,15 @@ export class ScreenCaptureService implements vscode.Disposable {
     throw new Error("No screenshot tool available. Install gnome-screenshot, scrot, or imagemagick.");
   }
 
-  private async uploadScreenshot(filePath: string): Promise<void> {
-    if (!this.sessionId) return;
+  private async uploadScreenshot(filePath: string): Promise<string | null> {
+    if (!this.sessionId) return null;
 
     const fileBuffer = await fs.promises.readFile(filePath);
     const base64Data = fileBuffer.toString("base64");
     const filename = path.basename(filePath);
 
     try {
-      await this.apiClient.post("/api/telemetry/screenshot", {
+      const resp = await this.apiClient.post<{ id: string }>("/api/telemetry/screenshot", {
         sessionId: this.sessionId,
         filename,
         imageBase64: base64Data,
@@ -206,9 +222,10 @@ export class ScreenCaptureService implements vscode.Disposable {
           language: vscode.window.activeTextEditor?.document.languageId ?? null,
         },
       });
+      return resp.id || null;
     } catch (err) {
-      // Upload failures are not critical
       console.error("Screenshot upload failed:", err);
+      return null;
     }
   }
 

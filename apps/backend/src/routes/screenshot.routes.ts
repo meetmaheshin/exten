@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { eq, desc, and, gte, lte, inArray } from "drizzle-orm";
+import { eq, desc, and, gte, lte, inArray, sql } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../middleware/requireAuth.js";
 import type { AuthService } from "../services/AuthService.js";
 import type { Database } from "../config/database.js";
@@ -172,12 +172,63 @@ export function screenshotRoutes(
     return reply.status(404).send({ error: "Screenshot image not found" });
   });
 
-  // Admin: delete a single screenshot
+  // Helper: deduct screenshot interval time from the associated session
+  const SCREENSHOT_INTERVAL_SECONDS = 300; // 5 minutes
+  async function deductTimeForScreenshot(screenshotId: string): Promise<void> {
+    try {
+      const [ss] = await db
+        .select({ sessionId: screenshots.sessionId })
+        .from(screenshots)
+        .where(eq(screenshots.id, screenshotId))
+        .limit(1);
+
+      if (ss?.sessionId) {
+        await db.execute(
+          sql`UPDATE activity_sessions
+              SET active_seconds = GREATEST(active_seconds - ${SCREENSHOT_INTERVAL_SECONDS}, 0)
+              WHERE id = ${ss.sessionId}`
+        );
+        console.log(`[Screenshots] Deducted ${SCREENSHOT_INTERVAL_SECONDS}s from session ${ss.sessionId}`);
+      }
+    } catch (err) {
+      console.error("[Screenshots] Failed to deduct time:", err);
+    }
+  }
+
+  // User: delete own screenshot (deducts time from session)
+  app.delete("/api/telemetry/screenshots/:id", { preHandler: auth }, async (request, reply) => {
+    try {
+      const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+
+      // Verify ownership
+      const [ss] = await db
+        .select({ userId: screenshots.userId })
+        .from(screenshots)
+        .where(eq(screenshots.id, id))
+        .limit(1);
+
+      if (!ss) return reply.status(404).send({ error: "Screenshot not found" });
+      if (ss.userId !== request.user.sub) return reply.status(403).send({ error: "Not your screenshot" });
+
+      // Deduct time from session
+      await deductTimeForScreenshot(id);
+
+      // Delete
+      await db.delete(screenshots).where(eq(screenshots.id, id));
+      return reply.send({ ok: true, timeDeducted: SCREENSHOT_INTERVAL_SECONDS });
+    } catch (err) {
+      console.error("[Screenshots] User delete failed:", err);
+      return reply.status(500).send({ error: "Delete failed", message: String(err) });
+    }
+  });
+
+  // Admin: delete a single screenshot (also deducts time)
   app.delete("/api/admin/screenshots/:id", { preHandler: admin }, async (request, reply) => {
     try {
       const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+      await deductTimeForScreenshot(id);
       await db.delete(screenshots).where(eq(screenshots.id, id));
-      return reply.send({ ok: true });
+      return reply.send({ ok: true, timeDeducted: SCREENSHOT_INTERVAL_SECONDS });
     } catch (err) {
       console.error("[Screenshots] Delete failed:", err);
       return reply.status(500).send({ error: "Delete failed", message: String(err) });

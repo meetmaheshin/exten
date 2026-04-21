@@ -4,7 +4,7 @@ import { eq, and, gte, lte, desc, sql, asc } from "drizzle-orm";
 import { requireAuth, requireAdmin, requireManager } from "../middleware/requireAuth.js";
 import type { AuthService } from "../services/AuthService.js";
 import type { Database } from "../config/database.js";
-import { activitySessions, users, aiUsageDaily } from "../models/index.js";
+import { activitySessions, users, aiUsageDaily, screenshots } from "../models/index.js";
 
 const dateRangeSchema = z.object({
   from: z.string().datetime().optional(),
@@ -310,5 +310,71 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
     );
 
     return reply.send({ data: enriched });
+  });
+
+  // ─── Admin: manual time entry ───
+  app.post("/api/admin/activity/manual-entry", { preHandler: admin }, async (request, reply) => {
+    const body = z.object({
+      userId: z.string().uuid(),
+      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      activeSeconds: z.number().int().min(0).max(86400),
+      note: z.string().max(500).optional(),
+      externalProjectId: z.string().optional(),
+      externalTaskId: z.string().optional(),
+    }).parse(request.body);
+
+    try {
+      // Create a manual session entry
+      const startedAt = new Date(`${body.date}T09:00:00.000Z`);
+      const endedAt = new Date(startedAt.getTime() + body.activeSeconds * 1000);
+
+      const [session] = await db
+        .insert(activitySessions)
+        .values({
+          userId: body.userId,
+          startedAt,
+          endedAt,
+          activeSeconds: body.activeSeconds,
+          idleSeconds: 0,
+          totalKeystrokes: 0,
+          totalFileSaves: 0,
+          totalFileChanges: 0,
+          filesTouched: {},
+          languagesUsed: {},
+          editorVersion: "manual-entry",
+          extensionVersion: "admin",
+          osPlatform: "manual",
+        })
+        .returning({ id: activitySessions.id });
+
+      // Create a blank screenshot to mark it as manual entry
+      await db.insert(screenshots).values({
+        userId: body.userId,
+        sessionId: session.id,
+        filename: "manual-entry.png",
+        storagePath: "",
+        imageData: null,
+        fileSizeBytes: 0,
+        metadata: {
+          manualEntry: true,
+          addedBy: request.user.sub,
+          addedByEmail: request.user.email,
+          note: body.note || "Manually added by admin",
+        },
+        capturedAt: startedAt,
+      });
+
+      console.log(`[Activity] Manual entry: ${body.activeSeconds}s for user ${body.userId} on ${body.date} by admin ${request.user.email}`);
+
+      return reply.send({
+        ok: true,
+        sessionId: session.id,
+        activeSeconds: body.activeSeconds,
+        date: body.date,
+      });
+    } catch (err) {
+      console.error("[Activity] Manual entry failed:", err);
+      return reply.status(500).send({ error: "Failed to create manual entry", message: String(err) });
+    }
   });
 }

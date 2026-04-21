@@ -149,11 +149,76 @@ function DeveloperDetailContent() {
               </div>
             )}
           </div>
+
+          {/* Manual Time Entry (Admin only) */}
+          <ManualTimeEntry userId={userId} accessToken={accessToken!} />
         </>
       ) : (
         <div className="loading">No data found for this developer</div>
       )}
     </DashboardShell>
+  );
+}
+
+function ManualTimeEntry({ userId, accessToken }: { userId: string; accessToken: string }) {
+  const [date, setDate] = useState("");
+  const [hours, setHours] = useState("");
+  const [minutes, setMinutes] = useState("");
+  const [note, setNote] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState("");
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const totalSeconds = (parseInt(hours || "0") * 3600) + (parseInt(minutes || "0") * 60);
+    if (!date || totalSeconds <= 0) { setResult("Enter a valid date and time"); return; }
+
+    setSubmitting(true);
+    setResult("");
+    try {
+      await apiFetch("/api/admin/activity/manual-entry", {
+        token: accessToken,
+        method: "POST",
+        body: JSON.stringify({ userId, date, activeSeconds: totalSeconds, note: note || undefined }),
+      });
+      setResult(`Added ${hours || 0}h ${minutes || 0}m for ${date}`);
+      setDate(""); setHours(""); setMinutes(""); setNote("");
+    } catch (err) {
+      setResult("Failed: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="card" style={{ marginTop: 16 }}>
+      <div className="card-header">Add Manual Time Entry</div>
+      <form onSubmit={handleSubmit} style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", padding: "0 0 8px" }}>
+        <div>
+          <label style={{ fontSize: 11, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>Date</label>
+          <input type="date" className="form-input" value={date} onChange={(e) => setDate(e.target.value)} required style={{ width: 160 }} />
+        </div>
+        <div>
+          <label style={{ fontSize: 11, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>Hours</label>
+          <input type="number" className="form-input" value={hours} onChange={(e) => setHours(e.target.value)} min="0" max="24" placeholder="0" style={{ width: 70 }} />
+        </div>
+        <div>
+          <label style={{ fontSize: 11, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>Minutes</label>
+          <input type="number" className="form-input" value={minutes} onChange={(e) => setMinutes(e.target.value)} min="0" max="59" placeholder="0" style={{ width: 70 }} />
+        </div>
+        <div>
+          <label style={{ fontSize: 11, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>Note (optional)</label>
+          <input type="text" className="form-input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Reason for manual entry" style={{ width: 220 }} />
+        </div>
+        <button type="submit" className="btn btn-primary" disabled={submitting} style={{ height: 36 }}>
+          {submitting ? "Adding..." : "Add Time"}
+        </button>
+      </form>
+      {result && <div style={{ fontSize: 12, color: result.startsWith("Failed") ? "var(--danger)" : "var(--success)", padding: "4px 0" }}>{result}</div>}
+      <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+        Manual entries are marked with a blank screenshot and show as "manual-entry" in session source.
+      </div>
+    </div>
   );
 }
 
