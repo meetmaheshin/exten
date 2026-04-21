@@ -41,8 +41,13 @@ export async function buildApp(env: Env, db: Database) {
   });
 
   await app.register(rateLimit, {
-    max: 100,
+    max: 500,
     timeWindow: "1 minute",
+    allowList: (req) => {
+      // Don't rate limit screenshot image serving or static dashboard files
+      const url = req.url || "";
+      return url.includes("/image?token=") || url.startsWith("/dashboard/");
+    },
   });
 
   await app.register(websocket);
