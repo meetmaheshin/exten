@@ -110,7 +110,7 @@ export default function TeamOverviewPage() {
                       </span>
                     </td>
                     <td>
-                      <Link href={`/developer/${m.userId}`} className="btn btn-secondary">
+                      <Link href={`/developer?id=${m.userId}`} className="btn btn-secondary">
                         View
                       </Link>
                     </td>
