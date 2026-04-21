@@ -6,17 +6,24 @@ import { useAuth } from "@/lib/auth";
 import { Sidebar } from "./Sidebar";
 
 export function DashboardShell({ children }: { children: ReactNode }) {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (!user) {
+    // Wait until auth check is done before redirecting
+    if (!loading && !user) {
       router.push("/login");
     }
-  }, [user, router]);
+  }, [user, loading, router]);
 
-  if (!user) {
+  // Still checking auth — show loading
+  if (loading) {
     return <div className="loading">Loading...</div>;
+  }
+
+  // Not logged in — will redirect
+  if (!user) {
+    return <div className="loading">Redirecting to login...</div>;
   }
 
   return (

@@ -13,6 +13,7 @@ export interface AuthUser {
 export interface AuthState {
   user: AuthUser | null;
   accessToken: string | null;
+  loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   loginWithToken: (token: string, user: AuthUser) => void;
   logout: () => void;
@@ -23,6 +24,7 @@ export interface AuthState {
 export const AuthContext = createContext<AuthState>({
   user: null,
   accessToken: null,
+  loading: true,
   login: async () => {},
   loginWithToken: () => {},
   logout: () => {},
