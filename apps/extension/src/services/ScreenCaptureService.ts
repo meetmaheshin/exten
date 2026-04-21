@@ -86,7 +86,8 @@ export class ScreenCaptureService implements vscode.Disposable {
     if (this.isCapturing || !this.sessionId) return null;
 
     // Skip screenshot when OS is idle (no input for 10+ min)
-    if (this.activityTracker?.isOsIdle) return null;
+    // Skip screenshot when user is idle (no PC activity for 10+ min)
+    if (this.activityTracker?.isIdle) return null;
 
     this.isCapturing = true;
 

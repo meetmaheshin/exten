@@ -4,7 +4,8 @@ import type { SystemIdleService } from "./SystemIdleService";
 
 export class ActivityTracker {
   private lastActivityTimestamp = Date.now();
-  private isIdle = false;
+  private _isIdle = false;
+  private _wasIdle = false;
   private tickInterval: ReturnType<typeof setInterval>;
   private lastTickTimestamp = Date.now();
 
@@ -17,6 +18,7 @@ export class ActivityTracker {
   private idleSeconds = 0;
   private aiRequestCount = 0;
   private systemIdleService: SystemIdleService | null;
+  private idleNotificationShown = false;
 
   constructor(systemIdleService?: SystemIdleService) {
     this.systemIdleService = systemIdleService ?? null;
@@ -26,6 +28,11 @@ export class ActivityTracker {
   /** True when OS has had no input for > 10 minutes */
   get isOsIdle(): boolean {
     return (this.systemIdleService?.osIdleSeconds ?? 0) > 600;
+  }
+
+  /** Current idle state */
+  get isIdle(): boolean {
+    return this._isIdle;
   }
 
   /** Current foreground app name */
@@ -41,22 +48,55 @@ export class ActivityTracker {
     const elapsed = Math.round((now - this.lastTickTimestamp) / 1000);
     this.lastTickTimestamp = now;
 
-    const idleThreshold = config.get<number>("idleTimeoutSeconds", 300) * 1000;
+    const idleTimeoutSec = config.get<number>("idleTimeoutSeconds", 600); // default 10 min
     const osIdleSec = this.systemIdleService?.osIdleSeconds ?? 0;
 
-    // Use OS idle as primary signal; fall back to VS Code activity tracking
-    // OS idle > 10 min = definitely idle (even if VS Code events fire from background processes)
-    if (osIdleSec > 600 || now - this.lastActivityTimestamp > idleThreshold) {
-      this.isIdle = true;
+    // PRIMARY: Use OS idle detection — counts ALL PC activity, not just VS Code
+    // If OS says user has been idle for > threshold → they're idle
+    // If OS says user is active (mouse/keyboard recently) → they're active
+    if (osIdleSec >= idleTimeoutSec) {
+      // User is idle — no mouse/keyboard for 10+ min
+      this._isIdle = true;
       this.idleSeconds += elapsed;
-    } else {
-      this.isIdle = false;
-      this.activeSeconds += elapsed;
 
+      // Show idle notification once
+      if (!this.idleNotificationShown) {
+        this.idleNotificationShown = true;
+        this.showIdleNotification();
+      }
+    } else {
+      // User is active — OS detected recent input
+      this._isIdle = false;
+      this.activeSeconds += elapsed;
+      this.idleNotificationShown = false;
+
+      // If was idle and now active, show "resumed" briefly
+      if (this._wasIdle && !this._isIdle) {
+        vscode.window.setStatusBarMessage("$(play) Ailancers: Tracking resumed", 5000);
+      }
+
+      // Track language time if VS Code is focused
       const lang = vscode.window.activeTextEditor?.document.languageId;
       if (lang) {
         this.languageSeconds.set(lang, (this.languageSeconds.get(lang) || 0) + elapsed);
       }
+    }
+
+    this._wasIdle = this._isIdle;
+  }
+
+  private async showIdleNotification(): Promise<void> {
+    const action = await vscode.window.showWarningMessage(
+      "You appear to be away. Tracking is paused.",
+      { modal: false },
+      "Resume Work"
+    );
+    if (action === "Resume Work") {
+      // Touch activity to resume
+      this.lastActivityTimestamp = Date.now();
+      this._isIdle = false;
+      this.idleNotificationShown = false;
+      vscode.window.setStatusBarMessage("$(play) Ailancers: Tracking resumed", 5000);
     }
   }
 
@@ -107,7 +147,7 @@ export class ActivityTracker {
       fileChangeCount: this.fileChangeCount,
       filesModified: Object.fromEntries(this.filesModified),
       languageSeconds: Object.fromEntries(this.languageSeconds),
-      isCurrentlyIdle: this.isIdle,
+      isCurrentlyIdle: this._isIdle,
       appUsage: this.systemIdleService?.harvestAppUsage() ?? {},
     };
 
