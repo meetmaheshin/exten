@@ -1,4 +1,5 @@
-import { desktopCapturer } from "electron";
+import { desktopCapturer, Notification } from "electron";
+import * as path from "node:path";
 import type { ApiClient } from "./ApiClient";
 import type { ActivityTracker } from "./ActivityTracker";
 import type { ConfigStore } from "./ConfigStore";
@@ -52,17 +53,48 @@ export class ScreenCaptureService {
       const imageBase64 = pngBuffer.toString("base64");
       const filename = `desktop-${Date.now()}.png`;
 
-      await this.apiClient.post("/api/telemetry/screenshot", {
+      const result = await this.apiClient.post<{ id: string }>("/api/telemetry/screenshot", {
         sessionId,
         filename,
         imageBase64,
         capturedAt: new Date().toISOString(),
       });
 
-      console.log(`[ScreenCapture] Captured and uploaded (${(pngBuffer.length / 1024).toFixed(0)}KB)`);
+      console.log(`[ScreenCapture] Captured and uploaded (${(pngBuffer.length / 1024).toFixed(0)}KB) — id=${result.id}`);
+      this.showCapturedNotification(result.id);
     } catch (err) {
       console.error("[ScreenCapture] Capture failed:", err);
     }
+  }
+
+  private showCapturedNotification(screenshotId: string): void {
+    if (!Notification.isSupported()) return;
+
+    const notification = new Notification({
+      title: "Screenshot captured",
+      body: "Click to delete if you don't want this screenshot counted.",
+      icon: path.join(__dirname, "..", "..", "resources", "icon.png"),
+      actions: [{ type: "button", text: "Delete" }],
+      silent: true,
+    });
+
+    const handleDelete = async () => {
+      try {
+        await this.apiClient.fetch(`/api/telemetry/screenshots/${screenshotId}`, { method: "DELETE" });
+        new Notification({
+          title: "Screenshot deleted",
+          body: "Time for this interval will not be counted.",
+          silent: true,
+        }).show();
+      } catch (err) {
+        console.error("[ScreenCapture] Delete failed:", err);
+      }
+    };
+
+    notification.on("action", handleDelete);
+    // Windows/Linux don't surface action buttons — clicking the toast itself deletes
+    notification.on("click", handleDelete);
+    notification.show();
   }
 
   dispose(): void {
