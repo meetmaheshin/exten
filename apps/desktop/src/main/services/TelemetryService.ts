@@ -125,7 +125,7 @@ export class TelemetryService {
         });
       }
     } catch (err) {
-      console.error("[Telemetry] Heartbeat failed:", err);
+      console.error(`[Telemetry] Heartbeat failed (active=${metrics.activeSeconds}s idle=${metrics.idleSeconds}s session=${this._sessionId}):`, err instanceof Error ? err.message : err);
     }
   }
 

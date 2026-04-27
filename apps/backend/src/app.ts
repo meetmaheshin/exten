@@ -11,7 +11,7 @@ import { AuthService } from "./services/AuthService.js";
 import { AIService } from "./services/AIService.js";
 import { BillingReporter } from "./services/BillingReporter.js";
 import { HourlyTrackerReporter } from "./services/HourlyTrackerReporter.js";
-import { eq, and, desc, isNull, like } from "drizzle-orm";
+import { eq, and, desc, isNull, like, gte } from "drizzle-orm";
 import { activitySessions } from "./models/index.js";
 import { requireAuth } from "./middleware/requireAuth.js";
 import { authRoutes } from "./routes/auth.routes.js";
@@ -145,14 +145,19 @@ export async function buildApp(env: Env, db: Database) {
   }));
 
   // Check if user has an active session from a specific source (for duplicate detection)
+  // Sessions started >4h ago without an end are treated as stale (crashed client). The
+  // duplicate check should not block tracking forever just because some prior session
+  // never called /session/end.
   app.get("/api/telemetry/active-session", { preHandler: requireAuth(authService) }, async (request, reply) => {
     const { source } = request.query as { source?: string };
+    const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000);
     const [session] = await db
       .select({ id: activitySessions.id, editorVersion: activitySessions.editorVersion, startedAt: activitySessions.startedAt })
       .from(activitySessions)
       .where(and(
         eq(activitySessions.userId, request.user.sub),
         isNull(activitySessions.endedAt),
+        gte(activitySessions.startedAt, fourHoursAgo),
         source ? like(activitySessions.editorVersion, `%${source}%`) : undefined,
       ))
       .orderBy(desc(activitySessions.startedAt))
