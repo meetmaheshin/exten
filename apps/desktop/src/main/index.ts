@@ -81,7 +81,13 @@ app.whenReady().then(async () => {
   }
 
   // ─── Start/stop services based on auth state ───
+  let trackingStarted = false;
   async function startTracking(): Promise<void> {
+    if (trackingStarted) {
+      console.log("[Ailancers] startTracking called twice — ignoring second call");
+      return;
+    }
+    trackingStarted = true;
     console.log("[Ailancers] User authenticated — starting tracking");
 
     // Check if VS Code extension already has an active session
@@ -142,6 +148,7 @@ app.whenReady().then(async () => {
 
   function stopTracking(): void {
     console.log("[Ailancers] User logged out — stopping tracking");
+    trackingStarted = false;
     screenCapture.stop();
     activityTracker.stop();
     systemIdle.stop();

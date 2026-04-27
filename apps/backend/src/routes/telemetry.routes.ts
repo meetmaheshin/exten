@@ -86,11 +86,17 @@ export function telemetryRoutes(app: FastifyInstance, authService: AuthService, 
       totalFileSaves: session.totalFileSaves + body.fileSaveCount,
       totalFileChanges: session.totalFileChanges + body.fileChangeCount,
     };
+    // The DB column is an integer FK to the legacy external_projects table.
+    // The new v2 platform sends UUID strings — those don't fit, so skip them
+    // (the platform itself owns project membership). Only legacy numeric IDs
+    // get written through.
     if (body.externalProjectId !== undefined) {
-      updateValues.externalProjectId = body.externalProjectId ?? null;
+      updateValues.externalProjectId =
+        typeof body.externalProjectId === "number" ? body.externalProjectId : null;
     }
     if (body.externalTaskId !== undefined) {
-      updateValues.externalTaskId = body.externalTaskId ?? null;
+      updateValues.externalTaskId =
+        typeof body.externalTaskId === "number" ? body.externalTaskId : null;
     }
 
     // Merge app usage accumulation

@@ -108,7 +108,8 @@ export class AuthService extends EventEmitter {
         if (storedUser) this.user = JSON.parse(storedUser);
       }
 
-      this.emit("authenticated", true);
+      // Don't emit "authenticated" here — the caller handles the restored
+      // path explicitly. Emitting would cause startTracking() to run twice.
       return true;
     } catch {
       return false;
