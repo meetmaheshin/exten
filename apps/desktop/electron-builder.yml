@@ -16,9 +16,26 @@ mac:
   icon: resources/icon.png
   category: public.app-category.productivity
 linux:
-  target: [AppImage]
+  # AppImage — universal, single-file, no install needed (works on any distro)
+  # deb     — Debian/Ubuntu native package (apt install)
+  # tar.gz  — raw extract for users who want to run without packaging
+  target:
+    - AppImage
+    - deb
+    - tar.gz
   icon: resources/icon.png
   category: Utility
+  synopsis: Ailancers activity tracker (time + screenshots + AI usage)
+  description: Tracks active time, takes periodic screenshots, and reports AI assistant usage to the Ailancers dashboard.
+  desktop:
+    StartupNotify: "true"
+    Encoding: "UTF-8"
+deb:
+  # xdotool/xprintidle are recommended (not required) — without them per-app usage
+  # tracking is disabled, but idle time still works via Electron's powerMonitor.
+  recommends:
+    - xdotool
+    - xprintidle
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
