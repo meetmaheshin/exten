@@ -149,12 +149,29 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
       .select({
         totalActiveSeconds: sql<number>`coalesce(sum(${activitySessions.activeSeconds}), 0)::int`,
         totalIdleSeconds: sql<number>`coalesce(sum(${activitySessions.idleSeconds}), 0)::int`,
-        totalKeystrokes: sql<number>`coalesce(sum(${activitySessions.totalKeystrokes}), 0)::int`,
         totalFileSaves: sql<number>`coalesce(sum(${activitySessions.totalFileSaves}), 0)::int`,
         sessionCount: sql<number>`count(*)::int`,
       })
       .from(activitySessions)
       .where(and(...conditions));
+
+    // Aggregate app usage across all sessions in range (for "Top Apps" chart)
+    const appUsageRows = await db
+      .select({ appUsage: activitySessions.appUsage })
+      .from(activitySessions)
+      .where(and(...conditions));
+    const appTotals: Record<string, number> = {};
+    for (const row of appUsageRows) {
+      const map = (row.appUsage || {}) as Record<string, number>;
+      for (const [appName, secs] of Object.entries(map)) {
+        if (typeof secs !== "number" || !appName) continue;
+        appTotals[appName] = (appTotals[appName] || 0) + secs;
+      }
+    }
+    const topApps = Object.entries(appTotals)
+      .map(([name, seconds]) => ({ name, seconds }))
+      .sort((a, b) => b.seconds - a.seconds)
+      .slice(0, 10);
 
     // Get AI usage
     const aiConditions = [eq(aiUsageDaily.userId, userId)];
@@ -174,6 +191,7 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
     return reply.send({
       summary,
       aiUsage: aiSummary,
+      topApps,
       sessions,
     });
   });
@@ -193,7 +211,7 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
         date: sql<string>`date(${activitySessions.startedAt})`,
         totalActiveSeconds: sql<number>`coalesce(sum(${activitySessions.activeSeconds}), 0)::int`,
         totalIdleSeconds: sql<number>`coalesce(sum(${activitySessions.idleSeconds}), 0)::int`,
-        totalKeystrokes: sql<number>`coalesce(sum(${activitySessions.totalKeystrokes}), 0)::int`,
+        totalFileSaves: sql<number>`coalesce(sum(${activitySessions.totalFileSaves}), 0)::int`,
         activeDevelopers: sql<number>`count(distinct ${activitySessions.userId})::int`,
         sessionCount: sql<number>`count(*)::int`,
       })

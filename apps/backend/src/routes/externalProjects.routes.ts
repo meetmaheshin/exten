@@ -721,8 +721,8 @@ export function externalProjectsRoutes(
             COALESCE(s.idle_seconds, 0) AS idle_seconds,
             COALESCE(s.total_keystrokes, 0) AS total_keystrokes,
             COALESCE(s.total_file_saves, 0) AS total_file_saves,
-            ep.name AS project_name,
-            et.name AS task_name,
+            COALESCE(s.project_name, ep.name) AS project_name,
+            COALESCE(s.task_name, et.name) AS task_name,
             s.os_platform
           FROM activity_sessions s
           LEFT JOIN external_projects ep ON ep.id = s.external_project_id
@@ -758,8 +758,8 @@ export function externalProjectsRoutes(
             COALESCE(SUM(s.total_keystrokes), 0)::int AS total_keystrokes,
             COALESCE(SUM(s.total_file_saves), 0)::int AS total_file_saves,
             COUNT(*)::int AS session_count,
-            STRING_AGG(DISTINCT ep.name, ', ') AS project_names,
-            STRING_AGG(DISTINCT et.name, ', ') AS task_names
+            STRING_AGG(DISTINCT COALESCE(s.project_name, ep.name), ', ') AS project_names,
+            STRING_AGG(DISTINCT COALESCE(s.task_name, et.name), ', ') AS task_names
           FROM activity_sessions s
           JOIN users u ON u.id = s.user_id
           LEFT JOIN external_projects ep ON ep.id = s.external_project_id

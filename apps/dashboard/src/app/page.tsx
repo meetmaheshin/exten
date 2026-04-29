@@ -15,7 +15,6 @@ interface TeamMember {
   team: string | null;
   totalActiveSeconds: number;
   totalIdleSeconds: number;
-  totalKeystrokes: number;
   totalFileSaves: number;
   sessionCount: number;
   lastActive: string;
@@ -42,7 +41,7 @@ export default function TeamOverviewPage() {
   }, [accessToken]);
 
   const totalActive = members.reduce((sum, m) => sum + m.totalActiveSeconds, 0);
-  const totalKeystrokes = members.reduce((sum, m) => sum + m.totalKeystrokes, 0);
+  const totalIdle = members.reduce((sum, m) => sum + m.totalIdleSeconds, 0);
   const totalSessions = members.reduce((sum, m) => sum + m.sessionCount, 0);
   const activeDevelopers = members.filter(
     (m) => Date.now() - new Date(m.lastActive).getTime() < 24 * 60 * 60 * 1000
@@ -59,7 +58,7 @@ export default function TeamOverviewPage() {
         <StatCard value={String(members.length)} label="Total Developers" color="blue" />
         <StatCard value={String(activeDevelopers)} label="Active Today" color="green" />
         <StatCard value={formatDuration(totalActive)} label="Total Active Time" color="purple" />
-        <StatCard value={formatNumber(totalKeystrokes)} label="Total Keystrokes" color="yellow" />
+        <StatCard value={formatDuration(totalIdle)} label="Total Idle Time" color="yellow" />
       </div>
 
       <div className="card">
@@ -74,7 +73,7 @@ export default function TeamOverviewPage() {
                   <th>Developer</th>
                   <th>Team</th>
                   <th>Active Time</th>
-                  <th>Keystrokes</th>
+                  <th>Idle Time</th>
                   <th>File Saves</th>
                   <th>Sessions</th>
                   <th>Last Active</th>
@@ -101,7 +100,7 @@ export default function TeamOverviewPage() {
                     </td>
                     <td>{m.team || "—"}</td>
                     <td>{formatDuration(m.totalActiveSeconds)}</td>
-                    <td>{formatNumber(m.totalKeystrokes)}</td>
+                    <td style={{ color: "var(--warning)" }}>{formatDuration(m.totalIdleSeconds)}</td>
                     <td>{formatNumber(m.totalFileSaves)}</td>
                     <td>{m.sessionCount}</td>
                     <td>

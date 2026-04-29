@@ -23,6 +23,10 @@ export const activitySessions = pgTable(
     extensionVersion: varchar("extension_version", { length: 20 }),
     osPlatform: varchar("os_platform", { length: 30 }),
     appUsage: jsonb("app_usage").default({}),
+    // Display names for the project/task being worked on (sent by client on heartbeat).
+    // Cheap to read and survives platform-side renames within the session window.
+    projectName: varchar("project_name", { length: 200 }),
+    taskName: varchar("task_name", { length: 200 }),
     // External platform project/task being worked on during this session
     externalProjectId: integer("external_project_id").references(() => externalProjects.id, { onDelete: "set null" }),
     externalTaskId: integer("external_task_id").references(() => externalTasks.id, { onDelete: "set null" }),

@@ -28,6 +28,10 @@ const heartbeatSchema = z.object({
   externalProjectId: z.union([z.number().int().positive(), z.string()]).optional().nullable(),
   externalTaskId: z.union([z.number().int().positive(), z.string()]).optional().nullable(),
   subProjectId: z.string().uuid().optional().nullable(),
+  // Display names for project/task — stored on the session so the dashboard can show them
+  // without resolving the v2 platform on every read.
+  projectName: z.string().max(200).optional().nullable(),
+  taskName: z.string().max(200).optional().nullable(),
 });
 
 const sessionEndSchema = z.object({
@@ -97,6 +101,13 @@ export function telemetryRoutes(app: FastifyInstance, authService: AuthService, 
     if (body.externalTaskId !== undefined) {
       updateValues.externalTaskId =
         typeof body.externalTaskId === "number" ? body.externalTaskId : null;
+    }
+    // Store display names whenever the client sends them
+    if (body.projectName !== undefined) {
+      updateValues.projectName = body.projectName ?? null;
+    }
+    if (body.taskName !== undefined) {
+      updateValues.taskName = body.taskName ?? null;
     }
 
     // Merge app usage accumulation

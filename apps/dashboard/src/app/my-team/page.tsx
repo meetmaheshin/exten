@@ -16,7 +16,6 @@ interface TeamMember {
   isActive: boolean;
   totalActiveSeconds: number;
   totalIdleSeconds: number;
-  totalKeystrokes: number;
   sessionCount: number;
   lastActive: string | null;
 }
@@ -51,7 +50,7 @@ export default function MyTeamPage() {
   }
 
   const totalActive = members.reduce((s, m) => s + m.totalActiveSeconds, 0);
-  const totalKeystrokes = members.reduce((s, m) => s + m.totalKeystrokes, 0);
+  const totalIdle = members.reduce((s, m) => s + m.totalIdleSeconds, 0);
 
   return (
     <DashboardShell>
@@ -69,7 +68,7 @@ export default function MyTeamPage() {
           <div className="stats-grid">
             <StatCard value={String(members.length)} label="Team Members" color="blue" />
             <StatCard value={formatDuration(totalActive)} label="Total Active Time" color="green" />
-            <StatCard value={formatNumber(totalKeystrokes)} label="Total Keystrokes" color="yellow" />
+            <StatCard value={formatDuration(totalIdle)} label="Total Idle Time" color="yellow" />
             <StatCard value={String(members.filter((m) => m.lastActive && new Date(m.lastActive) > thirtyDaysAgo).length)} label="Active This Month" color="purple" />
           </div>
 
@@ -83,7 +82,6 @@ export default function MyTeamPage() {
                     <th>Role</th>
                     <th>Active Time</th>
                     <th>Idle Time</th>
-                    <th>Keystrokes</th>
                     <th>Sessions</th>
                     <th>Last Active</th>
                     <th></th>
@@ -110,7 +108,6 @@ export default function MyTeamPage() {
                       <td><span className="badge">{m.role}</span></td>
                       <td style={{ color: "var(--success)", fontWeight: 600 }}>{formatDuration(m.totalActiveSeconds)}</td>
                       <td style={{ color: "var(--warning)" }}>{formatDuration(m.totalIdleSeconds)}</td>
-                      <td>{formatNumber(m.totalKeystrokes)}</td>
                       <td>{m.sessionCount}</td>
                       <td style={{ color: "var(--text-muted)", fontSize: 12 }}>
                         {m.lastActive ? new Date(m.lastActive).toLocaleDateString() : "Never"}
@@ -123,7 +120,7 @@ export default function MyTeamPage() {
                     </tr>
                   ))}
                   {members.length === 0 && (
-                    <tr><td colSpan={8} style={{ textAlign: "center", color: "var(--text-muted)", padding: 32 }}>No team members found. Your team is based on your name matching the "team" field in user profiles.</td></tr>
+                    <tr><td colSpan={7} style={{ textAlign: "center", color: "var(--text-muted)", padding: 32 }}>No team members found. Your team is based on your name matching the "team" field in user profiles.</td></tr>
                   )}
                 </tbody>
               </table>

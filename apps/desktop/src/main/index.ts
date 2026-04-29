@@ -56,7 +56,9 @@ app.whenReady().then(async () => {
   setInterval(() => {
     telemetryService.setActiveProject(
       projectService.activeProjectId,
-      projectService.activeSubProjectId
+      projectService.activeSubProjectId,
+      projectService.activeSelection?.projectName ?? null,
+      projectService.activeSelection?.subProjectName ?? null
     );
   }, 5000);
 

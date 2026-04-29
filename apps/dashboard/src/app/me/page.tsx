@@ -11,16 +11,14 @@ interface MySummary {
   totalSessions: number;
   totalActiveSeconds: number;
   totalIdleSeconds: number;
-  totalKeystrokes: number;
   totalFileSaves: number;
-  totalFileChanges: number;
 }
 
 interface MyDaily {
   date: string;
   totalActiveSeconds: number;
   totalIdleSeconds: number;
-  totalKeystrokes: number;
+  totalFileSaves: number;
   sessionCount: number;
 }
 
@@ -83,7 +81,6 @@ export default function MyPerformancePage() {
               <strong style={{ color: "var(--primary)" }}>Today</strong>
               <span style={{ marginLeft: 16 }}>Active: <strong style={{ color: "var(--success)" }}>{formatDuration(todayData.totalActiveSeconds)}</strong></span>
               <span style={{ marginLeft: 16 }}>Idle: <strong style={{ color: "var(--warning)" }}>{formatDuration(todayData.totalIdleSeconds)}</strong></span>
-              <span style={{ marginLeft: 16 }}>Keystrokes: <strong>{formatNumber(todayData.totalKeystrokes)}</strong></span>
               <span style={{ marginLeft: 16 }}>Sessions: <strong>{todayData.sessionCount}</strong></span>
             </div>
           )}
@@ -91,7 +88,7 @@ export default function MyPerformancePage() {
           <div className="stats-grid">
             <StatCard value={formatDuration(summary?.totalActiveSeconds ?? 0)} label="Active Time (30d)" color="blue" />
             <StatCard value={formatDuration(summary?.totalIdleSeconds ?? 0)} label="Idle Time (30d)" color="yellow" />
-            <StatCard value={formatNumber(summary?.totalKeystrokes ?? 0)} label="Keystrokes" color="green" />
+            <StatCard value={formatNumber(summary?.totalFileSaves ?? 0)} label="File Saves (30d)" color="green" />
             <StatCard value={String(summary?.totalSessions ?? 0)} label="Sessions" color="purple" />
           </div>
 
@@ -101,7 +98,7 @@ export default function MyPerformancePage() {
             <div className="table-container">
               <table>
                 <thead>
-                  <tr><th>Date</th><th>Active</th><th>Idle</th><th>Keystrokes</th><th>Sessions</th></tr>
+                  <tr><th>Date</th><th>Active</th><th>Idle</th><th>Saves</th><th>Sessions</th></tr>
                 </thead>
                 <tbody>
                   {[...daily].reverse().map((d) => {
@@ -114,7 +111,7 @@ export default function MyPerformancePage() {
                         </td>
                         <td style={{ color: "var(--success)", fontWeight: 600 }}>{formatDuration(d.totalActiveSeconds)}</td>
                         <td style={{ color: "var(--warning)" }}>{formatDuration(d.totalIdleSeconds)}</td>
-                        <td>{formatNumber(d.totalKeystrokes)}</td>
+                        <td>{formatNumber(d.totalFileSaves)}</td>
                         <td>{d.sessionCount}</td>
                       </tr>
                     );

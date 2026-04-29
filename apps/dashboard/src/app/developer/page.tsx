@@ -12,7 +12,6 @@ interface UserSummary {
   summary: {
     totalActiveSeconds: number;
     totalIdleSeconds: number;
-    totalKeystrokes: number;
     totalFileSaves: number;
     sessionCount: number;
   };
@@ -22,6 +21,7 @@ interface UserSummary {
     totalOutputTokens: number;
     totalCostUsd: string;
   };
+  topApps?: Array<{ name: string; seconds: number }>;
 }
 
 interface SessionWithTask {
@@ -30,7 +30,6 @@ interface SessionWithTask {
   ended_at: string | null;
   active_seconds: number;
   idle_seconds: number;
-  total_keystrokes: number;
   total_file_saves: number;
   project_name: string | null;
   task_name: string | null;
@@ -86,8 +85,8 @@ function DeveloperDetailContent() {
           <div className="stats-grid">
             <StatCard value={formatDuration(summary.summary.totalActiveSeconds)} label="Active Time" color="blue" />
             <StatCard value={formatDuration(summary.summary.totalIdleSeconds)} label="Idle Time" color="yellow" />
-            <StatCard value={formatNumber(summary.summary.totalKeystrokes)} label="Keystrokes" color="green" />
-            <StatCard value={formatNumber(summary.summary.totalFileSaves)} label="File Saves" color="purple" />
+            <StatCard value={formatNumber(summary.summary.totalFileSaves)} label="File Saves" color="green" />
+            <StatCard value={String(summary.summary.sessionCount)} label="Sessions" color="purple" />
           </div>
           <div className="stats-grid">
             <StatCard value={formatNumber(summary.aiUsage.totalRequests)} label="AI Requests" color="blue" />
@@ -96,6 +95,30 @@ function DeveloperDetailContent() {
             <StatCard value={formatCost(summary.aiUsage.totalCostUsd)} label="AI Cost" color="purple" />
           </div>
 
+          {/* Top apps the user spent time in */}
+          {summary.topApps && summary.topApps.length > 0 && (
+            <div className="card" style={{ marginBottom: 24 }}>
+              <div className="card-header">Top Apps (last 30 days)</div>
+              <div style={{ padding: "8px 16px 16px" }}>
+                {(() => {
+                  const max = summary.topApps[0].seconds || 1;
+                  return summary.topApps.map((a) => {
+                    const pct = Math.max((a.seconds / max) * 100, 2);
+                    return (
+                      <div key={a.name} style={{ display: "flex", alignItems: "center", gap: 12, padding: "6px 0" }}>
+                        <div style={{ width: 160, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={a.name}>{a.name}</div>
+                        <div style={{ flex: 1, height: 12, background: "var(--bg-secondary)", borderRadius: 6, overflow: "hidden" }}>
+                          <div style={{ width: `${pct}%`, height: "100%", background: "var(--primary)", borderRadius: 6 }} />
+                        </div>
+                        <div style={{ width: 80, textAlign: "right", fontSize: 12, color: "var(--text-muted)" }}>{formatDuration(a.seconds)}</div>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            </div>
+          )}
+
           {/* Sessions with task names */}
           <div className="card" style={{ marginBottom: 24 }}>
             <div className="card-header">Recent Sessions ({sessions.length})</div>
@@ -103,7 +126,7 @@ function DeveloperDetailContent() {
               <table>
                 <thead><tr>
                   <th>Started</th><th>Duration</th><th>Active</th><th>Idle</th>
-                  <th>Project / Task</th><th>Keystrokes</th><th>Saves</th>
+                  <th>Project / Task</th><th>Saves</th>
                 </tr></thead>
                 <tbody>
                   {sessions.map((s) => (
@@ -120,12 +143,11 @@ function DeveloperDetailContent() {
                           </div>
                         ) : <span style={{ color: "var(--text-muted)" }}>—</span>}
                       </td>
-                      <td>{formatNumber(s.total_keystrokes)}</td>
                       <td>{formatNumber(s.total_file_saves)}</td>
                     </tr>
                   ))}
                   {sessions.length === 0 && (
-                    <tr><td colSpan={7} style={{ textAlign: "center", color: "var(--text-muted)", padding: 24 }}>No sessions recorded</td></tr>
+                    <tr><td colSpan={6} style={{ textAlign: "center", color: "var(--text-muted)", padding: 24 }}>No sessions recorded</td></tr>
                   )}
                 </tbody>
               </table>

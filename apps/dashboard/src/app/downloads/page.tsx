@@ -106,7 +106,7 @@ export default function DownloadsPage() {
               <strong>Start working!</strong> Tracking starts automatically. The extension tracks:
               <ul style={{ marginTop: 6, paddingLeft: 18 }}>
                 <li>Active and idle time</li>
-                <li>Keystrokes and file saves</li>
+                <li>File saves and project activity</li>
                 <li>Screenshots every 5 minutes</li>
                 <li>AI chat/coding usage and costs</li>
               </ul>

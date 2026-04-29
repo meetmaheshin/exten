@@ -24,7 +24,7 @@ interface ProjectDetail {
   users: Array<{
     user_id: string; full_name: string; email: string;
     total_active_seconds: number; total_idle_seconds: number;
-    total_keystrokes: number; total_file_saves: number;
+    total_file_saves: number;
     session_count: number; last_active: string;
   }>;
   daily: Array<{ date: string; total_active_seconds: number; unique_developers: number; session_count: number }>;
@@ -156,14 +156,13 @@ export default function ProjectsPage() {
             <div className="card" style={{ marginBottom: 16 }}>
               <div className="card-header">Team Members ({selectedProject.users.length})</div>
               <div className="table-container"><table><thead><tr>
-                <th>Developer</th><th>Active Time</th><th>Idle Time</th><th>Keystrokes</th><th>Saves</th><th>Sessions</th><th>Last Active</th><th>Screenshots</th>
+                <th>Developer</th><th>Active Time</th><th>Idle Time</th><th>Saves</th><th>Sessions</th><th>Last Active</th><th>Screenshots</th>
               </tr></thead><tbody>
                 {selectedProject.users.map(u => (
                   <tr key={u.user_id}>
                     <td><strong>{u.full_name}</strong><br /><span style={{ fontSize: 11, color: "var(--text-muted)" }}>{u.email}</span></td>
                     <td style={{ color: "var(--success)", fontWeight: 600 }}>{formatDuration(u.total_active_seconds)}</td>
                     <td style={{ color: "var(--warning)" }}>{formatDuration(u.total_idle_seconds)}</td>
-                    <td>{formatNumber(u.total_keystrokes)}</td>
                     <td>{formatNumber(u.total_file_saves)}</td>
                     <td>{u.session_count}</td>
                     <td>{u.last_active ? new Date(u.last_active).toLocaleDateString() : "—"}</td>
@@ -171,7 +170,7 @@ export default function ProjectsPage() {
                   </tr>
                 ))}
                 {selectedProject.users.length === 0 && (
-                  <tr><td colSpan={8} style={{ textAlign: "center", color: "var(--text-muted)", padding: 24 }}>No activity recorded yet</td></tr>
+                  <tr><td colSpan={7} style={{ textAlign: "center", color: "var(--text-muted)", padding: 24 }}>No activity recorded yet</td></tr>
                 )}
               </tbody></table></div>
             </div>

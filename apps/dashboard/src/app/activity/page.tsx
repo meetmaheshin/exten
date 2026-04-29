@@ -11,7 +11,7 @@ interface DailyData {
   date: string;
   totalActiveSeconds: number;
   totalIdleSeconds: number;
-  totalKeystrokes: number;
+  totalFileSaves: number;
   activeDevelopers: number;
   sessionCount: number;
 }
@@ -22,7 +22,6 @@ interface DateDetail {
   email: string;
   total_active_seconds: number;
   total_idle_seconds: number;
-  total_keystrokes: number;
   total_file_saves: number;
   session_count: number;
   project_names: string | null;
@@ -63,7 +62,7 @@ export default function ActivityPage() {
   }
 
   const totalActive = daily.reduce((s, d) => s + d.totalActiveSeconds, 0);
-  const totalKeystrokes = daily.reduce((s, d) => s + d.totalKeystrokes, 0);
+  const totalIdle = daily.reduce((s, d) => s + d.totalIdleSeconds, 0);
   const totalSessions = daily.reduce((s, d) => s + d.sessionCount, 0);
   const maxActive = Math.max(...daily.map((d) => d.totalActiveSeconds), 1);
 
@@ -76,9 +75,9 @@ export default function ActivityPage() {
 
       <div className="stats-grid">
         <StatCard value={formatDuration(totalActive)} label="Total Active Time" color="blue" />
-        <StatCard value={formatNumber(totalKeystrokes)} label="Total Keystrokes" color="green" />
+        <StatCard value={formatDuration(totalIdle)} label="Total Idle Time" color="yellow" />
         <StatCard value={String(totalSessions)} label="Total Sessions" color="purple" />
-        <StatCard value={String(daily.length)} label="Days Tracked" color="yellow" />
+        <StatCard value={String(daily.length)} label="Days Tracked" color="green" />
       </div>
 
       <div className="card">
@@ -124,14 +123,13 @@ export default function ActivityPage() {
                 </div>
                 {detailLoading ? <div className="loading">Loading...</div> : (
                   <table><thead><tr>
-                    <th>Developer</th><th>Active</th><th>Idle</th><th>Keystrokes</th><th>Saves</th><th>Sessions</th><th>Projects</th><th>Tasks</th>
+                    <th>Developer</th><th>Active</th><th>Idle</th><th>Saves</th><th>Sessions</th><th>Projects</th><th>Tasks</th>
                   </tr></thead><tbody>
                     {dateDetail.map(d => (
                       <tr key={d.user_id}>
                         <td><strong>{d.full_name}</strong><br /><span style={{ fontSize: 11, color: "var(--text-muted)" }}>{d.email}</span></td>
                         <td style={{ color: "var(--success)", fontWeight: 600 }}>{formatDuration(d.total_active_seconds)}</td>
                         <td style={{ color: "var(--warning)" }}>{formatDuration(d.total_idle_seconds)}</td>
-                        <td>{formatNumber(d.total_keystrokes)}</td>
                         <td>{formatNumber(d.total_file_saves)}</td>
                         <td>{d.session_count}</td>
                         <td style={{ maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.project_names || "—"}</td>
@@ -139,7 +137,7 @@ export default function ActivityPage() {
                       </tr>
                     ))}
                     {dateDetail.length === 0 && (
-                      <tr><td colSpan={8} style={{ textAlign: "center", color: "var(--text-muted)", padding: 24 }}>No activity on this date</td></tr>
+                      <tr><td colSpan={7} style={{ textAlign: "center", color: "var(--text-muted)", padding: 24 }}>No activity on this date</td></tr>
                     )}
                   </tbody></table>
                 )}
@@ -150,7 +148,7 @@ export default function ActivityPage() {
             <div className="table-container" style={{ marginTop: 16 }}>
               <table>
                 <thead><tr>
-                  <th>Date</th><th>Active Time</th><th>Idle Time</th><th>Keystrokes</th><th>Active Devs</th><th>Sessions</th>
+                  <th>Date</th><th>Active Time</th><th>Idle Time</th><th>Saves</th><th>Active Devs</th><th>Sessions</th>
                 </tr></thead>
                 <tbody>
                   {[...daily].reverse().map((d) => {
@@ -163,7 +161,7 @@ export default function ActivityPage() {
                         </td>
                         <td style={{ color: "var(--success)", fontWeight: 600 }}>{formatDuration(d.totalActiveSeconds)}</td>
                         <td style={{ color: "var(--warning)" }}>{formatDuration(d.totalIdleSeconds)}</td>
-                        <td>{formatNumber(d.totalKeystrokes)}</td>
+                        <td>{formatNumber(d.totalFileSaves)}</td>
                         <td>{d.activeDevelopers}</td>
                         <td>{d.sessionCount}</td>
                       </tr>

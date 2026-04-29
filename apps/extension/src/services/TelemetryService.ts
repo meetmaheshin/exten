@@ -74,12 +74,15 @@ export class TelemetryService {
     if (this.activityTracker.isOsIdle) return;
 
     try {
+      const selection = this.projectPicker?.activeSelection;
       await this.apiClient.post("/api/telemetry/session/heartbeat", {
         sessionId: this.sessionId,
         ...metrics,
-        externalProjectId: this.projectPicker?.activeProjectId ?? null,
+        externalProjectId: selection?.projectId ?? null,
         externalTaskId: null,
-        subProjectId: this.projectPicker?.activeSubProjectId ?? null,
+        subProjectId: selection?.subProjectId ?? null,
+        projectName: selection?.projectName ?? null,
+        taskName: selection?.subProjectName ?? null,
       });
     } catch {
       // Queue for retry on next flush — keeping simple for now

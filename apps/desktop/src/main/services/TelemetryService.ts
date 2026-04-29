@@ -13,6 +13,8 @@ export class TelemetryService {
   private flushInterval: ReturnType<typeof setInterval> | null = null;
   private activeProjectId: string | null = null;
   private activeTaskId: string | null = null;
+  private activeProjectName: string | null = null;
+  private activeTaskName: string | null = null;
   private onFlushCallback: ((result: TelemetryFlushResult) => void) | null = null;
 
   constructor(
@@ -29,9 +31,11 @@ export class TelemetryService {
     this.onFlushCallback = cb;
   }
 
-  setActiveProject(projectId: string | null, taskId: string | null): void {
+  setActiveProject(projectId: string | null, taskId: string | null, projectName?: string | null, taskName?: string | null): void {
     this.activeProjectId = projectId;
     this.activeTaskId = taskId;
+    this.activeProjectName = projectName ?? null;
+    this.activeTaskName = taskName ?? null;
   }
 
   /** Fetch today's total active seconds from the backend (for tray timer restore) */
@@ -115,6 +119,8 @@ export class TelemetryService {
         isCurrentlyIdle: metrics.isCurrentlyIdle,
         externalProjectId: this.activeProjectId,
         externalTaskId: this.activeTaskId,
+        projectName: this.activeProjectName,
+        taskName: this.activeTaskName,
         appUsage: metrics.appUsage,
       });
 

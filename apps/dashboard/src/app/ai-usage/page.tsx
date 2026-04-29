@@ -9,7 +9,7 @@ import { formatNumber, formatCost, formatDuration } from "@/lib/format";
 
 interface TeamMember {
   userId: string; email: string; fullName: string; team: string | null;
-  totalActiveSeconds: number; totalKeystrokes: number; sessionCount: number; lastActive: string;
+  totalActiveSeconds: number; sessionCount: number; lastActive: string;
 }
 interface UserAiDetail { totalRequests: number; totalInputTokens: number; totalOutputTokens: number; totalCostUsd: string; }
 interface MemberWithAi extends TeamMember { ai: UserAiDetail | null; }
