@@ -4,49 +4,86 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth";
 
+type Visibility = "everyone" | "manager" | "admin";
+
 interface NavItem {
   href: string;
   label: string;
   icon: string;
-  roles: ("all" | "admin" | "manager")[];
+  visibility: Visibility;
 }
 
-const navItems: NavItem[] = [
-  // Everyone
-  { href: "/me", label: "My Performance", icon: "📈", roles: ["all"] },
-  { href: "/my-projects", label: "My Projects", icon: "📁", roles: ["all"] },
-  { href: "/my-screenshots", label: "My Screenshots", icon: "📸", roles: ["all"] },
-  // Manager + Admin
-  { href: "/my-team", label: "My Team", icon: "👥", roles: ["manager"] },
-  // Admin only
-  { href: "/", label: "Team Overview", icon: "🏠", roles: ["admin"] },
-  { href: "/projects", label: "All Projects", icon: "📁", roles: ["admin"] },
-  { href: "/users", label: "Users", icon: "🧑‍💻", roles: ["admin"] },
-  { href: "/activity", label: "Activity", icon: "📊", roles: ["admin"] },
-  { href: "/ai-usage", label: "AI Usage & Cost", icon: "🤖", roles: ["admin"] },
-  { href: "/screenshots", label: "All Screenshots", icon: "📸", roles: ["admin"] },
-  { href: "/employees", label: "Employees", icon: "🏢", roles: ["admin"] },
-  { href: "/downloads", label: "Downloads", icon: "⬇️", roles: ["admin"] },
+interface NavGroup {
+  title: string;
+  items: NavItem[];
+}
+
+// Layout principle: each user sees the section that matches their scope first ("Me",
+// then "My Team" for managers, then "Everyone" for admins). Within each section the
+// most-used pages come first.
+const navGroups: NavGroup[] = [
+  {
+    title: "My work",
+    items: [
+      { href: "/me",              label: "My performance",  icon: "📈", visibility: "everyone" },
+      { href: "/my-projects",     label: "My projects",     icon: "📁", visibility: "everyone" },
+      { href: "/my-screenshots",  label: "My screenshots",  icon: "📸", visibility: "everyone" },
+    ],
+  },
+  {
+    title: "My team",
+    items: [
+      { href: "/my-team",         label: "Team members",    icon: "👥", visibility: "manager" },
+    ],
+  },
+  {
+    title: "Organization",
+    items: [
+      { href: "/",                label: "Team overview",   icon: "🏠", visibility: "admin" },
+      { href: "/activity",        label: "Daily activity",  icon: "📊", visibility: "admin" },
+      { href: "/projects",        label: "All projects",    icon: "📁", visibility: "admin" },
+      { href: "/screenshots",     label: "All screenshots", icon: "📸", visibility: "admin" },
+    ],
+  },
+  {
+    title: "People",
+    items: [
+      { href: "/users",           label: "Users & roles",   icon: "🧑‍💻", visibility: "admin" },
+      { href: "/employees",       label: "Employees",       icon: "🏢", visibility: "admin" },
+    ],
+  },
+  {
+    title: "Costs & apps",
+    items: [
+      { href: "/ai-usage",        label: "AI usage & cost", icon: "🤖", visibility: "admin" },
+      { href: "/downloads",       label: "Downloads",       icon: "⬇️", visibility: "everyone" },
+    ],
+  },
 ];
 
 const ROLE_BADGE: Record<string, { label: string; color: string }> = {
   super_admin: { label: "Super Admin", color: "#ef4444" },
-  admin: { label: "Admin", color: "#6366f1" },
-  manager: { label: "Manager", color: "#eab308" },
-  developer: { label: "Developer", color: "#22c55e" },
-  employee: { label: "Employee", color: "#3b82f6" },
+  admin:       { label: "Admin",       color: "#6366f1" },
+  manager:     { label: "Manager",     color: "#eab308" },
+  developer:   { label: "Developer",   color: "#22c55e" },
+  employee:    { label: "Employee",    color: "#3b82f6" },
 };
 
 export function Sidebar() {
   const pathname = usePathname();
   const { user, logout, isAdmin, isManager } = useAuth();
 
-  const visibleItems = navItems.filter((item) => {
-    if (item.roles.includes("all")) return true;
-    if (item.roles.includes("admin") && isAdmin) return true;
-    if (item.roles.includes("manager") && isManager) return true;
+  const isVisible = (item: NavItem): boolean => {
+    if (item.visibility === "everyone") return true;
+    if (item.visibility === "manager") return isManager;
+    if (item.visibility === "admin") return isAdmin;
     return false;
-  });
+  };
+
+  // Drop empty groups so users don't see headers with nothing under them
+  const groups = navGroups
+    .map((g) => ({ ...g, items: g.items.filter(isVisible) }))
+    .filter((g) => g.items.length > 0);
 
   const badge = ROLE_BADGE[user?.role || "employee"] || ROLE_BADGE.employee;
 
@@ -57,15 +94,31 @@ export function Sidebar() {
         Ailancers
       </div>
       <nav className="sidebar-nav">
-        {visibleItems.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={`nav-link ${pathname === item.href ? "active" : ""}`}
-          >
-            <span>{item.icon}</span>
-            {item.label}
-          </Link>
+        {groups.map((group, idx) => (
+          <div key={group.title} style={{ marginTop: idx === 0 ? 0 : 18 }}>
+            <div
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: 0.6,
+                textTransform: "uppercase",
+                color: "var(--text-muted)",
+                padding: "4px 12px 6px",
+              }}
+            >
+              {group.title}
+            </div>
+            {group.items.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`nav-link ${pathname === item.href ? "active" : ""}`}
+              >
+                <span>{item.icon}</span>
+                {item.label}
+              </Link>
+            ))}
+          </div>
         ))}
       </nav>
       <div className="sidebar-footer">

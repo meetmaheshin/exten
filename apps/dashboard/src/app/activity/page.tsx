@@ -69,8 +69,8 @@ export default function ActivityPage() {
   return (
     <DashboardShell>
       <div className="page-header">
-        <div className="page-title">Team Activity</div>
-        <div className="page-subtitle">Daily activity breakdown — click any date for details</div>
+        <div className="page-title">Daily Activity</div>
+        <div className="page-subtitle">Time tracked per day across the team — click any date for the per-user breakdown</div>
       </div>
 
       <div className="stats-grid">

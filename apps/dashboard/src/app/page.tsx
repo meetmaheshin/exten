@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { DashboardShell } from "@/components/DashboardShell";
 import { StatCard } from "@/components/StatCard";
 import { useAuth } from "@/lib/auth";
@@ -21,12 +22,22 @@ interface TeamMember {
 }
 
 export default function TeamOverviewPage() {
-  const { accessToken } = useAuth();
+  const { accessToken, user, isAdmin, isManager, loading: authLoading } = useAuth();
+  const router = useRouter();
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Send non-admins to a page that's actually for them. Auth check has to be done
+  // first so we don't redirect mid-session-restore.
   useEffect(() => {
-    if (!accessToken) return;
+    if (authLoading || !user) return;
+    if (!isAdmin) {
+      router.replace(isManager ? "/my-team" : "/me");
+    }
+  }, [authLoading, user, isAdmin, isManager, router]);
+
+  useEffect(() => {
+    if (!accessToken || !isAdmin) return;
 
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -38,7 +49,7 @@ export default function TeamOverviewPage() {
       .then((res) => setMembers(res.data))
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [accessToken]);
+  }, [accessToken, isAdmin]);
 
   const totalActive = members.reduce((sum, m) => sum + m.totalActiveSeconds, 0);
   const totalIdle = members.reduce((sum, m) => sum + m.totalIdleSeconds, 0);
@@ -46,19 +57,42 @@ export default function TeamOverviewPage() {
   const activeDevelopers = members.filter(
     (m) => Date.now() - new Date(m.lastActive).getTime() < 24 * 60 * 60 * 1000
   ).length;
+  const activeNow = members.filter(
+    (m) => Date.now() - new Date(m.lastActive).getTime() < 10 * 60 * 1000
+  ).length;
+
+  // Non-admins see a brief redirect message instead of the empty admin layout
+  if (!authLoading && user && !isAdmin) {
+    return (
+      <DashboardShell>
+        <div className="loading">Redirecting…</div>
+      </DashboardShell>
+    );
+  }
 
   return (
     <DashboardShell>
       <div className="page-header">
-        <div className="page-title">Team Overview</div>
-        <div className="page-subtitle">Activity summary for the last 30 days</div>
+        <div>
+          <div className="page-title">Team Overview</div>
+          <div className="page-subtitle">{user?.fullName ? `Welcome back, ${user.fullName.split(" ")[0]}.` : ""} {activeNow > 0 ? `${activeNow} ${activeNow === 1 ? "person is" : "people are"} working right now.` : "No one is actively tracking right now."}</div>
+        </div>
       </div>
 
+      {/* Snapshot of right now */}
       <div className="stats-grid">
-        <StatCard value={String(members.length)} label="Total Developers" color="blue" />
-        <StatCard value={String(activeDevelopers)} label="Active Today" color="green" />
-        <StatCard value={formatDuration(totalActive)} label="Total Active Time" color="purple" />
-        <StatCard value={formatDuration(totalIdle)} label="Total Idle Time" color="yellow" />
+        <StatCard value={String(activeNow)} label="Active in last 10 min" color="green" />
+        <StatCard value={String(activeDevelopers)} label="Active today" color="blue" />
+        <StatCard value={String(members.length)} label="Tracked users" color="purple" />
+        <StatCard value={String(totalSessions)} label="Sessions this month" color="yellow" />
+      </div>
+
+      {/* 30-day totals */}
+      <div className="stats-grid" style={{ marginTop: 8 }}>
+        <StatCard value={formatDuration(totalActive)} label="Active time (30d)" color="blue" />
+        <StatCard value={formatDuration(totalIdle)} label="Idle time (30d)" color="yellow" />
+        <StatCard value={String(activeDevelopers)} label="Active devs (24h)" color="green" />
+        <StatCard value={String(members.length)} label="Total developers" color="purple" />
       </div>
 
       <div className="card">
