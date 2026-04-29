@@ -20,7 +20,8 @@ interface User {
 }
 
 export default function UsersPage() {
-  const { accessToken } = useAuth();
+  const { accessToken, user: currentUser } = useAuth();
+  const isSuperAdmin = currentUser?.role === "super_admin";
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -107,9 +108,14 @@ export default function UsersPage() {
                   <td>
                     <select
                       value={u.role}
+                      title={isSuperAdmin ? "Change role" : "Only super admins can promote to Admin/Super Admin"}
                       onChange={async (e) => {
                         const newRole = e.target.value;
-                        if (!confirm(`Change ${u.fullName}'s role to ${newRole}?`)) return;
+                        if (newRole === u.role) return;
+                        if (!confirm(`Change ${u.fullName || u.email}'s role to ${newRole}?`)) {
+                          e.target.value = u.role;
+                          return;
+                        }
                         try {
                           await apiFetch(`/api/admin/users/${u.id}/role`, {
                             token: accessToken!,
@@ -118,7 +124,13 @@ export default function UsersPage() {
                           });
                           setUsers((prev) => prev.map((x) => x.id === u.id ? { ...x, role: newRole } : x));
                         } catch (err) {
-                          alert("Failed: " + (err instanceof Error ? err.message : String(err)));
+                          const msg = err instanceof Error ? err.message : String(err);
+                          if (msg.includes("403")) {
+                            alert("Only super admins can assign Admin or Super Admin roles.");
+                          } else {
+                            alert("Failed to change role: " + msg);
+                          }
+                          e.target.value = u.role;
                         }
                       }}
                       style={{
@@ -129,8 +141,14 @@ export default function UsersPage() {
                       <option value="employee">Employee</option>
                       <option value="developer">Developer</option>
                       <option value="manager">Manager</option>
-                      <option value="admin">Admin</option>
-                      <option value="super_admin">Super Admin</option>
+                      {/* Only super admins can promote to admin / super_admin. The current
+                          role stays selectable so admins still see their own row correctly. */}
+                      {(isSuperAdmin || u.role === "admin") && (
+                        <option value="admin">Admin</option>
+                      )}
+                      {(isSuperAdmin || u.role === "super_admin") && (
+                        <option value="super_admin">Super Admin</option>
+                      )}
                     </select>
                   </td>
                   <td style={{ color: u.team ? "var(--text)" : "var(--text-muted)" }}>

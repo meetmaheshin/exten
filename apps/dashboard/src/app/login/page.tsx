@@ -19,6 +19,16 @@ export default function LoginPage() {
     if (user) router.push("/me");
   }, [user, router]);
 
+  // Pick up session-expired message stashed by AuthProvider on 401
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const reason = sessionStorage.getItem("ailancers_login_reason");
+    if (reason) {
+      setError(reason);
+      sessionStorage.removeItem("ailancers_login_reason");
+    }
+  }, []);
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError("");

@@ -9,6 +9,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Listen for 401 from any API call → clear session + redirect to login
+  useEffect(() => {
+    const handler = () => {
+      setUser(null);
+      setAccessToken(null);
+      clearSession();
+      if (typeof window !== "undefined" && !window.location.pathname.endsWith("/login")) {
+        sessionStorage.setItem("ailancers_login_reason", "Your session expired. Please sign in again.");
+        window.location.href = "/dashboard/login";
+      }
+    };
+    window.addEventListener("ailancers:session-expired", handler);
+    return () => window.removeEventListener("ailancers:session-expired", handler);
+  }, []);
+
   useEffect(() => {
     async function init() {
       // 1. Try localStorage first

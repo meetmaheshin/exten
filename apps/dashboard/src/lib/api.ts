@@ -26,6 +26,9 @@ export async function apiFetch<T>(path: string, options: FetchOptions = {}): Pro
 
   if (!response.ok) {
     const body = await response.text();
+    if (response.status === 401 && typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("ailancers:session-expired"));
+    }
     throw new Error(`API ${response.status}: ${body}`);
   }
 
