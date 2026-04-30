@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { DashboardShell } from "@/components/DashboardShell";
+import { TeamSnapshotTabs } from "@/components/TeamSnapshotTabs";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 
@@ -76,30 +77,90 @@ function tbBadgeColor(pct: number): string {
 }
 
 // ─── Page ───
+type RangeMode = "rolling" | "month";
+type GroupMode = "manager" | "flat";
+
+function monthOptions(): Array<{ value: string; label: string }> {
+  // Last 12 months including current. Value is "YYYY-MM".
+  const out: Array<{ value: string; label: string }> = [];
+  const d = new Date();
+  for (let i = 0; i < 12; i++) {
+    const y = d.getFullYear();
+    const m = d.getMonth();
+    const value = `${y}-${(m + 1).toString().padStart(2, "0")}`;
+    const label = d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+    out.push({ value, label });
+    d.setMonth(d.getMonth() - 1);
+  }
+  return out;
+}
+
+function rangeForMonth(yyyymm: string): { from: string; to: string } {
+  const [y, m] = yyyymm.split("-").map(Number);
+  const from = `${y}-${m.toString().padStart(2, "0")}-01`;
+  // Last day of month
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const to = `${y}-${m.toString().padStart(2, "0")}-${last.toString().padStart(2, "0")}`;
+  return { from, to };
+}
+
 export default function TeamSnapshotPage() {
-  const { accessToken, isManager } = useAuth();
+  const { accessToken, isManager, isAdmin } = useAuth();
   const [data, setData] = useState<SnapshotResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [rangeMode, setRangeMode] = useState<RangeMode>("rolling");
   const [days, setDays] = useState(14);
+  const [month, setMonth] = useState<string>(() => monthOptions()[0].value);
+  const [managerFilter, setManagerFilter] = useState<string>(""); // "" = all managers
+  const [groupMode, setGroupMode] = useState<GroupMode>("manager");
 
   const range = useMemo(() => {
-    // 'to' = yesterday, 'from' = N days before that
-    const to = dateNDaysAgo(1);
-    const from = dateNDaysAgo(days);
-    return { from, to };
-  }, [days]);
+    if (rangeMode === "month") return rangeForMonth(month);
+    return { from: dateNDaysAgo(days), to: dateNDaysAgo(1) };
+  }, [rangeMode, days, month]);
 
   useEffect(() => {
     if (!accessToken) return;
     setLoading(true);
-    apiFetch<SnapshotResponse>(
-      `/api/team-snapshot?from=${range.from}&to=${range.to}`,
-      { token: accessToken }
-    )
+    const qs = new URLSearchParams({ from: range.from, to: range.to });
+    if (managerFilter) qs.set("managerName", managerFilter);
+    apiFetch<SnapshotResponse>(`/api/team-snapshot?${qs.toString()}`, { token: accessToken })
       .then(setData)
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [accessToken, range.from, range.to]);
+  }, [accessToken, range.from, range.to, managerFilter]);
+
+  // For the manager filter: collect unique manager names from the response so
+  // the dropdown only offers groups that actually exist.
+  const knownManagers = useMemo(() => {
+    if (!data) return [] as string[];
+    return data.groups.map((g) => g.managerName);
+  }, [data]);
+
+  // Flatten when groupMode=flat: collapse all employees into one synthetic group
+  const displayGroups = useMemo<SnapshotGroup[]>(() => {
+    if (!data) return [];
+    if (groupMode === "manager") return data.groups;
+    const allEmployees = data.groups.flatMap((g) => g.employees);
+    if (allEmployees.length === 0) return [];
+    const perDateTeamAvgSeconds: Record<string, number> = {};
+    for (const d of data.dates) {
+      const sum = allEmployees.reduce((acc, e) => acc + (e.perDate[d]?.activeSeconds || 0), 0);
+      perDateTeamAvgSeconds[d] = Math.round(sum / allEmployees.length);
+    }
+    return [{
+      managerId: null,
+      managerName: "Everyone",
+      headerAtdSeconds: Math.round(
+        allEmployees.reduce((a, e) => a + e.atdSeconds, 0) / allEmployees.length
+      ),
+      teamBandwidthPct:
+        data.groups.reduce((a, g) => a + g.teamBandwidthPct * g.employees.length, 0) /
+        Math.max(1, allEmployees.length),
+      perDateTeamAvgSeconds,
+      employees: allEmployees,
+    }];
+  }, [data, groupMode]);
 
   if (!isManager) {
     return (
@@ -114,30 +175,83 @@ export default function TeamSnapshotPage() {
     );
   }
 
+  const subtitle =
+    rangeMode === "month"
+      ? `${monthOptions().find((o) => o.value === month)?.label ?? month} — today excluded`
+      : `Last ${days} days — today excluded`;
+
   return (
     <DashboardShell>
+      <TeamSnapshotTabs />
+
       <div className="page-header">
         <div>
           <div className="page-title">Team Snapshot</div>
-          <div className="page-subtitle">Daily hours across the team — last {days} days, today excluded</div>
+          <div className="page-subtitle">{subtitle}</div>
         </div>
-        <div style={{ display: "flex", gap: 6 }}>
-          {[7, 14, 30].map((n) => (
-            <button
-              key={n}
-              onClick={() => setDays(n)}
-              className={`btn ${days === n ? "btn-primary" : "btn-secondary"}`}
-              style={{ padding: "4px 12px", fontSize: 12 }}
-            >
-              {n}d
-            </button>
-          ))}
-        </div>
+      </div>
+
+      {/* Filter row */}
+      <div className="card" style={{ padding: 12, marginBottom: 12, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+        {/* Range mode */}
+        <label style={controlLabelStyle}>
+          Range
+          <select value={rangeMode} onChange={(e) => setRangeMode(e.target.value as RangeMode)} style={selectStyle}>
+            <option value="rolling">Last N days</option>
+            <option value="month">Specific month</option>
+          </select>
+        </label>
+
+        {rangeMode === "rolling" ? (
+          <div style={{ display: "flex", gap: 4 }}>
+            {[7, 14, 30].map((n) => (
+              <button
+                key={n}
+                onClick={() => setDays(n)}
+                className={`btn ${days === n ? "btn-primary" : "btn-secondary"}`}
+                style={{ padding: "4px 12px", fontSize: 12 }}
+              >
+                {n}d
+              </button>
+            ))}
+          </div>
+        ) : (
+          <label style={controlLabelStyle}>
+            Month
+            <select value={month} onChange={(e) => setMonth(e.target.value)} style={selectStyle}>
+              {monthOptions().map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        {/* Group by */}
+        <label style={controlLabelStyle}>
+          Group by
+          <select value={groupMode} onChange={(e) => setGroupMode(e.target.value as GroupMode)} style={selectStyle}>
+            <option value="manager">Manager</option>
+            <option value="flat">Flat (no grouping)</option>
+          </select>
+        </label>
+
+        {/* Filter by manager — admin only */}
+        {isAdmin && (
+          <label style={controlLabelStyle}>
+            Filter by manager
+            <select value={managerFilter} onChange={(e) => setManagerFilter(e.target.value)} style={selectStyle}>
+              <option value="">All managers</option>
+              {knownManagers.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          </label>
+        )}
       </div>
 
       {loading ? (
         <div className="loading">Loading team snapshot…</div>
-      ) : !data || data.groups.length === 0 ? (
+      ) : !data || displayGroups.length === 0 ? (
         <div className="card" style={{ padding: 48, textAlign: "center", color: "var(--text-muted)" }}>
           No team data to show. Make sure your direct reports have their <strong>team</strong> field set to your name on the Users page.
         </div>
@@ -158,7 +272,7 @@ export default function TeamSnapshotPage() {
                 </tr>
               </thead>
               <tbody>
-                {data.groups.map((group) => (
+                {displayGroups.map((group) => (
                   <ManagerBlock key={group.managerName} group={group} dates={data.dates} />
                 ))}
               </tbody>
@@ -169,6 +283,29 @@ export default function TeamSnapshotPage() {
     </DashboardShell>
   );
 }
+
+const controlLabelStyle: React.CSSProperties = {
+  display: "inline-flex",
+  flexDirection: "column",
+  fontSize: 11,
+  color: "var(--text-muted)",
+  textTransform: "uppercase",
+  letterSpacing: 0.5,
+  fontWeight: 600,
+  gap: 4,
+};
+
+const selectStyle: React.CSSProperties = {
+  padding: "6px 10px",
+  background: "var(--bg-card)",
+  color: "var(--text)",
+  border: "1px solid var(--border)",
+  borderRadius: 6,
+  fontSize: 13,
+  textTransform: "none",
+  fontWeight: 400,
+  letterSpacing: 0,
+};
 
 const thStyle: React.CSSProperties = {
   padding: "10px 12px",

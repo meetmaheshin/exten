@@ -402,6 +402,8 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
     const query = z.object({
       from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      // Optional admin-only filter: limit to one manager group
+      managerName: z.string().optional(),
     }).parse(request.query);
 
     const isAdmin = request.user.role === "admin" || request.user.role === "super_admin";
@@ -503,6 +505,8 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
     const groupBuckets = new Map<string, typeof visibleUsers>();
     for (const u of visibleUsers) {
       const key = u.team && u.team.trim() !== "" ? u.team : "Unassigned";
+      // Admin-only filter: skip groups that don't match the requested manager
+      if (isAdmin && query.managerName && key !== query.managerName) continue;
       const bucket = groupBuckets.get(key) || [];
       bucket.push(u);
       groupBuckets.set(key, bucket);
@@ -571,5 +575,179 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
     });
 
     return reply.send({ dates, groups });
+  });
+
+  // ─── Bandwidth report (per-manager utilization for an arbitrary range) ───
+  app.get("/api/team-snapshot/bandwidth", { preHandler: requireManager(authService) }, async (request, reply) => {
+    const query = z.object({
+      from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    }).parse(request.query);
+
+    const isAdmin = request.user.role === "admin" || request.user.role === "super_admin";
+    const [me] = await db
+      .select({ id: users.id, fullName: users.fullName })
+      .from(users)
+      .where(eq(users.id, request.user.sub))
+      .limit(1);
+    if (!me) return reply.status(404).send({ error: "User not found" });
+
+    // Build working-day count for the range (today is *not* excluded here — the
+    // bandwidth report is meant for completed past ranges, e.g. "last week")
+    const start = new Date(`${query.from}T00:00:00Z`);
+    const end = new Date(`${query.to}T00:00:00Z`);
+    let workingDays = 0;
+    for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+      const wd = d.getUTCDay();
+      if (wd !== 0 && wd !== 6) workingDays += 1;
+    }
+
+    // Pull active users
+    const allUsers = await db
+      .select({ id: users.id, fullName: users.fullName, team: users.team })
+      .from(users)
+      .where(eq(users.isActive, true));
+    const visibleUsers = isAdmin
+      ? allUsers
+      : allUsers.filter((u) => u.team === me.fullName || u.id === me.id);
+    if (visibleUsers.length === 0) return reply.send({ workingDays, rows: [] });
+
+    const visibleIds = visibleUsers.map((u) => u.id);
+    const fromTs = `${query.from}T00:00:00Z`;
+    const toTs = `${query.to}T23:59:59Z`;
+
+    const totals = await db.execute<{ userId: string; activeSeconds: number }>(sql`
+      SELECT s.user_id::text AS "userId",
+             COALESCE(SUM(s.active_seconds), 0)::int AS "activeSeconds"
+      FROM activity_sessions s
+      WHERE s.user_id = ANY(${visibleIds}::uuid[])
+        AND s.started_at >= ${fromTs}::timestamptz
+        AND s.started_at <= ${toTs}::timestamptz
+      GROUP BY s.user_id
+    `);
+    const totalsByUser = new Map<string, number>();
+    for (const r of totals as unknown as Array<{ userId: string; activeSeconds: number }>) {
+      totalsByUser.set(r.userId, r.activeSeconds);
+    }
+
+    // Bucket by team and aggregate
+    const byTeam = new Map<string, { teamSize: number; activeSeconds: number }>();
+    for (const u of visibleUsers) {
+      const key = u.team && u.team.trim() !== "" ? u.team : "Unassigned";
+      const cur = byTeam.get(key) || { teamSize: 0, activeSeconds: 0 };
+      cur.teamSize += 1;
+      cur.activeSeconds += totalsByUser.get(u.id) || 0;
+      byTeam.set(key, cur);
+    }
+
+    const rows = Array.from(byTeam.entries()).map(([managerName, agg]) => {
+      const expectedHours = 8 * agg.teamSize * workingDays;
+      const actualHours = Math.round((agg.activeSeconds / 3600) * 10) / 10;
+      const occupiedPct = expectedHours > 0 ? Math.round((actualHours / expectedHours) * 1000) / 10 : 0;
+      return {
+        managerName,
+        teamSize: agg.teamSize,
+        workingDays,
+        expectedHours,
+        actualHours,
+        occupiedPct,
+        freePct: Math.max(0, Math.round((100 - occupiedPct) * 10) / 10),
+      };
+    });
+    rows.sort((a, b) => a.managerName.localeCompare(b.managerName));
+    return reply.send({ workingDays, rows });
+  });
+
+  // ─── Summary report (org-wide stats + Good/Moderate/Low distribution) ───
+  app.get("/api/team-snapshot/summary", { preHandler: requireManager(authService) }, async (request, reply) => {
+    const query = z.object({
+      from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    }).parse(request.query);
+
+    const isAdmin = request.user.role === "admin" || request.user.role === "super_admin";
+    const [me] = await db
+      .select({ id: users.id, fullName: users.fullName })
+      .from(users)
+      .where(eq(users.id, request.user.sub))
+      .limit(1);
+    if (!me) return reply.status(404).send({ error: "User not found" });
+
+    // Working-day count
+    const start = new Date(`${query.from}T00:00:00Z`);
+    const end = new Date(`${query.to}T00:00:00Z`);
+    let workingDays = 0;
+    for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+      const wd = d.getUTCDay();
+      if (wd !== 0 && wd !== 6) workingDays += 1;
+    }
+
+    const allUsers = await db
+      .select({ id: users.id, fullName: users.fullName, team: users.team })
+      .from(users)
+      .where(eq(users.isActive, true));
+    const visibleUsers = isAdmin
+      ? allUsers
+      : allUsers.filter((u) => u.team === me.fullName || u.id === me.id);
+    const visibleIds = visibleUsers.map((u) => u.id);
+
+    if (visibleUsers.length === 0) {
+      return reply.send({
+        totalActiveEmployees: 0,
+        workingDays,
+        avgHoursPerEmployeePerDay: 0,
+        distribution: { good: 0, moderate: 0, low: 0, none: 0 },
+      });
+    }
+
+    const fromTs = `${query.from}T00:00:00Z`;
+    const toTs = `${query.to}T23:59:59Z`;
+
+    // Per-(user, day) totals so we can bucket each working day for each employee
+    const perDay = await db.execute<{ userId: string; day: string; activeSeconds: number }>(sql`
+      SELECT s.user_id::text AS "userId",
+             to_char(s.started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS "day",
+             COALESCE(SUM(s.active_seconds), 0)::int AS "activeSeconds"
+      FROM activity_sessions s
+      WHERE s.user_id = ANY(${visibleIds}::uuid[])
+        AND s.started_at >= ${fromTs}::timestamptz
+        AND s.started_at <= ${toTs}::timestamptz
+      GROUP BY s.user_id, day
+    `);
+
+    const cellByUserDay = new Map<string, number>();
+    let totalActiveSeconds = 0;
+    for (const r of perDay as unknown as Array<{ userId: string; day: string; activeSeconds: number }>) {
+      cellByUserDay.set(`${r.userId}|${r.day}`, r.activeSeconds);
+      totalActiveSeconds += r.activeSeconds;
+    }
+
+    // Walk every (user × working-day) cell and bucket
+    const distribution = { good: 0, moderate: 0, low: 0, none: 0 };
+    for (const u of visibleUsers) {
+      for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+        const wd = d.getUTCDay();
+        if (wd === 0 || wd === 6) continue;
+        const day = d.toISOString().slice(0, 10);
+        const seconds = cellByUserDay.get(`${u.id}|${day}`) || 0;
+        const hours = seconds / 3600;
+        if (seconds === 0) distribution.none += 1;
+        else if (hours >= 7) distribution.good += 1;
+        else if (hours >= 4) distribution.moderate += 1;
+        else distribution.low += 1;
+      }
+    }
+
+    const totalEmployeeDays = visibleUsers.length * workingDays;
+    const avgHoursPerEmployeePerDay = totalEmployeeDays > 0
+      ? Math.round((totalActiveSeconds / 3600 / totalEmployeeDays) * 10) / 10
+      : 0;
+
+    return reply.send({
+      totalActiveEmployees: visibleUsers.length,
+      workingDays,
+      avgHoursPerEmployeePerDay,
+      distribution,
+    });
   });
 }
