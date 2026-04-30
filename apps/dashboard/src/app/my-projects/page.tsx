@@ -35,7 +35,7 @@ export default function MyProjectsPage() {
 
   useEffect(() => {
     if (!accessToken) return;
-    apiFetch<{ data: MySession[] }>(`/api/activity/me/sessions?from=${thirtyDaysAgo.toISOString()}&limit=200`, { token: accessToken })
+    apiFetch<{ data: MySession[] }>(`/api/activity/me/sessions?from=${thirtyDaysAgo.toISOString()}&limit=100`, { token: accessToken })
       .then((res) => setSessions(res.data || []))
       .catch(console.error)
       .finally(() => setLoading(false));
