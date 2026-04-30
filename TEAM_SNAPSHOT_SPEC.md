@@ -250,3 +250,16 @@ For when we want to compare to the original implementation:
 | Date       | Status                                                                               |
 |------------|--------------------------------------------------------------------------------------|
 | 2026-04-30 | Spec drafted. v1 scope agreed (skip Holiday / Leave / ActivityFill / proper FK). Implementation pending. |
+| 2026-04-30 | **v1 shipped** (`2210399`): pivot grid, manager grouping by `users.team`, color thresholds, ATD, TB%, MANUAL badge. |
+| 2026-04-30 | **Summary + Bandwidth views shipped** (`2315c86`): tab strip, month picker, manager filter, group-by Manager/Flat, KPI summary, per-manager utilization with CSV export. |
+| 2026-04-30 | **Auto-link CSV → users.team shipped** (`a351062`): button on /employees + automatic on every CSV import. |
+| 2026-04-30 | **Tier 1.1 — Holidays shipped** (`d551457`): table + CRUD + admin page + grid integration. Working-day counts now subtract company holidays. |
+| 2026-04-30 | **Tier 1.2 — Leave days shipped** (`a6222e2`): table + CRUD + admin page + grid integration. Per-user ATD denominator subtracts leaves; half-day = 0.5. Snapshot grid renders "leave" cells in soft orange. |
+| 2026-04-30 | **Tier 1.3 — Employment status shipped** (`<this commit>`): `users.employment_status` column + dropdown on /users. Bandwidth + Summary endpoints exclude non-`active` employees from team aggregates and TB% denominators. Snapshot rows for resigned/notice/maternity show a colored badge but stay visible (audit). |
+
+### Still deferred to a future iteration
+
+- **Activity fill % per minute** — would require recording idle/active per minute on the heartbeat path. Cattr uses this from Mira AI; we'd need to instrument the trackers to emit it. Skipped for now since our `editor_version='manual-entry'` signal already gives us the MANUAL badge cleanly.
+- **Proper `users.manager_id` FK** — current grouping by the text `team` field works as long as admins keep the field synced (or use the auto-link button). FK migration would be cleaner but introduces a UI to assign it; defer until the team field actually causes problems.
+- **CSV export from Team Snapshot grid** — Bandwidth has it; the pivot grid doesn't yet. Easy add when someone asks.
+- **Holiday "region" / multi-country support** — `holidays` table is global. Add `region varchar(50)` if/when needed.

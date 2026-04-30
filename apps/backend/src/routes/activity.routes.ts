@@ -264,6 +264,7 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
         team: users.team,
         avatarUrl: users.avatarUrl,
         isActive: users.isActive,
+        employmentStatus: users.employmentStatus,
         createdAt: users.createdAt,
         updatedAt: users.updatedAt,
       })
@@ -461,6 +462,7 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
         team: users.team,
         role: users.role,
         isActive: users.isActive,
+        employmentStatus: users.employmentStatus,
       })
       .from(users)
       .where(eq(users.isActive, true));
@@ -598,21 +600,28 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
           email: u.email,
           atdSeconds,
           isAllManual,
+          employmentStatus: u.employmentStatus,
           perDate,
         };
       });
 
       // Group-level aggregates: average across employees per date
+      // Only "active" employees count toward team aggregates / TB%. Resigned,
+      // on-leave, notice, etc. still appear as rows but don't tank the manager's
+      // utilization metric or pull down the team-average row.
+      const activeEmployees = employees.filter((e) => e.employmentStatus === "active");
+      const denomCount = activeEmployees.length;
+
       const perDateTeamAvgSeconds: Record<string, number> = {};
       for (const d of dates) {
-        const sum = employees.reduce((acc, e) => acc + (e.perDate[d]?.activeSeconds || 0), 0);
-        perDateTeamAvgSeconds[d] = employees.length > 0 ? Math.round(sum / employees.length) : 0;
+        const sum = activeEmployees.reduce((acc, e) => acc + (e.perDate[d]?.activeSeconds || 0), 0);
+        perDateTeamAvgSeconds[d] = denomCount > 0 ? Math.round(sum / denomCount) : 0;
       }
-      const teamTotalSeconds = employees.reduce((acc, e) => acc + Object.values(e.perDate).reduce((a, c) => a + c.activeSeconds, 0), 0);
-      const headerAtdSeconds = (workingDays > 0 && employees.length > 0)
-        ? Math.round(teamTotalSeconds / (employees.length * workingDays))
+      const teamTotalSeconds = activeEmployees.reduce((acc, e) => acc + Object.values(e.perDate).reduce((a, c) => a + c.activeSeconds, 0), 0);
+      const headerAtdSeconds = (workingDays > 0 && denomCount > 0)
+        ? Math.round(teamTotalSeconds / (denomCount * workingDays))
         : 0;
-      const expectedHours = 8 * employees.length * workingDays;
+      const expectedHours = 8 * denomCount * workingDays;
       const teamBandwidthPct = expectedHours > 0 ? Math.round((teamTotalSeconds / 3600 / expectedHours) * 1000) / 10 : 0;
 
       return {
@@ -672,11 +681,12 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
       workingDays += 1;
     }
 
-    // Pull active users
+    // Pull active employees only — resigned / on_leave / notice etc. don't
+    // contribute to expected-vs-actual team capacity math
     const allUsers = await db
-      .select({ id: users.id, fullName: users.fullName, team: users.team })
+      .select({ id: users.id, fullName: users.fullName, team: users.team, employmentStatus: users.employmentStatus })
       .from(users)
-      .where(eq(users.isActive, true));
+      .where(and(eq(users.isActive, true), eq(users.employmentStatus, "active")));
     const visibleUsers = isAdmin
       ? allUsers
       : allUsers.filter((u) => u.team === me.fullName || u.id === me.id);
@@ -756,10 +766,12 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
       workingDays += 1;
     }
 
+    // Org-wide KPIs: only count active employees. Resigned / on_leave /
+    // notice / maternity get excluded so the metrics reflect productive capacity.
     const allUsers = await db
       .select({ id: users.id, fullName: users.fullName, team: users.team })
       .from(users)
-      .where(eq(users.isActive, true));
+      .where(and(eq(users.isActive, true), eq(users.employmentStatus, "active")));
     const visibleUsers = isAdmin
       ? allUsers
       : allUsers.filter((u) => u.team === me.fullName || u.id === me.id);

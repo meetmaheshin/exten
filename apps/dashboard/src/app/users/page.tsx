@@ -15,9 +15,18 @@ interface User {
   team: string | null;
   avatarUrl: string | null;
   isActive: boolean;
+  employmentStatus: "active" | "on_leave" | "notice" | "resigned" | "maternity" | string;
   createdAt: string;
   updatedAt: string;
 }
+
+const EMPLOYMENT_STATUSES: Array<{ value: string; label: string; color: string }> = [
+  { value: "active",    label: "Active",    color: "var(--success)" },
+  { value: "on_leave",  label: "On leave",  color: "#ff9800" },
+  { value: "notice",    label: "Notice",    color: "#fb8c00" },
+  { value: "maternity", label: "Maternity", color: "#ab47bc" },
+  { value: "resigned",  label: "Resigned",  color: "var(--danger)" },
+];
 
 export default function UsersPage() {
   const { accessToken, user: currentUser } = useAuth();
@@ -70,6 +79,7 @@ export default function UsersPage() {
                 <th>User</th>
                 <th>Role</th>
                 <th>Team</th>
+                <th>Employment</th>
                 <th>Status</th>
                 <th>Joined</th>
                 <th>Last Updated</th>
@@ -153,6 +163,41 @@ export default function UsersPage() {
                   </td>
                   <td style={{ color: u.team ? "var(--text)" : "var(--text-muted)" }}>
                     {u.team || "—"}
+                  </td>
+                  <td>
+                    <select
+                      value={u.employmentStatus || "active"}
+                      onChange={async (e) => {
+                        const newStatus = e.target.value;
+                        if (newStatus === u.employmentStatus) return;
+                        if (!confirm(`Change ${u.fullName || u.email}'s employment status to ${newStatus}?`)) {
+                          e.target.value = u.employmentStatus;
+                          return;
+                        }
+                        try {
+                          await apiFetch(`/api/admin/users/${u.id}/employment-status`, {
+                            token: accessToken!,
+                            method: "PUT",
+                            body: JSON.stringify({ employmentStatus: newStatus }),
+                          });
+                          setUsers((prev) => prev.map((x) => x.id === u.id ? { ...x, employmentStatus: newStatus } : x));
+                        } catch (err) {
+                          alert("Failed to change status: " + (err instanceof Error ? err.message : String(err)));
+                          e.target.value = u.employmentStatus;
+                        }
+                      }}
+                      style={{
+                        background: "var(--bg-card)",
+                        color: EMPLOYMENT_STATUSES.find((s) => s.value === u.employmentStatus)?.color || "var(--text)",
+                        border: "1px solid var(--border)",
+                        borderRadius: 4, padding: "2px 8px", fontSize: 12, cursor: "pointer",
+                        fontWeight: 600,
+                      }}
+                    >
+                      {EMPLOYMENT_STATUSES.map((s) => (
+                        <option key={s.value} value={s.value}>{s.label}</option>
+                      ))}
+                    </select>
                   </td>
                   <td>
                     <span style={{

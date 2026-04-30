@@ -357,4 +357,19 @@ tryAutoLogin();
 
     return reply.send({ ok: true });
   });
+
+  // Admin: update user employment status
+  app.put("/api/admin/users/:userId/employment-status", { preHandler: requireAdmin(authService) }, async (request, reply) => {
+    const { userId } = z.object({ userId: z.string().uuid() }).parse(request.params);
+    const body = z.object({
+      employmentStatus: z.enum(["active", "on_leave", "notice", "resigned", "maternity"]),
+    }).parse(request.body);
+
+    await db
+      .update(users)
+      .set({ employmentStatus: body.employmentStatus, updatedAt: new Date() })
+      .where(eq(users.id, userId));
+
+    return reply.send({ ok: true });
+  });
 }

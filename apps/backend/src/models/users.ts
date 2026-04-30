@@ -14,6 +14,8 @@ export const users = pgTable(
     role: varchar("role", { length: 20 }).notNull().default("developer"),
     team: varchar("team", { length: 100 }),
     isActive: boolean("is_active").notNull().default(true),
+    // 'active' | 'on_leave' | 'notice' | 'resigned' | 'maternity' — see migration 0009
+    employmentStatus: varchar("employment_status", { length: 20 }).notNull().default("active"),
     avatarUrl: varchar("avatar_url", { length: 512 }),
     monthlyBudgetUsd: decimal("monthly_budget_usd", { precision: 10, scale: 2 }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

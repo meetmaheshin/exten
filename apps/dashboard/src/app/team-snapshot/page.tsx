@@ -18,6 +18,7 @@ interface SnapshotEmployee {
   email: string;
   atdSeconds: number;
   isAllManual: boolean;
+  employmentStatus?: string;
   perDate: Record<string, DateCell>;
 }
 interface SnapshotGroup {
@@ -400,6 +401,27 @@ function ManagerBlock({ group, dates }: { group: SnapshotGroup; dates: string[] 
                   }}
                 >
                   MANUAL
+                </span>
+              )}
+              {emp.employmentStatus && emp.employmentStatus !== "active" && (
+                <span
+                  title={`Employment status: ${emp.employmentStatus}`}
+                  style={{
+                    marginLeft: 8,
+                    padding: "1px 6px",
+                    borderRadius: 3,
+                    fontSize: 9,
+                    fontWeight: 700,
+                    color: emp.employmentStatus === "resigned" ? "#c62828"
+                      : emp.employmentStatus === "notice" ? "#ef6c00"
+                      : "#6a1b9a",
+                    background: emp.employmentStatus === "resigned" ? "#ffcdd2"
+                      : emp.employmentStatus === "notice" ? "#ffe0b2"
+                      : "#e1bee7",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  {emp.employmentStatus.replace("_", " ")}
                 </span>
               )}
               <div style={{ fontSize: 10, color: "var(--text-muted)" }}>{emp.email}</div>
