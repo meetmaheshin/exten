@@ -35,6 +35,7 @@ export default function EmployeesPage() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<string | null>(null);
+  const [linking, setLinking] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Add form state
@@ -116,7 +117,13 @@ export default function EmployeesPage() {
     setImportResult(null);
     try {
       const csv = await file.text();
-      const result = await apiFetch<{ imported: number; skipped: number; totalRows: number; parsedRows: number }>(
+      const result = await apiFetch<{
+        imported: number;
+        skipped: number;
+        totalRows: number;
+        parsedRows: number;
+        link?: { directoryRows: number; matchedRows: number; updatedRows: number; unmappedRows: number };
+      }>(
         "/api/admin/employees/import-csv",
         {
           token: accessToken,
@@ -124,13 +131,37 @@ export default function EmployeesPage() {
           body: JSON.stringify({ csv }),
         }
       );
-      setImportResult(`Imported ${result.imported} employees (${result.skipped} skipped, ${result.totalRows} total rows)`);
+      const linkPart = result.link
+        ? ` · Linked ${result.link.matchedRows} / ${result.link.directoryRows} to Ailancers users (${result.link.updatedRows} team field updated)`
+        : "";
+      setImportResult(`Imported ${result.imported} employees (${result.skipped} skipped, ${result.totalRows} total rows)${linkPart}`);
       await fetchData();
     } catch (err) {
       setImportResult("Import failed: " + (err instanceof Error ? err.message : err));
     } finally {
       setImporting(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const handleAutoLink = async () => {
+    if (!accessToken) return;
+    setLinking(true);
+    setImportResult(null);
+    try {
+      const result = await apiFetch<{ directoryRows: number; matchedRows: number; updatedRows: number; unmappedRows: number }>(
+        "/api/admin/employees/auto-link",
+        { token: accessToken, method: "POST", body: JSON.stringify({}) }
+      );
+      setImportResult(
+        `Auto-link complete · ${result.matchedRows} of ${result.directoryRows} directory entries match an Ailancers login · ` +
+        `${result.updatedRows} user team fields updated · ${result.unmappedRows} directory entries have no matching Ailancers user (they will once those people log in)`
+      );
+      await fetchData();
+    } catch (err) {
+      setImportResult("Auto-link failed: " + (err instanceof Error ? err.message : err));
+    } finally {
+      setLinking(false);
     }
   };
 
@@ -161,6 +192,14 @@ export default function EmployeesPage() {
               disabled={importing}
             />
           </label>
+          <button
+            className="btn btn-primary"
+            onClick={handleAutoLink}
+            disabled={linking}
+            title="Match directory emails to Ailancers logins and copy each employee's manager into their users.team field. Required before Team Snapshot can group people correctly."
+          >
+            {linking ? "Linking…" : "🔗 Auto-link to Ailancers users"}
+          </button>
         </div>
       </div>
 

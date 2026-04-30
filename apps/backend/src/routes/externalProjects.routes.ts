@@ -32,6 +32,41 @@ export function externalProjectsRoutes(
 
   // Admin: import employee directory (CSV data as JSON array)
   // Each entry: { externalUserId, employeeName, email, department?, jobPosition?, managerName?, company?, active? }
+  // Helper: copy manager_name from employee_directory → users.team for every
+  // directory row whose email matches an Ailancers login (case-insensitive).
+  // Returns counts so the caller can show them to the admin.
+  async function autoLinkEmployeesToUsers() {
+    const result = await db.execute<{ matchedRows: number; updatedRows: number; directoryRows: number }>(sql`
+      WITH dir AS (
+        SELECT email, manager_name FROM employee_directory WHERE manager_name IS NOT NULL AND manager_name <> ''
+      ),
+      matches AS (
+        SELECT u.id, dir.manager_name
+        FROM users u
+        JOIN dir ON LOWER(u.email) = LOWER(dir.email)
+      ),
+      upd AS (
+        UPDATE users u
+        SET team = m.manager_name, updated_at = NOW()
+        FROM matches m
+        WHERE u.id = m.id
+          AND (u.team IS NULL OR u.team <> m.manager_name)
+        RETURNING u.id
+      )
+      SELECT
+        (SELECT COUNT(*) FROM matches)::int AS "matchedRows",
+        (SELECT COUNT(*) FROM upd)::int AS "updatedRows",
+        (SELECT COUNT(*) FROM employee_directory)::int AS "directoryRows"
+    `);
+    const row = (result as unknown as Array<{ matchedRows: number; updatedRows: number; directoryRows: number }>)[0];
+    return {
+      directoryRows: row?.directoryRows ?? 0,
+      matchedRows: row?.matchedRows ?? 0,
+      updatedRows: row?.updatedRows ?? 0,
+      unmappedRows: (row?.directoryRows ?? 0) - (row?.matchedRows ?? 0),
+    };
+  }
+
   app.post("/api/admin/employees/import", { preHandler: admin }, async (request, reply) => {
     const body = z.object({
       employees: z.array(z.object({
@@ -47,7 +82,8 @@ export function externalProjectsRoutes(
     }).parse(request.body);
 
     const result = await syncService.importEmployeeDirectory(body.employees);
-    return reply.send(result);
+    const link = await autoLinkEmployeesToUsers();
+    return reply.send({ ...result, link });
   });
 
   // Admin: import employee directory from raw CSV text
@@ -87,7 +123,14 @@ export function externalProjectsRoutes(
     }));
 
     const result = await syncService.importEmployeeDirectory(rows);
-    return reply.send({ ...result, totalRows: lines.length - 1, parsedRows: rows.length });
+    const link = await autoLinkEmployeesToUsers();
+    return reply.send({ ...result, link, totalRows: lines.length - 1, parsedRows: rows.length });
+  });
+
+  // Admin: re-run the directory → users.team auto-link without re-importing
+  app.post("/api/admin/employees/auto-link", { preHandler: admin }, async (_request, reply) => {
+    const link = await autoLinkEmployeesToUsers();
+    return reply.send(link);
   });
 
   // Admin: get sync status (when was last sync, how many projects/tasks)
