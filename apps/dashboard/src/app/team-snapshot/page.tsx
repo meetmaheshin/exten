@@ -9,7 +9,8 @@ import { apiFetch } from "@/lib/api";
 // ─── Types matching the /api/team-snapshot response ───
 interface DateCell {
   activeSeconds: number;
-  kind: "data" | "no-data" | "weekend";
+  kind: "data" | "no-data" | "weekend" | "holiday";
+  label?: string;
 }
 interface SnapshotEmployee {
   userId: string;
@@ -59,6 +60,9 @@ function dateNDaysAgo(n: number): string {
 function cellStyle(cell: DateCell): React.CSSProperties {
   if (cell.kind === "weekend") {
     return { background: "#e8eaf6", color: "#5c6bc0", fontStyle: "italic" };
+  }
+  if (cell.kind === "holiday") {
+    return { background: "#e3f2fd", color: "#1565c0", fontStyle: "italic" };
   }
   if (cell.kind === "no-data") {
     return { background: "#e0e0e0", color: "#666" };
@@ -363,8 +367,12 @@ function ManagerBlock({ group, dates }: { group: SnapshotGroup; dates: string[] 
               ? { activeSeconds: seconds, kind: "data" }
               : { activeSeconds: 0, kind: "no-data" };
           return (
-            <td key={d} style={{ ...tdStyle, ...cellStyle(cell), textAlign: "center" }}>
-              {cell.kind === "weekend" ? (wd === 0 ? "Sun" : "Sat") : fmtHHMM(seconds)}
+            <td key={d} style={{ ...tdStyle, ...cellStyle(cell), textAlign: "center" }} title={cell.label}>
+              {cell.kind === "weekend"
+                ? (wd === 0 ? "Sun" : "Sat")
+                : cell.kind === "holiday"
+                  ? "Holiday"
+                  : fmtHHMM(seconds)}
             </td>
           );
         })}
@@ -401,12 +409,14 @@ function ManagerBlock({ group, dates }: { group: SnapshotGroup; dates: string[] 
             const cell = emp.perDate[d] || { activeSeconds: 0, kind: "no-data" as const };
             const wd = new Date(`${d}T00:00:00Z`).getUTCDay();
             return (
-              <td key={d} style={{ ...tdStyle, ...cellStyle(cell), textAlign: "center" }}>
+              <td key={d} style={{ ...tdStyle, ...cellStyle(cell), textAlign: "center" }} title={cell.label}>
                 {cell.kind === "weekend"
                   ? (wd === 0 ? "Sun" : "Sat")
-                  : cell.kind === "no-data"
-                    ? "—"
-                    : fmtHHMM(cell.activeSeconds)}
+                  : cell.kind === "holiday"
+                    ? (cell.activeSeconds > 0 ? fmtHHMM(cell.activeSeconds) : "Holiday")
+                    : cell.kind === "no-data"
+                      ? "—"
+                      : fmtHHMM(cell.activeSeconds)}
               </td>
             );
           })}

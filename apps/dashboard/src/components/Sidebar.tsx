@@ -51,6 +51,7 @@ const navGroups: NavGroup[] = [
     items: [
       { href: "/users",           label: "Users & roles",   icon: "🧑‍💻", visibility: "admin" },
       { href: "/employees",       label: "Employees",       icon: "🏢", visibility: "admin" },
+      { href: "/holidays",        label: "Holidays",        icon: "🏖️", visibility: "admin" },
     ],
   },
   {

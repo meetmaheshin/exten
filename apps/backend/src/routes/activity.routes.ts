@@ -4,7 +4,7 @@ import { eq, and, gte, lte, desc, sql, asc } from "drizzle-orm";
 import { requireAuth, requireAdmin, requireManager } from "../middleware/requireAuth.js";
 import type { AuthService } from "../services/AuthService.js";
 import type { Database } from "../config/database.js";
-import { activitySessions, users, aiUsageDaily, screenshots } from "../models/index.js";
+import { activitySessions, users, aiUsageDaily, screenshots, holidays } from "../models/index.js";
 
 const dateRangeSchema = z.object({
   from: z.string().datetime().optional(),
@@ -430,9 +430,22 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
     }
     if (dates.length === 0) return reply.send({ dates, groups: [] });
 
+    // Pull holidays in the date range so working-day counts can subtract them
+    const holidayRows = await db
+      .select({ date: holidays.date, name: holidays.name })
+      .from(holidays)
+      .where(and(
+        gte(holidays.date, query.from),
+        lte(holidays.date, query.to),
+      ));
+    const holidayMap = new Map<string, string>();
+    for (const h of holidayRows) holidayMap.set(h.date as unknown as string, h.name);
+
     const workingDays = dates.filter((d) => {
       const wd = new Date(`${d}T00:00:00Z`).getUTCDay();
-      return wd !== 0 && wd !== 6; // Sun=0, Sat=6
+      if (wd === 0 || wd === 6) return false; // Sun=0, Sat=6
+      if (holidayMap.has(d)) return false;     // Company holiday
+      return true;
     }).length;
 
     // Pull every user the viewer is allowed to see, plus per-day session totals
@@ -519,13 +532,18 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
         const totals = userTotals.get(u.id) || { active: 0, auto: 0, manual: 0 };
         const isAllManual = totals.manual > 0 && totals.auto === 0;
 
-        const perDate: Record<string, { activeSeconds: number; kind: "data" | "no-data" | "weekend" }> = {};
+        const perDate: Record<string, { activeSeconds: number; kind: "data" | "no-data" | "weekend" | "holiday"; label?: string }> = {};
         for (const d of dates) {
           const wd = new Date(`${d}T00:00:00Z`).getUTCDay();
           const isWeekend = wd === 0 || wd === 6;
+          const holidayName = holidayMap.get(d);
           const row = perDayRows?.get(d);
           if (isWeekend) {
             perDate[d] = { activeSeconds: 0, kind: "weekend" };
+          } else if (holidayName) {
+            // If the user actually worked on a holiday, still show their hours;
+            // tag stays "holiday" so the UI can highlight it differently.
+            perDate[d] = { activeSeconds: row?.activeSeconds ?? 0, kind: "holiday", label: holidayName };
           } else if (row && row.activeSeconds > 0) {
             perDate[d] = { activeSeconds: row.activeSeconds, kind: "data" };
           } else {
@@ -577,6 +595,15 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
     return reply.send({ dates, groups });
   });
 
+  // Helper: load holiday dates in [from, to] and return as a Set of YYYY-MM-DD
+  async function loadHolidaySet(from: string, to: string): Promise<Set<string>> {
+    const rows = await db
+      .select({ date: holidays.date })
+      .from(holidays)
+      .where(and(gte(holidays.date, from), lte(holidays.date, to)));
+    return new Set(rows.map((r) => r.date as unknown as string));
+  }
+
   // ─── Bandwidth report (per-manager utilization for an arbitrary range) ───
   app.get("/api/team-snapshot/bandwidth", { preHandler: requireManager(authService) }, async (request, reply) => {
     const query = z.object({
@@ -592,14 +619,17 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
       .limit(1);
     if (!me) return reply.status(404).send({ error: "User not found" });
 
-    // Build working-day count for the range (today is *not* excluded here — the
-    // bandwidth report is meant for completed past ranges, e.g. "last week")
+    // Build working-day count for the range, subtracting weekends and holidays
+    const holidaySet = await loadHolidaySet(query.from, query.to);
     const start = new Date(`${query.from}T00:00:00Z`);
     const end = new Date(`${query.to}T00:00:00Z`);
     let workingDays = 0;
     for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
       const wd = d.getUTCDay();
-      if (wd !== 0 && wd !== 6) workingDays += 1;
+      if (wd === 0 || wd === 6) continue;
+      const iso = d.toISOString().slice(0, 10);
+      if (holidaySet.has(iso)) continue;
+      workingDays += 1;
     }
 
     // Pull active users
@@ -673,13 +703,17 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
       .limit(1);
     if (!me) return reply.status(404).send({ error: "User not found" });
 
-    // Working-day count
+    // Working-day count, subtracting weekends and holidays
+    const summaryHolidaySet = await loadHolidaySet(query.from, query.to);
     const start = new Date(`${query.from}T00:00:00Z`);
     const end = new Date(`${query.to}T00:00:00Z`);
     let workingDays = 0;
     for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
       const wd = d.getUTCDay();
-      if (wd !== 0 && wd !== 6) workingDays += 1;
+      if (wd === 0 || wd === 6) continue;
+      const iso = d.toISOString().slice(0, 10);
+      if (summaryHolidaySet.has(iso)) continue;
+      workingDays += 1;
     }
 
     const allUsers = await db
@@ -722,13 +756,14 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
       totalActiveSeconds += r.activeSeconds;
     }
 
-    // Walk every (user × working-day) cell and bucket
+    // Walk every (user × working-day) cell and bucket — skip weekends + holidays
     const distribution = { good: 0, moderate: 0, low: 0, none: 0 };
     for (const u of visibleUsers) {
       for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
         const wd = d.getUTCDay();
         if (wd === 0 || wd === 6) continue;
         const day = d.toISOString().slice(0, 10);
+        if (summaryHolidaySet.has(day)) continue;
         const seconds = cellByUserDay.get(`${u.id}|${day}`) || 0;
         const hours = seconds / 3600;
         if (seconds === 0) distribution.none += 1;
@@ -749,5 +784,52 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
       avgHoursPerEmployeePerDay,
       distribution,
     });
+  });
+
+  // ─── Holidays CRUD ───
+  // List holidays — visible to anyone authenticated, since the snapshot/grid
+  // pages will eventually want to show the names too.
+  app.get("/api/holidays", { preHandler: auth }, async (request, reply) => {
+    const q = z.object({
+      from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    }).parse(request.query);
+    const conditions = [];
+    if (q.from) conditions.push(gte(holidays.date, q.from));
+    if (q.to) conditions.push(lte(holidays.date, q.to));
+    const rows = await db
+      .select({ id: holidays.id, date: holidays.date, name: holidays.name })
+      .from(holidays)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(asc(holidays.date));
+    return reply.send({ data: rows });
+  });
+
+  // Add a holiday — admin only
+  app.post("/api/admin/holidays", { preHandler: admin }, async (request, reply) => {
+    const body = z.object({
+      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      name: z.string().min(1).max(100),
+    }).parse(request.body);
+    try {
+      const [row] = await db
+        .insert(holidays)
+        .values({ date: body.date, name: body.name })
+        .returning();
+      return reply.status(201).send(row);
+    } catch (err) {
+      // Most likely unique-violation on date
+      return reply.status(409).send({
+        error: "Conflict",
+        message: `A holiday is already set for ${body.date}`,
+      });
+    }
+  });
+
+  // Delete a holiday — admin only
+  app.delete("/api/admin/holidays/:id", { preHandler: admin }, async (request, reply) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+    await db.delete(holidays).where(eq(holidays.id, id));
+    return reply.send({ ok: true });
   });
 }

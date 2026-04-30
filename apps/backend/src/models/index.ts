@@ -16,3 +16,4 @@ export {
   externalProjectsRelations,
   externalTasksRelations,
 } from "./externalProjects.js";
+export { holidays } from "./holidays.js";
