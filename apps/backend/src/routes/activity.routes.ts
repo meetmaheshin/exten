@@ -4,7 +4,8 @@ import { eq, and, gte, lte, desc, sql, asc } from "drizzle-orm";
 import { requireAuth, requireAdmin, requireManager } from "../middleware/requireAuth.js";
 import type { AuthService } from "../services/AuthService.js";
 import type { Database } from "../config/database.js";
-import { activitySessions, users, aiUsageDaily, screenshots, holidays } from "../models/index.js";
+import { activitySessions, users, aiUsageDaily, screenshots, holidays, leaveDays } from "../models/index.js";
+import { inArray } from "drizzle-orm";
 
 const dateRangeSchema = z.object({
   from: z.string().datetime().optional(),
@@ -448,6 +449,9 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
       return true;
     }).length;
 
+    // Pull leave days for everyone we'll show, in the date range
+    // (loaded after we resolve visibleUsers below — see further down)
+
     // Pull every user the viewer is allowed to see, plus per-day session totals
     const userRows = await db
       .select({
@@ -471,6 +475,27 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
     if (visibleUsers.length === 0) return reply.send({ dates, groups: [] });
 
     const visibleIds = visibleUsers.map((u) => u.id);
+
+    // Pull this group's leave days inside the range
+    const leaveRows = await db
+      .select({
+        userId: leaveDays.userId,
+        date: leaveDays.date,
+        leaveType: leaveDays.leaveType,
+        note: leaveDays.note,
+      })
+      .from(leaveDays)
+      .where(and(
+        inArray(leaveDays.userId, visibleIds),
+        gte(leaveDays.date, query.from),
+        lte(leaveDays.date, query.to),
+      ));
+    const leavesByUser = new Map<string, Map<string, { type: string; note: string | null }>>();
+    for (const r of leaveRows) {
+      let m = leavesByUser.get(r.userId);
+      if (!m) { m = new Map(); leavesByUser.set(r.userId, m); }
+      m.set(r.date as unknown as string, { type: r.leaveType, note: r.note });
+    }
 
     // Aggregate active_seconds per (user, day) and detect "all-manual" users
     const fromTs = `${query.from}T00:00:00Z`;
@@ -532,18 +557,31 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
         const totals = userTotals.get(u.id) || { active: 0, auto: 0, manual: 0 };
         const isAllManual = totals.manual > 0 && totals.auto === 0;
 
-        const perDate: Record<string, { activeSeconds: number; kind: "data" | "no-data" | "weekend" | "holiday"; label?: string }> = {};
+        const userLeaves = leavesByUser.get(u.id);
+        let userLeaveDayUnits = 0; // 1.0 per full leave, 0.5 per half-day
+        const perDate: Record<string, { activeSeconds: number; kind: "data" | "no-data" | "weekend" | "holiday" | "leave"; label?: string }> = {};
         for (const d of dates) {
           const wd = new Date(`${d}T00:00:00Z`).getUTCDay();
           const isWeekend = wd === 0 || wd === 6;
           const holidayName = holidayMap.get(d);
+          const leave = userLeaves?.get(d);
           const row = perDayRows?.get(d);
           if (isWeekend) {
             perDate[d] = { activeSeconds: 0, kind: "weekend" };
           } else if (holidayName) {
-            // If the user actually worked on a holiday, still show their hours;
-            // tag stays "holiday" so the UI can highlight it differently.
             perDate[d] = { activeSeconds: row?.activeSeconds ?? 0, kind: "holiday", label: holidayName };
+          } else if (leave) {
+            const isHalf = leave.type === "half";
+            userLeaveDayUnits += isHalf ? 0.5 : 1;
+            const labelMap: Record<string, string> = {
+              full: "Leave", half: "Half day", sick: "Sick leave",
+              paid: "Paid leave", unpaid: "Unpaid leave",
+            };
+            perDate[d] = {
+              activeSeconds: row?.activeSeconds ?? 0,
+              kind: "leave",
+              label: leave.note ? `${labelMap[leave.type] ?? leave.type} — ${leave.note}` : (labelMap[leave.type] ?? leave.type),
+            };
           } else if (row && row.activeSeconds > 0) {
             perDate[d] = { activeSeconds: row.activeSeconds, kind: "data" };
           } else {
@@ -551,7 +589,9 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
           }
         }
 
-        const atdSeconds = workingDays > 0 ? Math.round(totals.active / workingDays) : 0;
+        // ATD denominator excludes this user's leave days (half = 0.5)
+        const userWorkingDays = Math.max(0, workingDays - userLeaveDayUnits);
+        const atdSeconds = userWorkingDays > 0 ? Math.round(totals.active / userWorkingDays) : 0;
         return {
           userId: u.id,
           fullName: u.fullName,
@@ -756,7 +796,21 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
       totalActiveSeconds += r.activeSeconds;
     }
 
-    // Walk every (user × working-day) cell and bucket — skip weekends + holidays
+    // Load leaves for the visible users so we can skip those cells from the
+    // distribution (a person on PTO shouldn't count as "Low <4h").
+    const leaveRows = visibleIds.length > 0
+      ? await db
+          .select({ userId: leaveDays.userId, date: leaveDays.date })
+          .from(leaveDays)
+          .where(and(
+            inArray(leaveDays.userId, visibleIds),
+            gte(leaveDays.date, query.from),
+            lte(leaveDays.date, query.to),
+          ))
+      : [];
+    const leaveSet = new Set(leaveRows.map((r) => `${r.userId}|${r.date}`));
+
+    // Walk every (user × working-day) cell and bucket — skip weekends + holidays + leave
     const distribution = { good: 0, moderate: 0, low: 0, none: 0 };
     for (const u of visibleUsers) {
       for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
@@ -764,6 +818,7 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
         if (wd === 0 || wd === 6) continue;
         const day = d.toISOString().slice(0, 10);
         if (summaryHolidaySet.has(day)) continue;
+        if (leaveSet.has(`${u.id}|${day}`)) continue;
         const seconds = cellByUserDay.get(`${u.id}|${day}`) || 0;
         const hours = seconds / 3600;
         if (seconds === 0) distribution.none += 1;
@@ -830,6 +885,110 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
   app.delete("/api/admin/holidays/:id", { preHandler: admin }, async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     await db.delete(holidays).where(eq(holidays.id, id));
+    return reply.send({ ok: true });
+  });
+
+  // ─── Leave days CRUD ───
+  // List leaves. Admins see everyone; managers see only their team members.
+  app.get("/api/leaves", { preHandler: requireManager(authService) }, async (request, reply) => {
+    const q = z.object({
+      from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      userId: z.string().uuid().optional(),
+    }).parse(request.query);
+
+    const isAdmin = request.user.role === "admin" || request.user.role === "super_admin";
+    const [me] = await db
+      .select({ id: users.id, fullName: users.fullName })
+      .from(users)
+      .where(eq(users.id, request.user.sub))
+      .limit(1);
+    if (!me) return reply.status(404).send({ error: "User not found" });
+
+    // Resolve which user IDs the caller can see
+    let visibleIds: string[];
+    if (isAdmin) {
+      visibleIds = []; // sentinel: "no filter, see all" — handled below
+    } else {
+      const team = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.team, me.fullName));
+      visibleIds = [me.id, ...team.map((t) => t.id)];
+    }
+
+    const conditions = [];
+    if (q.from) conditions.push(gte(leaveDays.date, q.from));
+    if (q.to) conditions.push(lte(leaveDays.date, q.to));
+    if (q.userId) conditions.push(eq(leaveDays.userId, q.userId));
+    if (!isAdmin) conditions.push(inArray(leaveDays.userId, visibleIds));
+
+    const rows = await db
+      .select({
+        id: leaveDays.id,
+        userId: leaveDays.userId,
+        userFullName: users.fullName,
+        userEmail: users.email,
+        date: leaveDays.date,
+        leaveType: leaveDays.leaveType,
+        note: leaveDays.note,
+        createdAt: leaveDays.createdAt,
+      })
+      .from(leaveDays)
+      .leftJoin(users, eq(users.id, leaveDays.userId))
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(leaveDays.date));
+
+    return reply.send({ data: rows });
+  });
+
+  // Add leave for a user (single date, or expand a range client-side and call repeatedly)
+  app.post("/api/admin/leaves", { preHandler: admin }, async (request, reply) => {
+    const body = z.object({
+      userId: z.string().uuid(),
+      from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      leaveType: z.enum(["full", "half", "sick", "paid", "unpaid"]).default("full"),
+      note: z.string().max(500).optional(),
+    }).parse(request.body);
+
+    // Build the list of dates inclusive (caps at 31 to prevent runaway inserts)
+    const fromDate = new Date(`${body.from}T00:00:00Z`);
+    const toDate = new Date(`${body.to ?? body.from}T00:00:00Z`);
+    if (toDate < fromDate) return reply.status(400).send({ error: "to is before from" });
+    const dateList: string[] = [];
+    for (let d = new Date(fromDate); d <= toDate && dateList.length < 31; d.setUTCDate(d.getUTCDate() + 1)) {
+      const wd = d.getUTCDay();
+      if (wd === 0 || wd === 6) continue; // skip weekends; no point storing
+      dateList.push(d.toISOString().slice(0, 10));
+    }
+    if (dateList.length === 0) {
+      return reply.send({ data: [], skipped: 0, note: "Range only contained weekends." });
+    }
+
+    // Insert with onConflict=doNothing so re-adding doesn't blow up
+    const inserted = await db
+      .insert(leaveDays)
+      .values(dateList.map((date) => ({
+        userId: body.userId,
+        date,
+        leaveType: body.leaveType,
+        note: body.note ?? null,
+        approvedBy: request.user.sub,
+      })))
+      .onConflictDoNothing({ target: [leaveDays.userId, leaveDays.date] })
+      .returning();
+
+    return reply.status(201).send({
+      data: inserted,
+      skipped: dateList.length - inserted.length,
+    });
+  });
+
+  // Delete a leave entry — admin only
+  app.delete("/api/admin/leaves/:id", { preHandler: admin }, async (request, reply) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+    await db.delete(leaveDays).where(eq(leaveDays.id, id));
     return reply.send({ ok: true });
   });
 }

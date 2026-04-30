@@ -9,7 +9,7 @@ import { apiFetch } from "@/lib/api";
 // ─── Types matching the /api/team-snapshot response ───
 interface DateCell {
   activeSeconds: number;
-  kind: "data" | "no-data" | "weekend" | "holiday";
+  kind: "data" | "no-data" | "weekend" | "holiday" | "leave";
   label?: string;
 }
 interface SnapshotEmployee {
@@ -63,6 +63,9 @@ function cellStyle(cell: DateCell): React.CSSProperties {
   }
   if (cell.kind === "holiday") {
     return { background: "#e3f2fd", color: "#1565c0", fontStyle: "italic" };
+  }
+  if (cell.kind === "leave") {
+    return { background: "#fff3e0", color: "#bf360c", fontStyle: "italic" };
   }
   if (cell.kind === "no-data") {
     return { background: "#e0e0e0", color: "#666" };
@@ -414,9 +417,11 @@ function ManagerBlock({ group, dates }: { group: SnapshotGroup; dates: string[] 
                   ? (wd === 0 ? "Sun" : "Sat")
                   : cell.kind === "holiday"
                     ? (cell.activeSeconds > 0 ? fmtHHMM(cell.activeSeconds) : "Holiday")
-                    : cell.kind === "no-data"
-                      ? "—"
-                      : fmtHHMM(cell.activeSeconds)}
+                    : cell.kind === "leave"
+                      ? (cell.activeSeconds > 0 ? fmtHHMM(cell.activeSeconds) : (cell.label ?? "Leave"))
+                      : cell.kind === "no-data"
+                        ? "—"
+                        : fmtHHMM(cell.activeSeconds)}
               </td>
             );
           })}
