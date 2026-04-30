@@ -1,5 +1,6 @@
 import { desktopCapturer, Notification } from "electron";
 import { getIconPath } from "../paths";
+import { log } from "../logger";
 import type { ApiClient } from "./ApiClient";
 import type { ActivityTracker } from "./ActivityTracker";
 import type { ConfigStore } from "./ConfigStore";
@@ -19,7 +20,7 @@ export class ScreenCaptureService {
     if (this.captureInterval) return;
     const intervalMs = this.configStore.get("screenCaptureIntervalSeconds") * 1000;
     this.captureInterval = setInterval(() => this.capture(), intervalMs);
-    console.log("[ScreenCapture] Started");
+    log.info(`[ScreenCapture] Started (every ${intervalMs / 1000}s)`);
   }
 
   stop(): void {
@@ -43,7 +44,7 @@ export class ScreenCaptureService {
       });
 
       if (sources.length === 0) {
-        console.warn("[ScreenCapture] No screen sources found");
+        log.warn("[ScreenCapture] No screen sources found");
         return;
       }
 
@@ -60,10 +61,10 @@ export class ScreenCaptureService {
         capturedAt: new Date().toISOString(),
       });
 
-      console.log(`[ScreenCapture] Captured and uploaded (${(pngBuffer.length / 1024).toFixed(0)}KB) — id=${result.id}`);
+      log.info(`[ScreenCapture] Captured and uploaded (${(pngBuffer.length / 1024).toFixed(0)}KB) — id=${result.id}`);
       this.showCapturedNotification(result.id);
     } catch (err) {
-      console.error("[ScreenCapture] Capture failed:", err);
+      log.error(`[ScreenCapture] Capture failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -87,7 +88,7 @@ export class ScreenCaptureService {
           silent: true,
         }).show();
       } catch (err) {
-        console.error("[ScreenCapture] Delete failed:", err);
+        log.error(`[ScreenCapture] Delete failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     };
 

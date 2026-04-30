@@ -32,8 +32,23 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
     if (query.from) conditions.push(gte(activitySessions.startedAt, new Date(query.from)));
     if (query.to) conditions.push(lte(activitySessions.startedAt, new Date(query.to)));
 
+    // Explicit column list — using db.select() with no projection returns *every*
+    // model column, which 500s when the DB is on an older schema (e.g. project_name
+    // hasn't been migrated yet). Listing columns by hand keeps this robust.
     const sessions = await db
-      .select()
+      .select({
+        id: activitySessions.id,
+        startedAt: activitySessions.startedAt,
+        endedAt: activitySessions.endedAt,
+        activeSeconds: activitySessions.activeSeconds,
+        idleSeconds: activitySessions.idleSeconds,
+        totalKeystrokes: activitySessions.totalKeystrokes,
+        totalFileSaves: activitySessions.totalFileSaves,
+        totalFileChanges: activitySessions.totalFileChanges,
+        editorVersion: activitySessions.editorVersion,
+        extensionVersion: activitySessions.extensionVersion,
+        osPlatform: activitySessions.osPlatform,
+      })
       .from(activitySessions)
       .where(and(...conditions))
       .orderBy(desc(activitySessions.startedAt))
@@ -137,8 +152,21 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
     if (query.from) conditions.push(gte(activitySessions.startedAt, new Date(query.from)));
     if (query.to) conditions.push(lte(activitySessions.startedAt, new Date(query.to)));
 
+    // Explicit column list — see note on /api/activity/me/sessions
     const sessions = await db
-      .select()
+      .select({
+        id: activitySessions.id,
+        startedAt: activitySessions.startedAt,
+        endedAt: activitySessions.endedAt,
+        activeSeconds: activitySessions.activeSeconds,
+        idleSeconds: activitySessions.idleSeconds,
+        totalKeystrokes: activitySessions.totalKeystrokes,
+        totalFileSaves: activitySessions.totalFileSaves,
+        totalFileChanges: activitySessions.totalFileChanges,
+        editorVersion: activitySessions.editorVersion,
+        extensionVersion: activitySessions.extensionVersion,
+        osPlatform: activitySessions.osPlatform,
+      })
       .from(activitySessions)
       .where(and(...conditions))
       .orderBy(desc(activitySessions.startedAt))

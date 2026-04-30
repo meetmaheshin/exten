@@ -10,6 +10,7 @@ import { ScreenCaptureService } from "./services/ScreenCaptureService";
 import { ProjectService } from "./services/ProjectService";
 import { TrayManager } from "./tray";
 import { registerIpcHandlers } from "./ipc/handlers";
+import { log } from "./logger";
 
 // Prevent multiple instances
 const gotLock = app.requestSingleInstanceLock();
@@ -23,7 +24,7 @@ app.on("window-all-closed", () => {
 });
 
 app.whenReady().then(async () => {
-  console.log("[Ailancers] Desktop tracker starting...");
+  log.info(`[Ailancers] Desktop tracker starting... (logs: ${log.filePath() ?? "console only"})`);
 
   // ─── Initialize services ───
   const configStore = new ConfigStore();
@@ -70,7 +71,7 @@ app.whenReady().then(async () => {
     const msUntilMidnight = midnight.getTime() - now.getTime();
 
     setTimeout(async () => {
-      console.log("[Ailancers] Midnight — resetting session for new day");
+      log.info("[Ailancers] Midnight — resetting session for new day");
       await telemetryService.endSession();
       trayManager.resetActiveTime();
       await telemetryService.startSession();
@@ -79,24 +80,24 @@ app.whenReady().then(async () => {
       scheduleMidnightReset();
     }, msUntilMidnight);
 
-    console.log(`[Ailancers] Midnight reset scheduled in ${Math.round(msUntilMidnight / 60000)}m`);
+    log.info(`[Ailancers] Midnight reset scheduled in ${Math.round(msUntilMidnight / 60000)}m`);
   }
 
   // ─── Start/stop services based on auth state ───
   let trackingStarted = false;
   async function startTracking(): Promise<void> {
     if (trackingStarted) {
-      console.log("[Ailancers] startTracking called twice — ignoring second call");
+      log.info("[Ailancers] startTracking called twice — ignoring second call");
       return;
     }
     trackingStarted = true;
-    console.log("[Ailancers] User authenticated — starting tracking");
+    log.info("[Ailancers] User authenticated — starting tracking");
 
     // Check if VS Code extension already has an active session
     try {
       const checkResp = await apiClient.get<{ hasActiveSession: boolean }>("/api/telemetry/active-session?source=Code");
       if (checkResp.hasActiveSession) {
-        console.log("[Ailancers] VS Code extension is already tracking — desktop tracker will skip tracking");
+        log.info("[Ailancers] VS Code extension is already tracking — desktop tracker will skip tracking");
         const { Notification: ElectronNotification } = await import("electron");
         new ElectronNotification({
           title: "Ailancers Tracker",
@@ -125,7 +126,7 @@ app.whenReady().then(async () => {
       const todaySeconds = await telemetryService.fetchTodayActiveSeconds();
       if (todaySeconds > 0) {
         trayManager.setTotalActiveSeconds(todaySeconds);
-        console.log(`[Ailancers] Restored today's active time: ${Math.round(todaySeconds / 60)}m`);
+        log.info(`[Ailancers] Restored today's active time: ${Math.round(todaySeconds / 60)}m`);
       }
     } catch {
       // Non-critical
@@ -134,7 +135,7 @@ app.whenReady().then(async () => {
     // Fetch projects and auto-select if previously saved
     try {
       const projects = await projectService.fetchProjects();
-      console.log(`[Ailancers] ${projects.length} projects loaded`);
+      log.info(`[Ailancers] ${projects.length} projects loaded`);
 
       // Sync initial project selection to telemetry
       telemetryService.setActiveProject(
@@ -149,7 +150,7 @@ app.whenReady().then(async () => {
   }
 
   function stopTracking(): void {
-    console.log("[Ailancers] User logged out — stopping tracking");
+    log.info("[Ailancers] User logged out — stopping tracking");
     trackingStarted = false;
     screenCapture.stop();
     activityTracker.stop();
@@ -179,7 +180,7 @@ app.whenReady().then(async () => {
     // Check for updates
     checkForUpdates(configStore);
   } else {
-    console.log("[Ailancers] No saved session — showing login");
+    log.info("[Ailancers] No saved session — showing login");
     trayManager.showLoginWindow();
   }
 
@@ -208,9 +209,9 @@ app.whenReady().then(async () => {
           "",
         ].join("\n");
         fs.writeFileSync(desktopFile, content, "utf-8");
-        console.log(`[Ailancers] Linux autostart entry written: ${desktopFile}`);
+        log.info(`[Ailancers] Linux autostart entry written: ${desktopFile}`);
       } catch (err) {
-        console.error("[Ailancers] Failed to set Linux autostart:", err);
+        log.error(`[Ailancers] Failed to set Linux autostart: ${err instanceof Error ? err.message : String(err)}`);
       }
     } else {
       app.setLoginItemSettings({
@@ -229,7 +230,7 @@ app.whenReady().then(async () => {
     trayManager.dispose();
   });
 
-  console.log("[Ailancers] Desktop tracker ready");
+  log.info("[Ailancers] Desktop tracker ready");
 });
 
 const DESKTOP_VERSION = "0.1.0";

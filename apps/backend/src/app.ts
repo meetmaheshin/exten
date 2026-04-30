@@ -70,7 +70,14 @@ export async function buildApp(env: Env, db: Database) {
       });
     }
 
-    app.log.error(error);
+    // Log every unhandled error with the request context so production logs
+    // tell us which endpoint blew up — not just the stack trace.
+    app.log.error({
+      err: error,
+      method: request.method,
+      url: request.url,
+      userId: request.user?.sub,
+    }, `Unhandled error on ${request.method} ${request.url}: ${error instanceof Error ? error.message : String(error)}`);
     return reply.status(500).send({
       error: "Internal Server Error",
       message: env.NODE_ENV === "production" ? "An unexpected error occurred" : (error instanceof Error ? error.message : "Unknown error"),

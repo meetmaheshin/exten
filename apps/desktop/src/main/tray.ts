@@ -1,6 +1,7 @@
 import { Tray, Menu, nativeImage, BrowserWindow, app, Notification, shell } from "electron";
 import * as path from "node:path";
 import { getIconPath } from "./paths";
+import { log } from "./logger";
 import type { AuthService } from "./services/AuthService";
 import type { ProjectService } from "./services/ProjectService";
 import type { ActivityTracker } from "./services/ActivityTracker";
@@ -82,6 +83,18 @@ export class TrayManager {
 
     template.push(
       { type: "separator" },
+      {
+        label: "Show logs…",
+        click: () => {
+          const p = log.filePath();
+          if (p) {
+            // showItemInFolder opens the file's containing folder with the file selected
+            shell.showItemInFolder(p);
+          } else {
+            shell.beep();
+          }
+        },
+      },
       { label: "Quit", click: () => this.handleQuit() }
     );
 

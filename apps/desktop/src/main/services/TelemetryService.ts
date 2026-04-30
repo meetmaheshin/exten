@@ -1,6 +1,7 @@
 import type { ApiClient } from "./ApiClient";
 import type { ActivityTracker } from "./ActivityTracker";
 import type { ConfigStore } from "./ConfigStore";
+import { log } from "../logger";
 import * as os from "node:os";
 
 export interface TelemetryFlushResult {
@@ -46,8 +47,11 @@ export class TelemetryService {
       const resp = await this.apiClient.get<{
         data: { totalActiveSeconds: number };
       }>(`/api/activity/me/summary?from=${today.toISOString()}`);
-      return resp.data?.totalActiveSeconds || 0;
-    } catch {
+      const seconds = resp.data?.totalActiveSeconds || 0;
+      log.info(`[Telemetry] fetchTodayActiveSeconds → ${seconds}s (${Math.round(seconds / 60)}m)`);
+      return seconds;
+    } catch (err) {
+      log.error(`[Telemetry] fetchTodayActiveSeconds failed: ${err instanceof Error ? err.message : String(err)}`);
       return 0;
     }
   }
@@ -64,12 +68,11 @@ export class TelemetryService {
       });
 
       this._sessionId = resp.sessionId;
-      console.log(`[Telemetry] Session started: ${this._sessionId}`);
-
       const intervalMs = this.configStore.get("telemetryIntervalSeconds") * 1000;
+      log.info(`[Telemetry] Session started: ${this._sessionId} (heartbeat every ${intervalMs / 1000}s)`);
       this.flushInterval = setInterval(() => this.flush(), intervalMs);
     } catch (err) {
-      console.error("[Telemetry] Failed to start session:", err);
+      log.error(`[Telemetry] Failed to start session: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -87,22 +90,29 @@ export class TelemetryService {
       await this.apiClient.post("/api/telemetry/session/end", {
         sessionId: this._sessionId,
       });
-      console.log(`[Telemetry] Session ended: ${this._sessionId}`);
+      log.info(`[Telemetry] Session ended: ${this._sessionId}`);
     } catch (err) {
-      console.error("[Telemetry] Failed to end session:", err);
+      log.error(`[Telemetry] Failed to end session: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     this._sessionId = null;
   }
 
   private async flush(): Promise<void> {
-    if (!this._sessionId) return;
-    if (!this.configStore.get("trackingEnabled")) return;
+    if (!this._sessionId) {
+      log.warn("[Telemetry] flush() skipped — no active session");
+      return;
+    }
+    if (!this.configStore.get("trackingEnabled")) {
+      log.warn("[Telemetry] flush() skipped — trackingEnabled=false in config");
+      return;
+    }
 
     const metrics = this.activityTracker.harvestMetrics();
 
     // Skip heartbeat only if nothing happened at all
     if (metrics.activeSeconds === 0 && metrics.idleSeconds === 0) {
+      log.info("[Telemetry] flush() skipped — no activity since last heartbeat");
       return;
     }
 
@@ -124,6 +134,11 @@ export class TelemetryService {
         appUsage: metrics.appUsage,
       });
 
+      log.info(
+        `[Telemetry] Heartbeat OK — active=${metrics.activeSeconds}s idle=${metrics.idleSeconds}s ` +
+        `project=${this.activeProjectName ?? "—"} session=${this._sessionId}`
+      );
+
       if (this.onFlushCallback) {
         this.onFlushCallback({
           activeSeconds: metrics.activeSeconds,
@@ -131,7 +146,10 @@ export class TelemetryService {
         });
       }
     } catch (err) {
-      console.error(`[Telemetry] Heartbeat failed (active=${metrics.activeSeconds}s idle=${metrics.idleSeconds}s session=${this._sessionId}):`, err instanceof Error ? err.message : err);
+      log.error(
+        `[Telemetry] Heartbeat FAILED — active=${metrics.activeSeconds}s idle=${metrics.idleSeconds}s ` +
+        `session=${this._sessionId} error=${err instanceof Error ? err.message : String(err)}`
+      );
     }
   }
 
