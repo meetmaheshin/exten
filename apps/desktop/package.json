@@ -13,10 +13,10 @@
     "dev": "node scripts/build.js && node scripts/launch.js",
     "build": "node scripts/build.js",
     "typecheck": "tsc --noEmit",
-    "package": "tsc && electron-builder",
-    "package:win": "tsc && electron-builder --win",
-    "package:mac": "tsc && electron-builder --mac",
-    "package:linux": "tsc && electron-builder --linux",
+    "package": "node scripts/build.js && electron-builder",
+    "package:win": "node scripts/build.js && electron-builder --win",
+    "package:mac": "node scripts/build.js && electron-builder --mac",
+    "package:linux": "node scripts/build.js && electron-builder --linux",
     "clean": "rm -rf dist out"
   },
   "dependencies": {
