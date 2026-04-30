@@ -12,10 +12,14 @@ import { TrayManager } from "./tray";
 import { registerIpcHandlers } from "./ipc/handlers";
 import { log } from "./logger";
 
-// Prevent multiple instances
+// Prevent multiple instances. Use app.exit(0) instead of app.quit() — quit()
+// is intercepted by our "window-all-closed" handler below (which deliberately
+// keeps the app alive as a tray app), so a second-instance launch would NOT
+// actually exit, leaving the user with multiple zombie processes that look
+// like they're running but never reach app.whenReady().
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
-  app.quit();
+  app.exit(0);
 }
 
 // Keep app running when all windows are closed (tray app)
