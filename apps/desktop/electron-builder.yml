@@ -27,6 +27,11 @@ linux:
   category: Utility
   synopsis: Ailancers activity tracker (time + screenshots + AI usage)
   description: Tracks active time, takes periodic screenshots, and reports AI assistant usage to the Ailancers dashboard.
+  # Force clean filenames — without this, tar.gz/deb pick up the npm package name
+  # "@ailancers/desktop" with the "@" and "/" mangled into the filename.
+  artifactName: ailancers-tracker-${version}-${arch}.${ext}
+  executableName: ailancers-tracker
+  maintainer: Ailancers <support@ailancers.com>
   desktop:
     StartupNotify: "true"
     Encoding: "UTF-8"

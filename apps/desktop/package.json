@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "description": "Ailancers Desktop Activity Tracker",
+  "homepage": "https://apivscode.ailancers.com/dashboard/downloads/",
+  "author": {
+    "name": "Ailancers",
+    "email": "support@ailancers.com"
+  },
   "main": "dist/main/index.js",
   "scripts": {
     "dev": "node scripts/build.js && node scripts/launch.js",
