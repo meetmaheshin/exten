@@ -395,4 +395,181 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
       return reply.status(500).send({ error: "Failed to create manual entry", message: String(err) });
     }
   });
+
+  // ─── Team Snapshot (pivoted timesheet grid) ───
+  // See TEAM_SNAPSHOT_SPEC.md for the design behind this endpoint.
+  app.get("/api/team-snapshot", { preHandler: requireManager(authService) }, async (request, reply) => {
+    const query = z.object({
+      from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    }).parse(request.query);
+
+    const isAdmin = request.user.role === "admin" || request.user.role === "super_admin";
+
+    // Resolve current user's fullName so managers can be filtered to their own team
+    const [me] = await db
+      .select({ id: users.id, fullName: users.fullName })
+      .from(users)
+      .where(eq(users.id, request.user.sub))
+      .limit(1);
+    if (!me) return reply.status(404).send({ error: "User not found" });
+
+    // Build the date column list: from..to inclusive, today excluded, newest first
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const dates: string[] = [];
+    {
+      const start = new Date(`${query.from}T00:00:00Z`);
+      const end = new Date(`${query.to}T00:00:00Z`);
+      for (let d = new Date(end); d >= start; d.setUTCDate(d.getUTCDate() - 1)) {
+        const s = d.toISOString().slice(0, 10);
+        if (s === todayStr) continue;
+        dates.push(s);
+      }
+    }
+    if (dates.length === 0) return reply.send({ dates, groups: [] });
+
+    const workingDays = dates.filter((d) => {
+      const wd = new Date(`${d}T00:00:00Z`).getUTCDay();
+      return wd !== 0 && wd !== 6; // Sun=0, Sat=6
+    }).length;
+
+    // Pull every user the viewer is allowed to see, plus per-day session totals
+    const userRows = await db
+      .select({
+        id: users.id,
+        fullName: users.fullName,
+        email: users.email,
+        team: users.team,
+        role: users.role,
+        isActive: users.isActive,
+      })
+      .from(users)
+      .where(eq(users.isActive, true));
+
+    // For managers: only show users whose team matches their fullName.
+    // Admins see everyone. We always include the viewer themselves so the grid
+    // is never empty.
+    const visibleUsers = isAdmin
+      ? userRows
+      : userRows.filter((u) => u.team === me.fullName || u.id === me.id);
+
+    if (visibleUsers.length === 0) return reply.send({ dates, groups: [] });
+
+    const visibleIds = visibleUsers.map((u) => u.id);
+
+    // Aggregate active_seconds per (user, day) and detect "all-manual" users
+    const fromTs = `${query.from}T00:00:00Z`;
+    // 'to' is inclusive — bump to end of that day so 23:59 sessions count
+    const toTs = `${query.to}T23:59:59Z`;
+
+    type AggRow = {
+      userId: string;
+      day: string;
+      activeSeconds: number;
+      autoCount: number;   // sessions where editor_version != 'manual-entry'
+      manualCount: number; // sessions where editor_version == 'manual-entry'
+    };
+
+    const agg = await db.execute<AggRow>(sql`
+      SELECT
+        s.user_id::text AS "userId",
+        to_char(s.started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS "day",
+        COALESCE(SUM(s.active_seconds), 0)::int AS "activeSeconds",
+        COUNT(*) FILTER (WHERE s.editor_version IS DISTINCT FROM 'manual-entry')::int AS "autoCount",
+        COUNT(*) FILTER (WHERE s.editor_version = 'manual-entry')::int AS "manualCount"
+      FROM activity_sessions s
+      WHERE s.user_id = ANY(${visibleIds}::uuid[])
+        AND s.started_at >= ${fromTs}::timestamptz
+        AND s.started_at <= ${toTs}::timestamptz
+      GROUP BY s.user_id, day
+    `);
+
+    // Index aggregate rows by userId then day
+    const byUser = new Map<string, Map<string, AggRow>>();
+    const userTotals = new Map<string, { active: number; auto: number; manual: number }>();
+    for (const row of agg as unknown as AggRow[]) {
+      let perDay = byUser.get(row.userId);
+      if (!perDay) { perDay = new Map(); byUser.set(row.userId, perDay); }
+      perDay.set(row.day, row);
+      const totals = userTotals.get(row.userId) || { active: 0, auto: 0, manual: 0 };
+      totals.active += row.activeSeconds;
+      totals.auto += row.autoCount;
+      totals.manual += row.manualCount;
+      userTotals.set(row.userId, totals);
+    }
+
+    // Bucket users into manager groups. Manager identity = users.team value.
+    // Anyone whose team is null/empty goes into "Unassigned".
+    const groupBuckets = new Map<string, typeof visibleUsers>();
+    for (const u of visibleUsers) {
+      const key = u.team && u.team.trim() !== "" ? u.team : "Unassigned";
+      const bucket = groupBuckets.get(key) || [];
+      bucket.push(u);
+      groupBuckets.set(key, bucket);
+    }
+
+    // Build the response groups
+    const groups = Array.from(groupBuckets.entries()).map(([managerName, members]) => {
+      const employees = members.map((u) => {
+        const perDayRows = byUser.get(u.id);
+        const totals = userTotals.get(u.id) || { active: 0, auto: 0, manual: 0 };
+        const isAllManual = totals.manual > 0 && totals.auto === 0;
+
+        const perDate: Record<string, { activeSeconds: number; kind: "data" | "no-data" | "weekend" }> = {};
+        for (const d of dates) {
+          const wd = new Date(`${d}T00:00:00Z`).getUTCDay();
+          const isWeekend = wd === 0 || wd === 6;
+          const row = perDayRows?.get(d);
+          if (isWeekend) {
+            perDate[d] = { activeSeconds: 0, kind: "weekend" };
+          } else if (row && row.activeSeconds > 0) {
+            perDate[d] = { activeSeconds: row.activeSeconds, kind: "data" };
+          } else {
+            perDate[d] = { activeSeconds: 0, kind: "no-data" };
+          }
+        }
+
+        const atdSeconds = workingDays > 0 ? Math.round(totals.active / workingDays) : 0;
+        return {
+          userId: u.id,
+          fullName: u.fullName,
+          email: u.email,
+          atdSeconds,
+          isAllManual,
+          perDate,
+        };
+      });
+
+      // Group-level aggregates: average across employees per date
+      const perDateTeamAvgSeconds: Record<string, number> = {};
+      for (const d of dates) {
+        const sum = employees.reduce((acc, e) => acc + (e.perDate[d]?.activeSeconds || 0), 0);
+        perDateTeamAvgSeconds[d] = employees.length > 0 ? Math.round(sum / employees.length) : 0;
+      }
+      const teamTotalSeconds = employees.reduce((acc, e) => acc + Object.values(e.perDate).reduce((a, c) => a + c.activeSeconds, 0), 0);
+      const headerAtdSeconds = (workingDays > 0 && employees.length > 0)
+        ? Math.round(teamTotalSeconds / (employees.length * workingDays))
+        : 0;
+      const expectedHours = 8 * employees.length * workingDays;
+      const teamBandwidthPct = expectedHours > 0 ? Math.round((teamTotalSeconds / 3600 / expectedHours) * 1000) / 10 : 0;
+
+      return {
+        managerId: null as string | null,
+        managerName,
+        headerAtdSeconds,
+        teamBandwidthPct,
+        perDateTeamAvgSeconds,
+        employees,
+      };
+    });
+
+    // Sort groups: known manager names alphabetically, "Unassigned" last
+    groups.sort((a, b) => {
+      if (a.managerName === "Unassigned") return 1;
+      if (b.managerName === "Unassigned") return -1;
+      return a.managerName.localeCompare(b.managerName);
+    });
+
+    return reply.send({ dates, groups });
+  });
 }
