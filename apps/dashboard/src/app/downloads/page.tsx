@@ -5,6 +5,8 @@ import { useState } from "react";
 // Google Drive direct-download URLs
 const VSIX_URL = "https://drive.google.com/uc?export=download&id=1fEHytm4817ligiYhucoiSUHKFEdYnlVX";
 const DESKTOP_WIN_URL = "https://drive.google.com/uc?export=download&id=1akdGout7A5__VwKEDc1KM8dq5P8vcpu5";
+const DESKTOP_LINUX_DEB_URL = "https://drive.google.com/uc?export=download&id=1_l9i9Ou9JC-bUqIxs3X2FF3Vm83UzeCd";
+const DESKTOP_LINUX_TARGZ_URL = "https://drive.google.com/uc?export=download&id=15Az6MglS6boAvrxNALLM-xA7OIHPAk33";
 
 const sectionStyle = { background: "#1c1e2e", borderRadius: 12, border: "1px solid #2a2d3e", padding: 28, marginBottom: 24 };
 const headingStyle = { fontSize: 16, fontWeight: 700 as const, color: "#818cf8", marginBottom: 16 };
@@ -164,9 +166,16 @@ export default function DownloadsPage() {
               <span>⬇ Download for Windows (.exe)</span>
               <span style={{ fontSize: 12, opacity: 0.8 }}>~80 MB</span>
             </a>
+            <a href={DESKTOP_LINUX_DEB_URL} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px", background: "#6366f1", color: "white", borderRadius: 8, fontWeight: 600, fontSize: 15, textDecoration: "none" }}>
+              <span>⬇ Download for Linux — Ubuntu/Debian (.deb)</span>
+              <span style={{ fontSize: 12, opacity: 0.8 }}>~75 MB</span>
+            </a>
+            <a href={DESKTOP_LINUX_TARGZ_URL} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", background: "#2a2d3e", color: "#e4e4e7", borderRadius: 8, fontWeight: 500, fontSize: 14, textDecoration: "none", border: "1px solid #3a3d4e" }}>
+              <span>⬇ Download for Linux — other distros (.tar.gz)</span>
+              <span style={{ fontSize: 12, opacity: 0.7 }}>~110 MB</span>
+            </a>
             <div style={{ display: "flex", gap: 8 }}>
               <span style={{ flex: 1, padding: "10px 14px", background: "#2a2d3e", color: "#64748b", borderRadius: 8, fontSize: 13, textAlign: "center" as const }}>macOS — coming soon</span>
-              <span style={{ flex: 1, padding: "10px 14px", background: "#2a2d3e", color: "#64748b", borderRadius: 8, fontSize: 13, textAlign: "center" as const }}>Linux — coming soon</span>
             </div>
           </div>
 
@@ -219,6 +228,125 @@ export default function DownloadsPage() {
                 <li>Which applications you{"'"}re using (Chrome, Excel, Slack, etc.)</li>
                 <li>Screenshots every 5 minutes</li>
               </ul>
+            </div>
+          </div>
+
+          {/* ─── Linux install ─── */}
+          <h3 style={{ ...headingStyle, marginTop: 32 }}>Installation Guide (Linux)</h3>
+
+          <div style={tipStyle}>
+            <strong>Pick the right file:</strong>
+            <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+              <li><strong>.deb</strong> — Ubuntu, Debian, Linux Mint, Pop!_OS, elementary OS</li>
+              <li><strong>.tar.gz</strong> — Fedora, Arch, openSUSE, or any other distro</li>
+            </ul>
+          </div>
+
+          <h4 style={{ fontSize: 13, fontWeight: 700, color: "#c4c4cc", marginTop: 16, marginBottom: 8 }}>Option A: Ubuntu / Debian (.deb)</h4>
+
+          <div style={stepRowStyle}>
+            <span style={stepNumStyle}>1</span>
+            <div style={stepTextStyle}>
+              <strong>Download the .deb file</strong> using the button above. It will save to your <span style={kbdStyle}>~/Downloads</span> folder by default.
+            </div>
+          </div>
+
+          <div style={stepRowStyle}>
+            <span style={stepNumStyle}>2</span>
+            <div style={stepTextStyle}>
+              <strong>Open a terminal</strong> (<span style={kbdStyle}>Ctrl+Alt+T</span> on Ubuntu) and install with apt:
+              <div style={tipStyle}>
+                <code>cd ~/Downloads</code><br />
+                <code>sudo apt install ./ailancers-tracker-0.1.0-x64.deb</code>
+              </div>
+              This pulls in any missing dependencies automatically (Electron runtime, GTK libraries, etc.).
+            </div>
+          </div>
+
+          <div style={stepRowStyle}>
+            <span style={stepNumStyle}>3</span>
+            <div style={stepTextStyle}>
+              <strong>Recommended (for full per-app tracking):</strong> install <code>xdotool</code> and <code>xprintidle</code> if you don{"'"}t already have them:
+              <div style={tipStyle}>
+                <code>sudo apt install xdotool xprintidle</code>
+              </div>
+              Without these, idle detection still works but the tracker can{"'"}t see which app you have focused (so the "Top Apps" chart will be empty).
+            </div>
+          </div>
+
+          <div style={stepRowStyle}>
+            <span style={stepNumStyle}>4</span>
+            <div style={stepTextStyle}>
+              <strong>Launch:</strong> Open your application launcher and search for <strong>"Ailancers Tracker"</strong>, or run from terminal:
+              <div style={tipStyle}>
+                <code>ailancers-tracker</code>
+              </div>
+              The icon appears in your top-bar / system tray (depends on desktop environment — GNOME requires the <strong>AppIndicator</strong> extension to show tray icons).
+            </div>
+          </div>
+
+          <h4 style={{ fontSize: 13, fontWeight: 700, color: "#c4c4cc", marginTop: 20, marginBottom: 8 }}>Option B: Other distros (.tar.gz)</h4>
+
+          <div style={stepRowStyle}>
+            <span style={stepNumStyle}>1</span>
+            <div style={stepTextStyle}>
+              <strong>Download and extract</strong> the .tar.gz anywhere you like. <span style={kbdStyle}>~/apps</span> is a common choice:
+              <div style={tipStyle}>
+                <code>mkdir -p ~/apps && cd ~/apps</code><br />
+                <code>tar xzf ~/Downloads/ailancers-tracker-0.1.0-x64.tar.gz</code>
+              </div>
+            </div>
+          </div>
+
+          <div style={stepRowStyle}>
+            <span style={stepNumStyle}>2</span>
+            <div style={stepTextStyle}>
+              <strong>Install runtime dependencies</strong> (only the names differ between distros):
+              <div style={tipStyle}>
+                <strong>Fedora:</strong> <code>sudo dnf install xdotool xprintidle libnotify</code><br />
+                <strong>Arch:</strong> <code>sudo pacman -S xdotool xprintidle libnotify</code><br />
+                <strong>openSUSE:</strong> <code>sudo zypper install xdotool xprintidle libnotify</code>
+              </div>
+              <code>libnotify</code> is needed for the "Screenshot captured" toast. <code>xdotool</code> + <code>xprintidle</code> are recommended for per-app tracking.
+            </div>
+          </div>
+
+          <div style={stepRowStyle}>
+            <span style={stepNumStyle}>3</span>
+            <div style={stepTextStyle}>
+              <strong>Launch:</strong>
+              <div style={tipStyle}>
+                <code>cd ~/apps/ailancers-tracker-0.1.0-x64</code><br />
+                <code>./ailancers-tracker</code>
+              </div>
+              For convenience, create a symlink so you can run it from anywhere:
+              <div style={tipStyle}>
+                <code>{"sudo ln -s ~/apps/ailancers-tracker-0.1.0-x64/ailancers-tracker /usr/local/bin/ailancers-tracker"}</code>
+              </div>
+            </div>
+          </div>
+
+          <div style={stepRowStyle}>
+            <span style={stepNumStyle}>4</span>
+            <div style={stepTextStyle}>
+              <strong>Auto-start on login (optional):</strong> create a desktop entry that runs the tracker on boot:
+              <div style={tipStyle}>
+                <code>mkdir -p ~/.config/autostart</code><br />
+                <code>{"cat > ~/.config/autostart/ailancers-tracker.desktop <<'EOF'"}</code><br />
+                <code>[Desktop Entry]</code><br />
+                <code>Type=Application</code><br />
+                <code>Name=Ailancers Tracker</code><br />
+                <code>Exec=/usr/local/bin/ailancers-tracker</code><br />
+                <code>X-GNOME-Autostart-enabled=true</code><br />
+                <code>EOF</code>
+              </div>
+            </div>
+          </div>
+
+          <div style={stepRowStyle}>
+            <span style={stepNumStyle}>5</span>
+            <div style={stepTextStyle}>
+              <strong>After launch, the rest is the same as Windows:</strong> login window appears → "Login with Ailancers" → pick project → done. View your stats at <strong>https://apivscode.ailancers.com/dashboard/me</strong>.
             </div>
           </div>
 
