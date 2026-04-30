@@ -1,5 +1,6 @@
 import { Tray, Menu, nativeImage, BrowserWindow, app, Notification, shell } from "electron";
 import * as path from "node:path";
+import { getIconPath } from "./paths";
 import type { AuthService } from "./services/AuthService";
 import type { ProjectService } from "./services/ProjectService";
 import type { ActivityTracker } from "./services/ActivityTracker";
@@ -25,10 +26,9 @@ export class TrayManager {
     private telemetryService: TelemetryService
   ) {
     // Create tray icon
-    const iconPath = path.join(__dirname, "..", "..", "resources", "icon.png");
     let icon: Electron.NativeImage;
     try {
-      icon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
+      icon = nativeImage.createFromPath(getIconPath()).resize({ width: 16, height: 16 });
     } catch {
       icon = nativeImage.createEmpty();
     }
@@ -150,13 +150,13 @@ export class TrayManager {
         new Notification({
           title: "Ailancers Tracker",
           body: `Tracking "${selection.projectName}". The app is running in your system tray (bottom-right, near the clock).`,
-          icon: path.join(__dirname, "..", "..", "resources", "icon.png"),
+          icon: getIconPath(),
         }).show();
       } else {
         new Notification({
           title: "Ailancers Tracker",
           body: "The app is running in your system tray (bottom-right, near the clock). Right-click the icon to select a project.",
-          icon: path.join(__dirname, "..", "..", "resources", "icon.png"),
+          icon: getIconPath(),
         }).show();
       }
       this.rebuildMenu();

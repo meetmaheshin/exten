@@ -185,10 +185,39 @@ app.whenReady().then(async () => {
 
   // ─── Auto-start on boot ───
   if (configStore.get("autoStartEnabled")) {
-    app.setLoginItemSettings({
-      openAtLogin: true,
-      openAsHidden: true,
-    });
+    if (process.platform === "linux") {
+      // setLoginItemSettings is a no-op on Linux. Drop a .desktop file in
+      // ~/.config/autostart/ instead — that's how XDG-spec desktops (GNOME,
+      // KDE, Cinnamon, XFCE, etc.) launch user apps at login.
+      try {
+        const os = await import("node:os");
+        const fs = await import("node:fs");
+        const pathMod = await import("node:path");
+        const autostartDir = pathMod.join(os.homedir(), ".config", "autostart");
+        fs.mkdirSync(autostartDir, { recursive: true });
+        const exe = process.execPath;
+        const desktopFile = pathMod.join(autostartDir, "ailancers-tracker.desktop");
+        const content = [
+          "[Desktop Entry]",
+          "Type=Application",
+          "Name=Ailancers Tracker",
+          `Exec=${exe}`,
+          "X-GNOME-Autostart-enabled=true",
+          "Hidden=false",
+          "NoDisplay=false",
+          "",
+        ].join("\n");
+        fs.writeFileSync(desktopFile, content, "utf-8");
+        console.log(`[Ailancers] Linux autostart entry written: ${desktopFile}`);
+      } catch (err) {
+        console.error("[Ailancers] Failed to set Linux autostart:", err);
+      }
+    } else {
+      app.setLoginItemSettings({
+        openAtLogin: true,
+        openAsHidden: true,
+      });
+    }
   }
 
   // ─── Handle quit gracefully ───

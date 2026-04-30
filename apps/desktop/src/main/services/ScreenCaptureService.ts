@@ -1,5 +1,5 @@
 import { desktopCapturer, Notification } from "electron";
-import * as path from "node:path";
+import { getIconPath } from "../paths";
 import type { ApiClient } from "./ApiClient";
 import type { ActivityTracker } from "./ActivityTracker";
 import type { ConfigStore } from "./ConfigStore";
@@ -73,7 +73,7 @@ export class ScreenCaptureService {
     const notification = new Notification({
       title: "Screenshot captured",
       body: "Click to delete if you don't want this screenshot counted.",
-      icon: path.join(__dirname, "..", "..", "resources", "icon.png"),
+      icon: getIconPath(),
       actions: [{ type: "button", text: "Delete" }],
       silent: true,
     });

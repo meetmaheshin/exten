@@ -16,6 +16,9 @@ export class SystemIdleService {
   private appUsage = new Map<string, number>();
   private lastPollTime = Date.now();
   private useElectronIdle: (() => number) | null = null;
+  // Linux only: log "tool not found" once instead of spamming every 5s
+  private warnedXprintidle = false;
+  private warnedXdotool = false;
 
   /** Optionally inject Electron's powerMonitor.getSystemIdleTime */
   setElectronIdleProvider(fn: () => number): void {
@@ -106,7 +109,14 @@ public class IdleTime {
         const { stdout } = await execFileAsync("xprintidle", [], { timeout: 5000 });
         return parseInt(stdout.trim(), 10) || 0;
       }
-    } catch {
+    } catch (err) {
+      if (os.platform() === "linux" && !this.warnedXprintidle) {
+        this.warnedXprintidle = true;
+        console.warn(
+          "[Ailancers] xprintidle not available — falling back to Electron's powerMonitor for idle detection. " +
+          "Install with: sudo apt install xprintidle (or your distro's equivalent)."
+        );
+      }
       return 0;
     }
   }
@@ -152,7 +162,15 @@ public class ActiveWin {
         const { stdout: titleStr } = await execFileAsync("xdotool", ["getactivewindow", "getwindowname"], { timeout: 5000 });
         return { appName: nameStr.trim() || "unknown", title: titleStr.trim() || "" };
       }
-    } catch {
+    } catch (err) {
+      if (os.platform() === "linux" && !this.warnedXdotool) {
+        this.warnedXdotool = true;
+        console.warn(
+          "[Ailancers] xdotool not available — per-app usage tracking is disabled. " +
+          "Install with: sudo apt install xdotool (or your distro's equivalent). " +
+          "Time tracking still works fine; only the 'Top Apps' chart will be empty."
+        );
+      }
       return null;
     }
   }

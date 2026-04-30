@@ -6,6 +6,11 @@ directories:
 files:
   - dist/**/*
   - resources/**/*
+# Mirror the icon outside app.asar so notification daemons (especially on Linux)
+# can read it directly — some can't open files inside an asar archive.
+extraResources:
+  - from: resources/icon.png
+    to: icon.png
 win:
   target:
     - target: nsis
