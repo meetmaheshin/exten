@@ -15,6 +15,7 @@ export class ChatService {
   private sessionAutoApproved = new Set<string>();
 
   private projectPicker?: import("./ProjectPickerService").ProjectPickerService;
+  private workspaceContext?: import("./WorkspaceContextService").WorkspaceContextService;
 
   constructor(
     private apiClient: ApiClient,
@@ -23,6 +24,10 @@ export class ChatService {
     private approvalService: ApprovalService
   ) {
     this.wsClient.onMessage((msg) => this.handleWsMessage(msg));
+  }
+
+  setWorkspaceContext(svc: import("./WorkspaceContextService").WorkspaceContextService): void {
+    this.workspaceContext = svc;
   }
 
   /** Called by ChatViewProvider when webview sends an approval decision */
@@ -71,16 +76,25 @@ export class ChatService {
   }
 
   /** Send an agent-mode message — Claude can use tools */
-  sendAgentMessage(conversationId: string, content: string, callback: StreamCallback, model?: string, agentType?: import("@ailancers/shared-types").AgentType, images?: unknown[]): void {
+  async sendAgentMessage(conversationId: string, content: string, callback: StreamCallback, opts?: { model?: string; agentType?: import("@ailancers/shared-types").AgentType; images?: unknown[]; planMode?: boolean }): Promise<void> {
     this.streamCallbacks.set(conversationId, callback);
+
+    // Auto-context: project rules + active editor / selection. All best-effort —
+    // missing rules file or no open editor just sends nothing extra.
+    const projectRules = this.workspaceContext ? await this.workspaceContext.getProjectRules() : "";
+    const editorContext = this.workspaceContext ? this.workspaceContext.getEditorContext() : undefined;
+
     this.wsClient.send({
       type: "agent_message",
       conversationId,
       content,
-      model,
-      agentType,
+      model: opts?.model,
+      agentType: opts?.agentType,
       subProjectId: this.projectPicker?.activeSubProjectId ?? null,
-      ...(images ? { images } : {}),
+      ...(opts?.images ? { images: opts.images } : {}),
+      ...(opts?.planMode ? { planMode: true } : {}),
+      ...(projectRules ? { projectRules } : {}),
+      ...(editorContext ? { editorContext } : {}),
     } as import("@ailancers/shared-types").WsClientMessage);
   }
 

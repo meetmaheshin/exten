@@ -7,7 +7,9 @@ interface ChatInputProps {
   isStreaming: boolean;
   agentMode: boolean;
   agentType: "coder" | "qa" | "design";
+  planMode: boolean;
   onToggleAgentMode: () => void;
+  onTogglePlanMode: () => void;
   onSetAgentType: (type: "coder" | "qa" | "design" | "supervisor") => void;
   availableModels: AvailableModel[];
   selectedModel: string;
@@ -18,7 +20,8 @@ const ACCEPTED_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
 
 export function ChatInput({
-  onSend, onCancel, isStreaming, agentMode, agentType, onToggleAgentMode, onSetAgentType,
+  onSend, onCancel, isStreaming, agentMode, agentType, planMode,
+  onToggleAgentMode, onTogglePlanMode, onSetAgentType,
   availableModels, selectedModel, onModelChange,
 }: ChatInputProps) {
   const [value, setValue] = useState("");
@@ -202,6 +205,19 @@ export function ChatInput({
             </button>
             {/* Supervisor runs automatically after coding agent — no manual button needed */}
           </div>
+        )}
+        {agentMode && (
+          <button
+            className={`agent-type-btn ${planMode ? "active" : ""}`}
+            onClick={onTogglePlanMode}
+            disabled={isStreaming}
+            title={planMode
+              ? "Plan mode ON: agent will only read & propose; no writes or commands until you approve"
+              : "Plan mode OFF: agent can write, edit, and run commands as it goes"}
+            style={{ marginLeft: 4 }}
+          >
+            {planMode ? "📋 Plan" : "📋 Plan"}
+          </button>
         )}
         <span className="input-controls-spacer" />
         {availableModels.length > 0 && (

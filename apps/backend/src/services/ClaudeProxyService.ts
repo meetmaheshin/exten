@@ -99,12 +99,30 @@ export class ClaudeProxyService {
   async runAgentLoop(
     conversationMessages: Anthropic.MessageParam[],
     callbacks: AgentCallbacks,
-    options?: { model?: string; abortSignal?: AbortSignal; budgetRemainingUsd?: number; agentType?: string }
+    options?: { model?: string; abortSignal?: AbortSignal; budgetRemainingUsd?: number; agentType?: string; projectRules?: string; planMode?: boolean }
   ): Promise<AgentResult> {
     const model = options?.model || this.defaultModel;
-    const systemPrompt = options?.agentType === "qa" ? QA_SYSTEM_PROMPT
+    let systemPrompt = options?.agentType === "qa" ? QA_SYSTEM_PROMPT
       : options?.agentType === "design" ? DESIGN_REVIEW_SYSTEM_PROMPT
       : AGENT_SYSTEM_PROMPT;
+
+    // Plan mode: append a strict instruction so the model proposes before acting.
+    // We also strip write-tools from the tool list below.
+    if (options?.planMode) {
+      systemPrompt += "\n\n<plan_mode>\nYou are in PLAN MODE. You can read files, search, list directories, and run inspection-only commands — but you MUST NOT write files, edit files, or run commands that modify state. Instead, finish with a clear, numbered plan of the changes you propose. The user will review and turn off plan mode to execute it.\n</plan_mode>";
+    }
+
+    // Project rules (CLAUDE.md-equivalent): prepend so the model treats them as
+    // context, not instructions to override the agent system prompt.
+    if (options?.projectRules && options.projectRules.trim().length > 0) {
+      systemPrompt += `\n\n<project_rules>\nThe following rules come from the project's .ailancers/instructions.md file. Follow them unless the user explicitly asks otherwise.\n\n${options.projectRules.trim()}\n</project_rules>`;
+    }
+
+    // In plan mode, narrow tool set to read-only ones. Names match agentTools.ts.
+    const READ_ONLY_TOOLS = new Set(["read_file", "search_files", "list_directory", "glob_files"]);
+    const activeTools = options?.planMode
+      ? AGENT_TOOL_DEFINITIONS.filter((t) => READ_ONLY_TOOLS.has(t.name))
+      : AGENT_TOOL_DEFINITIONS;
 
     const msgs: Anthropic.MessageParam[] = [...conversationMessages];
     const usage: AgentUsage = { inputTokens: 0, outputTokens: 0, costUsd: 0, turnCount: 0, toolCallCount: 0 };
@@ -127,7 +145,7 @@ export class ClaudeProxyService {
           model,
           max_tokens: this.agentMaxTokens,
           system: systemPrompt,
-          tools: AGENT_TOOL_DEFINITIONS,
+          tools: activeTools,
           messages: msgs,
         });
 

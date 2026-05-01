@@ -54,6 +54,18 @@ export interface WsAgentMessage {
   agentType?: AgentType;
   images?: ImageAttachment[];
   subProjectId?: string | null;
+  /** Project rules / conventions, prepended to system prompt. From .ailancers/instructions.md */
+  projectRules?: string;
+  /** Plan mode: agent has read-only tools and proposes a plan before any writes */
+  planMode?: boolean;
+  /** Active editor + selection auto-context, prepended to user message */
+  editorContext?: {
+    activeFile?: string;     // workspace-relative path
+    languageId?: string;     // e.g. "typescript"
+    selection?: string;      // selected text, if any
+    selectionStart?: number; // line number, 1-indexed
+    selectionEnd?: number;
+  };
 }
 
 export interface WsToolResult {

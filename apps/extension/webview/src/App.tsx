@@ -36,6 +36,7 @@ interface AppState {
   // Agent
   agentMode: boolean;
   agentType: "coder" | "qa" | "design";
+  planMode: boolean;
   agentTurnNumber: number;
   agentToolCalls: ToolCallDisplay[];
   agentUsage: AgentUsage | null;
@@ -61,6 +62,7 @@ type Action =
   | { type: "SET_PENDING"; content: string; images?: ImageAttachment[] | null }
   | { type: "TOGGLE_CONVERSATIONS" }
   | { type: "TOGGLE_AGENT_MODE" }
+  | { type: "TOGGLE_PLAN_MODE" }
   | { type: "SET_AGENT_TYPE"; agentType: "coder" | "qa" | "design" }
   | { type: "SET_MODELS"; models: AvailableModel[]; defaults?: { chatModel: string; codingModel: string } }
   | { type: "SET_SELECTED_MODEL"; model: string }
@@ -84,6 +86,7 @@ const initialState: AppState = {
   showConversations: false,
   agentMode: true,
   agentType: "coder" as const,
+  planMode: false,
   agentTurnNumber: 0,
   agentToolCalls: [],
   agentUsage: null,
@@ -155,8 +158,10 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, showConversations: !state.showConversations };
     case "TOGGLE_AGENT_MODE": {
       const newMode = !state.agentMode;
-      return { ...state, agentMode: newMode, agentType: "coder", selectedModel: newMode ? (state.defaultCodingModel || state.selectedModel) : (state.defaultChatModel || state.selectedModel) };
+      return { ...state, agentMode: newMode, agentType: "coder", planMode: newMode ? state.planMode : false, selectedModel: newMode ? (state.defaultCodingModel || state.selectedModel) : (state.defaultChatModel || state.selectedModel) };
     }
+    case "TOGGLE_PLAN_MODE":
+      return { ...state, planMode: !state.planMode };
     case "SET_AGENT_TYPE":
       return { ...state, agentType: action.agentType, agentMode: true };
     case "SET_MODELS": {
@@ -246,11 +251,11 @@ export function App() {
         conversationId: state.currentConversationId,
         content,
         model: state.selectedModel || undefined,
-        ...(state.agentMode ? { agentType: state.agentType } : {}),
+        ...(state.agentMode ? { agentType: state.agentType, planMode: state.planMode } : {}),
         ...(images ? { images } : {}),
       });
     }
-  }, [state.pendingMessage, state.currentConversationId, state.agentMode, state.agentType, state.selectedModel, state.pendingImages]);
+  }, [state.pendingMessage, state.currentConversationId, state.agentMode, state.agentType, state.planMode, state.selectedModel, state.pendingImages]);
 
   // ── Message handler ──
   const handleMessage = useCallback((msg: IncomingMessage) => {
@@ -290,7 +295,7 @@ export function App() {
       conversationId: state.currentConversationId,
       content,
       model: state.selectedModel || undefined,
-      ...(state.agentMode ? { agentType: state.agentType } : {}),
+      ...(state.agentMode ? { agentType: state.agentType, planMode: state.planMode } : {}),
       ...(images ? { images } : {}),
     });
   };
@@ -340,6 +345,8 @@ export function App() {
             isStreaming={state.isStreaming}
             agentMode={state.agentMode}
             agentType={state.agentType}
+            planMode={state.planMode}
+            onTogglePlanMode={() => dispatch({ type: "TOGGLE_PLAN_MODE" })}
             onToggleAgentMode={() => dispatch({ type: "TOGGLE_AGENT_MODE" })}
             onSetAgentType={(t) => dispatch({ type: "SET_AGENT_TYPE", agentType: t })}
             availableModels={state.availableModels}

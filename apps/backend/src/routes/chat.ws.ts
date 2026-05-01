@@ -433,12 +433,33 @@ export function chatWsRoute(
 
           // Save user message
           const agentHasImages = msg.images && msg.images.length > 0;
+
+          // Auto-context: prepend the active editor / selection block to the
+          // user's content so the agent doesn't have to call read_file just to
+          // know what they're looking at. Stored in DB so reloading the chat
+          // shows what context the agent had.
+          let storedUserContent = msg.content;
+          if (msg.editorContext) {
+            const ec = msg.editorContext;
+            const lines: string[] = ["<editor_context>"];
+            if (ec.activeFile) lines.push(`Active file: ${ec.activeFile}${ec.languageId ? ` (${ec.languageId})` : ""}`);
+            if (ec.selection) {
+              lines.push(`Selection (lines ${ec.selectionStart ?? "?"}-${ec.selectionEnd ?? "?"}):`);
+              lines.push("```");
+              lines.push(ec.selection);
+              lines.push("```");
+            }
+            lines.push("</editor_context>");
+            lines.push("");
+            storedUserContent = lines.join("\n") + msg.content;
+          }
+
           await db
             .insert(messages)
             .values({
               conversationId: msg.conversationId,
               role: "user",
-              content: msg.content,
+              content: storedUserContent,
               contentType: agentHasImages ? "structured" : "text",
             });
 
@@ -600,7 +621,7 @@ export function chatWsRoute(
                 });
               },
             },
-            { model: msg.model, abortSignal: ac.signal, agentType: msg.agentType }
+            { model: msg.model, abortSignal: ac.signal, agentType: msg.agentType, projectRules: msg.projectRules, planMode: msg.planMode }
           );
 
         } catch (err) {

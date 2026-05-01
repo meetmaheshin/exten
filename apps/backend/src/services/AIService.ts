@@ -116,7 +116,7 @@ export class AIService {
   async runAgentLoop(
     conversationMessages: Anthropic.MessageParam[] | Array<{ role: string; content: string }>,
     callbacks: AgentCallbacks,
-    options?: { model?: string; abortSignal?: AbortSignal; budgetRemainingUsd?: number; agentType?: string }
+    options?: { model?: string; abortSignal?: AbortSignal; budgetRemainingUsd?: number; agentType?: string; projectRules?: string; planMode?: boolean }
   ): Promise<AgentResult> {
     const empty: AgentResult = {
       fullText: "",

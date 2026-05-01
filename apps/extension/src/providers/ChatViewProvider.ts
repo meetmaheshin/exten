@@ -49,13 +49,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           break;
         }
         case "sendAgentMessage": {
-          this.chatService.sendAgentMessage(
+          void this.chatService.sendAgentMessage(
             msg.conversationId,
             msg.content,
             (wsMsg) => this.postToWebview(wsMsg),
-            msg.model,
-            msg.agentType,
-            msg.images
+            {
+              model: msg.model,
+              agentType: msg.agentType,
+              images: msg.images,
+              planMode: msg.planMode,
+            }
           );
           break;
         }

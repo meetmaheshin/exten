@@ -12,6 +12,7 @@ import { HourlyBillingTracker } from "./services/HourlyBillingTracker";
 import { SystemIdleService } from "./services/SystemIdleService";
 import { AutoStartService } from "./services/AutoStartService";
 import { ProjectPickerService } from "./services/ProjectPickerService";
+import { WorkspaceContextService } from "./services/WorkspaceContextService";
 import { ChatViewProvider } from "./providers/ChatViewProvider";
 import { StatusBarProvider } from "./providers/StatusBarProvider";
 import { ActivityDashboardProvider } from "./providers/ActivityDashboardProvider";
@@ -40,6 +41,8 @@ export async function activate(context: vscode.ExtensionContext) {
   const toolExecutor = new ToolExecutor(outputChannel);
   const approvalService = new ApprovalService();
   const chatService = new ChatService(apiClient, wsClient, toolExecutor, approvalService);
+  const workspaceContext = new WorkspaceContextService();
+  chatService.setWorkspaceContext(workspaceContext);
   const systemIdleService = new SystemIdleService();
   systemIdleService.start();
   const activityTracker = new ActivityTracker(systemIdleService);
