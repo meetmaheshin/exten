@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { AvailableModel, ImageAttachment } from "../types";
 
 interface ChatInputProps {
@@ -6,7 +6,7 @@ interface ChatInputProps {
   onCancel: () => void;
   isStreaming: boolean;
   agentMode: boolean;
-  agentType: "coder" | "qa" | "design";
+  agentType: "coder" | "qa" | "design" | "supervisor";
   planMode: boolean;
   onToggleAgentMode: () => void;
   onTogglePlanMode: () => void;
@@ -14,6 +14,10 @@ interface ChatInputProps {
   availableModels: AvailableModel[];
   selectedModel: string;
   onModelChange: (model: string) => void;
+  /** Most recent user messages, newest first. Up/Down arrow keys cycle through them. */
+  inputHistory: string[];
+  /** External value to load into the input (used by "edit & resend"). When set, replaces the textarea. */
+  prefill?: { content: string; nonce: number } | null;
 }
 
 const ACCEPTED_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
@@ -23,11 +27,36 @@ export function ChatInput({
   onSend, onCancel, isStreaming, agentMode, agentType, planMode,
   onToggleAgentMode, onTogglePlanMode, onSetAgentType,
   availableModels, selectedModel, onModelChange,
+  inputHistory, prefill,
 }: ChatInputProps) {
   const [value, setValue] = useState("");
   const [attachedImages, setAttachedImages] = useState<ImageAttachment[]>([]);
+  // -1 = composing fresh; 0..n = browsing history (0 is most recent)
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  // Buffer the message-in-progress so ↑↓ doesn't lose it
+  const composingBuffer = useRef("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const lastPrefillNonce = useRef<number | null>(null);
+
+  // External "edit & resend" — when the parent triggers a prefill, replace the textarea
+  useEffect(() => {
+    if (prefill && prefill.nonce !== lastPrefillNonce.current) {
+      lastPrefillNonce.current = prefill.nonce;
+      setValue(prefill.content);
+      setHistoryIndex(-1);
+      // Move caret to end + focus
+      setTimeout(() => {
+        const ta = textareaRef.current;
+        if (ta) {
+          ta.focus();
+          ta.setSelectionRange(prefill.content.length, prefill.content.length);
+          ta.style.height = "auto";
+          ta.style.height = `${Math.min(ta.scrollHeight, 150)}px`;
+        }
+      }, 0);
+    }
+  }, [prefill]);
 
   const handleSend = useCallback(() => {
     const trimmed = value.trim();
@@ -35,6 +64,8 @@ export function ChatInput({
     onSend(trimmed || "(see attached image)", attachedImages.length > 0 ? attachedImages : undefined);
     setValue("");
     setAttachedImages([]);
+    setHistoryIndex(-1);
+    composingBuffer.current = "";
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
@@ -44,11 +75,52 @@ export function ChatInput({
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
+      return;
+    }
+
+    // Up/Down arrows cycle through input history — but only when the textarea
+    // is logically "single-line" so we don't hijack within multi-line edits.
+    // Specifically: ArrowUp at the very start of the text, ArrowDown at the very end.
+    const ta = textareaRef.current;
+    if (!ta || inputHistory.length === 0) return;
+    const atStart = ta.selectionStart === 0 && ta.selectionEnd === 0;
+    const atEnd = ta.selectionStart === value.length && ta.selectionEnd === value.length;
+
+    if (e.key === "ArrowUp" && atStart) {
+      e.preventDefault();
+      // Stash the in-progress composition before browsing
+      if (historyIndex === -1) composingBuffer.current = value;
+      const next = Math.min(historyIndex + 1, inputHistory.length - 1);
+      setHistoryIndex(next);
+      const recalled = inputHistory[next];
+      setValue(recalled);
+      setTimeout(() => {
+        ta.style.height = "auto";
+        ta.style.height = `${Math.min(ta.scrollHeight, 150)}px`;
+        ta.setSelectionRange(0, 0);
+      }, 0);
+    } else if (e.key === "ArrowDown" && atEnd && historyIndex >= 0) {
+      e.preventDefault();
+      const next = historyIndex - 1;
+      setHistoryIndex(next);
+      const recalled = next === -1 ? composingBuffer.current : inputHistory[next];
+      setValue(recalled);
+      setTimeout(() => {
+        ta.style.height = "auto";
+        ta.style.height = `${Math.min(ta.scrollHeight, 150)}px`;
+        ta.setSelectionRange(recalled.length, recalled.length);
+      }, 0);
     }
   };
 
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setValue(e.target.value);
+    // Once the user edits, treat it as a new composition (so further ArrowUps
+    // start fresh from the most recent history)
+    if (historyIndex !== -1) {
+      composingBuffer.current = e.target.value;
+      setHistoryIndex(-1);
+    }
     const ta = e.target;
     ta.style.height = "auto";
     ta.style.height = `${Math.min(ta.scrollHeight, 150)}px`;
@@ -208,15 +280,15 @@ export function ChatInput({
         )}
         {agentMode && (
           <button
-            className={`agent-type-btn ${planMode ? "active" : ""}`}
+            className={`agent-type-btn ${planMode ? "active plan-mode-on" : ""}`}
             onClick={onTogglePlanMode}
             disabled={isStreaming}
             title={planMode
-              ? "Plan mode ON: agent will only read & propose; no writes or commands until you approve"
-              : "Plan mode OFF: agent can write, edit, and run commands as it goes"}
-            style={{ marginLeft: 4 }}
+              ? "Plan mode is ON — agent will only READ and propose changes; click again to let it write & run."
+              : "Plan mode OFF — agent can write files and run commands. Click to switch to read-only Plan mode."}
+            style={{ marginLeft: 6 }}
           >
-            {planMode ? "📋 Plan" : "📋 Plan"}
+            {planMode ? "📋 Plan: ON" : "📝 Plan: OFF"}
           </button>
         )}
         <span className="input-controls-spacer" />

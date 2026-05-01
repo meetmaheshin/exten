@@ -17,11 +17,15 @@ interface Props {
   pendingApprovals?: PendingApproval[];
   onApprovalDecision?: (id: string, d: "allow" | "allowAll" | "deny") => void;
   agentUsage?: AgentUsage | null;
+  /** Pull a user message back into the input for editing */
+  onEditMessage?: (content: string) => void;
 }
 
-export function MessageList({ messages, isStreaming, stream, pendingApprovals = [], onApprovalDecision, agentUsage }: Props) {
+export function MessageList({ messages, isStreaming, stream, pendingApprovals = [], onApprovalDecision, agentUsage, onEditMessage }: Props) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [elapsed, setElapsed] = useState(0);
+  const [stuckToBottom, setStuckToBottom] = useState(true);
   const t0 = useRef(0);
 
   useEffect(() => {
@@ -29,37 +33,83 @@ export function MessageList({ messages, isStreaming, stream, pendingApprovals = 
     setElapsed(0);
   }, [isStreaming]);
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages.length, stream.length, isStreaming, agentUsage]);
+  // Auto-scroll only when user is already at the bottom — respects manual scrollback
+  useEffect(() => {
+    if (stuckToBottom) bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages.length, stream.length, isStreaming, agentUsage, stuckToBottom]);
+
+  // Detect whether the user has scrolled away from the bottom
+  function onScroll() {
+    const el = containerRef.current;
+    if (!el) return;
+    const slack = 60; // px tolerance — counts as "at bottom" if within this much
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= slack;
+    setStuckToBottom(atBottom);
+  }
+
+  function jumpToBottom() {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }
 
   // Empty state
   if (messages.length === 0 && !isStreaming) {
     return (
       <div className="messages-container">
         <div className="empty-state">
-          <div className="empty-state-icon">&#9997;</div>
-          <div className="empty-state-text">Send a message to start your conversation with AI.</div>
+          <div className="empty-state-icon">✨</div>
+          <div className="empty-state-text" style={{ marginBottom: 12, fontWeight: 600 }}>Start a conversation</div>
+          <div style={{ fontSize: 12, color: "var(--vscode-descriptionForeground, #888)", lineHeight: 1.6, maxWidth: 320 }}>
+            <div style={{ marginBottom: 8 }}>Try one of these:</div>
+            <ul style={{ paddingLeft: 18, margin: 0 }}>
+              <li><strong>⚡ Agent + Code</strong> — "Add a logout button to the header"</li>
+              <li><strong>📋 Plan</strong> — investigate first, propose changes for review</li>
+              <li><strong>🔍 QA</strong> — find bugs in the file you have open</li>
+              <li><strong>🎨 Design</strong> — review the UI you're building</li>
+            </ul>
+            <div style={{ marginTop: 10, fontSize: 11 }}>Press <kbd>↑</kbd> to recall a previous message · <kbd>Shift+Enter</kbd> for newline</div>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="messages-container">
+    <div className="messages-container" ref={containerRef} onScroll={onScroll}>
       {/* ── History ── */}
-      {messages.map((msg, i) => (
+      {messages.map((msg, i) => {
+        // For user messages, strip the auto-injected <editor_context> block when
+        // showing it back to the user — they don't need to re-read the IDE state.
+        let displayContent = msg.content;
+        if (msg.role === "user" && displayContent.startsWith("<editor_context>")) {
+          const end = displayContent.indexOf("</editor_context>");
+          if (end !== -1) displayContent = displayContent.slice(end + "</editor_context>".length).trim();
+        }
+        return (
         <div key={msg.id ?? `m${i}`} className={`msg-row ${msg.role === "user" ? "msg-user" : "msg-assistant"}`}>
-          <div className="msg-role">{msg.role === "user" ? "YOU" : "AI"}</div>
+          <div className="msg-role">
+            {msg.role === "user" ? "YOU" : "AI"}
+            {msg.role === "user" && onEditMessage && (
+              <button
+                className="msg-edit-btn"
+                onClick={() => onEditMessage(displayContent)}
+                title="Edit & resend this message"
+              >
+                ✎ Edit
+              </button>
+            )}
+          </div>
           {msg.role === "assistant" && msg.toolCalls?.map((tc) => (
             <ToolCallDisplay key={tc.toolCallId} toolCall={tc} />
           ))}
-          {msg.content && msg.content.startsWith("Error: __BILLING__") ? (
-            <BillingCard message={msg.content} />
-          ) : msg.content ? (
-            <div className="msg-content" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
+          {displayContent && displayContent.startsWith("Error: __BILLING__") ? (
+            <BillingCard message={displayContent} />
+          ) : displayContent ? (
+            <div className="msg-content" dangerouslySetInnerHTML={{ __html: renderMarkdown(displayContent) }} />
           ) : null}
           {msg.costUsd != null && msg.costUsd > 0 && <div className="msg-meta">${msg.costUsd.toFixed(4)}</div>}
         </div>
-      ))}
+      );
+      })}
 
       {/* ── Active stream: one continuous AI block ── */}
       {isStreaming && (
@@ -101,6 +151,15 @@ export function MessageList({ messages, isStreaming, stream, pendingApprovals = 
       )}
 
       <div ref={bottomRef} />
+      {!stuckToBottom && (
+        <button
+          className="jump-to-bottom-btn"
+          onClick={jumpToBottom}
+          title="Jump to latest"
+        >
+          ↓ New
+        </button>
+      )}
     </div>
   );
 }

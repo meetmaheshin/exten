@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import type { Conversation } from "../types";
 
 interface ConversationListProps {
@@ -21,6 +22,14 @@ function formatDate(iso: string): string {
 }
 
 export function ConversationList({ conversations, activeId, onSelect }: ConversationListProps) {
+  const [search, setSearch] = useState("");
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return conversations;
+    const q = search.toLowerCase();
+    return conversations.filter((c) => (c.title || "").toLowerCase().includes(q));
+  }, [conversations, search]);
+
   if (conversations.length === 0) {
     return (
       <div className="empty-state">
@@ -32,16 +41,40 @@ export function ConversationList({ conversations, activeId, onSelect }: Conversa
 
   return (
     <div className="conversation-list">
-      {conversations.map((conv) => (
-        <button
-          key={conv.id}
-          className={`conv-item ${conv.id === activeId ? "active" : ""}`}
-          onClick={() => onSelect(conv.id)}
-        >
-          <span className="conv-item-title">{conv.title || "Untitled"}</span>
-          <span className="conv-item-date">{formatDate(conv.createdAt)}</span>
-        </button>
-      ))}
+      <div className="conversation-search">
+        <input
+          type="text"
+          className="conversation-search-input"
+          placeholder="Search conversations…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        {search && (
+          <button
+            className="conversation-search-clear"
+            onClick={() => setSearch("")}
+            title="Clear search"
+          >
+            ×
+          </button>
+        )}
+      </div>
+      {filtered.length === 0 ? (
+        <div className="empty-state" style={{ paddingTop: 24 }}>
+          <div className="empty-state-text" style={{ fontSize: 12 }}>No conversations match "{search}"</div>
+        </div>
+      ) : (
+        filtered.map((conv) => (
+          <button
+            key={conv.id}
+            className={`conv-item ${conv.id === activeId ? "active" : ""}`}
+            onClick={() => onSelect(conv.id)}
+          >
+            <span className="conv-item-title">{conv.title || "Untitled"}</span>
+            <span className="conv-item-date">{formatDate(conv.createdAt)}</span>
+          </button>
+        ))
+      )}
     </div>
   );
 }

@@ -68,16 +68,15 @@ function formatInputBlock(toolName: string, input: Record<string, unknown>): str
   }
 }
 
-/** Truncate output for display */
-function formatOutput(result: string): string {
-  if (result.length > 1500) {
-    return result.slice(0, 1500) + "\n... (truncated)";
-  }
-  return result;
+const PREVIEW_LIMIT = 1500;
+
+function copy(text: string) {
+  try { navigator.clipboard.writeText(text); } catch { /* ignore */ }
 }
 
 export function ToolCallDisplay({ toolCall, autoExpand }: ToolCallDisplayProps) {
   const [expanded, setExpanded] = useState(false);
+  const [showFullOutput, setShowFullOutput] = useState(false);
   const [elapsed, setElapsed] = useState(0);
 
   // Auto-expand when this is the latest running tool
@@ -129,16 +128,38 @@ export function ToolCallDisplay({ toolCall, autoExpand }: ToolCallDisplayProps) 
         <div className="tc-body">
           {inputBlock && (
             <div className="tc-block">
-              <div className="tc-block-label">IN</div>
+              <div className="tc-block-label-row">
+                <span className="tc-block-label">IN</span>
+                <button className="tc-copy-btn" onClick={(e) => { e.stopPropagation(); copy(inputBlock); }} title="Copy input">📋</button>
+              </div>
               <pre className="tc-block-content">{inputBlock}</pre>
             </div>
           )}
-          {toolCall.result && (
-            <div className={`tc-block ${toolCall.isError ? "tc-block-error" : ""}`}>
-              <div className="tc-block-label">OUT</div>
-              <pre className="tc-block-content">{formatOutput(toolCall.result)}</pre>
-            </div>
-          )}
+          {toolCall.result && (() => {
+            const result = toolCall.result;
+            const isLong = result.length > PREVIEW_LIMIT;
+            const display = !isLong || showFullOutput ? result : result.slice(0, PREVIEW_LIMIT) + "\n…";
+            return (
+              <div className={`tc-block ${toolCall.isError ? "tc-block-error" : ""}`}>
+                <div className="tc-block-label-row">
+                  <span className="tc-block-label">OUT{isLong ? ` (${result.length.toLocaleString()} chars)` : ""}</span>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    {isLong && (
+                      <button
+                        className="tc-copy-btn"
+                        onClick={(e) => { e.stopPropagation(); setShowFullOutput((v) => !v); }}
+                        title={showFullOutput ? "Show less" : "Show full output"}
+                      >
+                        {showFullOutput ? "Show less" : `Show all`}
+                      </button>
+                    )}
+                    <button className="tc-copy-btn" onClick={(e) => { e.stopPropagation(); copy(result); }} title="Copy full output">📋</button>
+                  </div>
+                </div>
+                <pre className="tc-block-content">{display}</pre>
+              </div>
+            );
+          })()}
           {isRunning && !toolCall.result && (
             <div className="tc-block">
               <div className="tc-block-label">OUT</div>

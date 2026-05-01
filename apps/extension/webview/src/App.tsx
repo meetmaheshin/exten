@@ -35,9 +35,13 @@ interface AppState {
   showConversations: boolean;
   // Agent
   agentMode: boolean;
-  agentType: "coder" | "qa" | "design";
+  agentType: "coder" | "qa" | "design" | "supervisor";
   planMode: boolean;
   agentTurnNumber: number;
+  // Input history for ↑/↓ recall — most recent first, capped at 50
+  inputHistory: string[];
+  // External "load this into the textarea" trigger (used by edit & resend)
+  inputPrefill: { content: string; nonce: number } | null;
   agentToolCalls: ToolCallDisplay[];
   agentUsage: AgentUsage | null;
   pendingApprovals: PendingApproval[];
@@ -63,7 +67,9 @@ type Action =
   | { type: "TOGGLE_CONVERSATIONS" }
   | { type: "TOGGLE_AGENT_MODE" }
   | { type: "TOGGLE_PLAN_MODE" }
-  | { type: "SET_AGENT_TYPE"; agentType: "coder" | "qa" | "design" }
+  | { type: "RECORD_HISTORY"; content: string }
+  | { type: "PREFILL_INPUT"; content: string }
+  | { type: "SET_AGENT_TYPE"; agentType: "coder" | "qa" | "design" | "supervisor" }
   | { type: "SET_MODELS"; models: AvailableModel[]; defaults?: { chatModel: string; codingModel: string } }
   | { type: "SET_SELECTED_MODEL"; model: string }
   | { type: "AGENT_TURN_START"; turnNumber: number }
@@ -88,6 +94,8 @@ const initialState: AppState = {
   agentType: "coder" as const,
   planMode: false,
   agentTurnNumber: 0,
+  inputHistory: [],
+  inputPrefill: null,
   agentToolCalls: [],
   agentUsage: null,
   pendingApprovals: [],
@@ -162,6 +170,15 @@ function reducer(state: AppState, action: Action): AppState {
     }
     case "TOGGLE_PLAN_MODE":
       return { ...state, planMode: !state.planMode };
+    case "RECORD_HISTORY": {
+      const trimmed = action.content.trim();
+      if (!trimmed) return state;
+      // Dedupe consecutive identical entries
+      if (state.inputHistory[0] === trimmed) return state;
+      return { ...state, inputHistory: [trimmed, ...state.inputHistory].slice(0, 50) };
+    }
+    case "PREFILL_INPUT":
+      return { ...state, inputPrefill: { content: action.content, nonce: Date.now() } };
     case "SET_AGENT_TYPE":
       return { ...state, agentType: action.agentType, agentMode: true };
     case "SET_MODELS": {
@@ -284,6 +301,7 @@ export function App() {
 
   // ── Handlers ──
   const handleSend = (content: string, images?: ImageAttachment[]) => {
+    dispatch({ type: "RECORD_HISTORY", content });
     if (!state.currentConversationId) {
       dispatch({ type: "SET_PENDING", content, images });
       vscode.current.postMessage({ type: "newConversation" });
@@ -298,6 +316,11 @@ export function App() {
       ...(state.agentMode ? { agentType: state.agentType, planMode: state.planMode } : {}),
       ...(images ? { images } : {}),
     });
+  };
+
+  /** Pull a previous user message back into the input for editing — re-sending it later. */
+  const handleEditMessage = (content: string) => {
+    dispatch({ type: "PREFILL_INPUT", content });
   };
 
   const handleCancel = () => {
@@ -318,7 +341,10 @@ export function App() {
         title={state.conversations.find((c) => c.id === state.currentConversationId)?.title ?? "New Chat"}
         onNewChat={() => vscode.current.postMessage({ type: "newConversation" })}
         onToggleConversations={() => dispatch({ type: "TOGGLE_CONVERSATIONS" })}
-        onExport={state.currentConversationId ? (format) => vscode.current.postMessage({ type: "exportConversation", conversationId: state.currentConversationId, format }) : undefined}
+        onExport={state.currentConversationId ? (format) => {
+          const id = state.currentConversationId;
+          if (id) vscode.current.postMessage({ type: "exportConversation", conversationId: id, format });
+        } : undefined}
         showingConversations={state.showConversations}
       />
       {state.showConversations ? (
@@ -332,6 +358,7 @@ export function App() {
             pendingApprovals={state.pendingApprovals}
             onApprovalDecision={handleApproval}
             agentUsage={state.agentUsage}
+            onEditMessage={handleEditMessage}
           />
           <AgentStatusBar
             turnNumber={state.agentTurnNumber}
@@ -353,6 +380,8 @@ export function App() {
             availableModels={state.availableModels}
             selectedModel={state.selectedModel}
             onModelChange={(m) => dispatch({ type: "SET_SELECTED_MODEL", model: m })}
+            inputHistory={state.inputHistory}
+            prefill={state.inputPrefill}
             onCancel={handleCancel}
           />
         </>

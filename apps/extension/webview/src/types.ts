@@ -7,13 +7,15 @@ export interface ImageAttachment {
 export type OutgoingMessage =
   | { type: "getAuthState" }
   | { type: "login"; email: string; password: string }
+  | { type: "loginWithBrowser" }
   | { type: "sendMessage"; conversationId: string; content: string; model?: string; images?: ImageAttachment[] }
-  | { type: "sendAgentMessage"; conversationId: string; content: string; model?: string; agentType?: "coder" | "qa" | "design"; images?: ImageAttachment[] }
+  | { type: "sendAgentMessage"; conversationId: string; content: string; model?: string; agentType?: "coder" | "qa" | "design" | "supervisor"; images?: ImageAttachment[]; planMode?: boolean }
   | { type: "cancelStream"; conversationId: string }
   | { type: "loadConversations" }
   | { type: "loadModels" }
   | { type: "newConversation" }
   | { type: "loadMessages"; conversationId: string }
+  | { type: "exportConversation"; conversationId: string; format: "markdown" | "json" }
   | { type: "toolApprovalResponse"; toolCallId: string; decision: "allow" | "allowAll" | "deny" };
 
 /** Messages FROM the extension host TO the webview */

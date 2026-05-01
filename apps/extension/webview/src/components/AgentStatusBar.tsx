@@ -6,7 +6,7 @@ interface AgentStatusBarProps {
   toolCallCount: number;
   usage: AgentUsage | null;
   isActive: boolean;
-  agentType: "coder" | "qa" | "design" | "planning";
+  agentType: "coder" | "qa" | "design" | "planning" | "supervisor";
   onCancel: () => void;
 }
 
