@@ -180,6 +180,26 @@ export const AGENT_TOOL_DEFINITIONS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "spawn_subagent",
+    description:
+      "Delegate a focused research task to a sub-agent that runs in its own context window. " +
+      "The sub-agent has read-only tools (read_file, search_files, list_directory, glob_files, find_symbol), " +
+      "explores the codebase to answer your prompt, and returns a single text summary. " +
+      "Use this when you need to gather a lot of context (e.g. 'survey how auth is wired up across the repo', " +
+      "'find every place that calls useAuth and list the patterns') without polluting your own context window. " +
+      "Don't use it for trivial single-file lookups — those are cheaper inline.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        task: {
+          type: "string",
+          description: "The research question or task for the sub-agent. Be specific about what you want it to find or summarize.",
+        },
+      },
+      required: ["task"],
+    },
+  },
+  {
     name: "find_symbol",
     description:
       "Find a function / class / interface / variable by name across the workspace using the language server. " +

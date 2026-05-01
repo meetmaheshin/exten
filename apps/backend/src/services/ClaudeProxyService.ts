@@ -192,9 +192,28 @@ export class ClaudeProxyService {
 
           usage.toolCallCount++;
 
-          const { result, isError } = await callbacks.onToolCall(
-            block.id, block.name, toolInput, needsApproval
-          );
+          // spawn_subagent runs server-side: nested agent loop with read-only
+          // tools, returns a single string summary. The extension never sees
+          // the sub-agent's individual tool calls — keeps the user's UI clean.
+          let result: string;
+          let isError: boolean;
+          if (block.name === "spawn_subagent") {
+            const sub = await this.runSubAgent(
+              (toolInput.task as string) || "",
+              callbacks,
+              { ...options, parentMsgs: msgs, parentTurn: turn }
+            );
+            result = sub.result;
+            isError = sub.isError;
+            // Roll the sub-agent's token cost into the parent's tally
+            usage.inputTokens += sub.inputTokens;
+            usage.outputTokens += sub.outputTokens;
+            usage.costUsd += sub.costUsd;
+          } else {
+            const r = await callbacks.onToolCall(block.id, block.name, toolInput, needsApproval);
+            result = r.result;
+            isError = r.isError;
+          }
 
           allToolCalls.push({
             toolCallId: block.id,
@@ -229,6 +248,99 @@ export class ClaudeProxyService {
     const result: AgentResult = { fullText, usage, toolCalls: allToolCalls };
     callbacks.onEnd(result);
     return result;
+  }
+
+  // ─── Sub-agent ───────────────────────────────────────────────
+  /**
+   * Run a focused research sub-agent in its own context window. Read-only
+   * tools, capped turns, returns a single string summary that the parent
+   * receives as its tool_result. Token cost is rolled into the parent's tally.
+   *
+   * The parent's `callbacks.onToolCall` is reused for read-only tools so the
+   * extension still executes them — the sub-agent doesn't bypass the user's
+   * machine. Approval is auto-allowed since these are all read tools.
+   */
+  private async runSubAgent(
+    task: string,
+    parentCallbacks: AgentCallbacks,
+    options: { model?: string; abortSignal?: AbortSignal; parentMsgs?: Anthropic.MessageParam[]; parentTurn?: number }
+  ): Promise<{ result: string; isError: boolean; inputTokens: number; outputTokens: number; costUsd: number }> {
+    const SUB_AGENT_MAX_TURNS = 8;
+    const READ_ONLY_TOOLS = new Set(["read_file", "search_files", "list_directory", "glob_files", "find_symbol"]);
+    const subTools = AGENT_TOOL_DEFINITIONS.filter((t) => READ_ONLY_TOOLS.has(t.name));
+
+    const subSystem = `You are a focused research sub-agent. Your job is to investigate the codebase and answer a single, well-defined question for the parent agent.
+
+Rules:
+- You have read-only tools only. You CANNOT write, edit, or run shell commands.
+- Be efficient. The parent agent's context is precious — return a tight, well-organized summary, not a transcript.
+- Cite file paths with line numbers (file:line) when referring to specific code.
+- If the question is too vague to answer well, say so and ask the parent to refine it.
+- Finish with a clear answer or summary. Do NOT continue exploring once you have enough.`;
+
+    const subMsgs: Anthropic.MessageParam[] = [{ role: "user", content: task }];
+    let subInput = 0;
+    let subOutput = 0;
+    let subFullText = "";
+
+    for (let turn = 1; turn <= SUB_AGENT_MAX_TURNS; turn++) {
+      if (options.abortSignal?.aborted) break;
+
+      try {
+        const stream = this.client.messages.stream({
+          model: options.model || this.defaultModel,
+          max_tokens: this.agentMaxTokens,
+          system: subSystem,
+          tools: subTools,
+          messages: subMsgs,
+        });
+
+        let turnText = "";
+        for await (const event of stream) {
+          if (options.abortSignal?.aborted) { stream.abort(); break; }
+          if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+            turnText += event.delta.text;
+          }
+        }
+
+        const response = await stream.finalMessage();
+        subInput += response.usage.input_tokens;
+        subOutput += response.usage.output_tokens;
+        subFullText += turnText;
+
+        const toolBlocks = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
+        if (response.stop_reason === "end_turn" || toolBlocks.length === 0) break;
+
+        subMsgs.push({ role: "assistant", content: response.content });
+        const subResults: Anthropic.ToolResultBlockParam[] = [];
+        for (const block of toolBlocks) {
+          if (!READ_ONLY_TOOLS.has(block.name)) {
+            subResults.push({ type: "tool_result", tool_use_id: block.id, content: `Tool '${block.name}' is not available to sub-agents (read-only).`, is_error: true });
+            continue;
+          }
+          // Reuse the parent's onToolCall — extension executes the tool, no approval needed for reads
+          const r = await parentCallbacks.onToolCall(block.id, block.name, block.input as Record<string, unknown>, false);
+          subResults.push({ type: "tool_result", tool_use_id: block.id, content: r.result, is_error: r.isError });
+        }
+        subMsgs.push({ role: "user", content: subResults });
+      } catch (err) {
+        return {
+          result: `Sub-agent failed: ${err instanceof Error ? err.message : String(err)}`,
+          isError: true,
+          inputTokens: subInput,
+          outputTokens: subOutput,
+          costUsd: this.calculateCost(options.model || this.defaultModel, subInput, subOutput),
+        };
+      }
+    }
+
+    return {
+      result: subFullText.trim() || "(sub-agent returned no answer)",
+      isError: false,
+      inputTokens: subInput,
+      outputTokens: subOutput,
+      costUsd: this.calculateCost(options.model || this.defaultModel, subInput, subOutput),
+    };
   }
 
   // ─── Helpers ─────────────────────────────────────────────────
