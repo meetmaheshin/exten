@@ -318,6 +318,7 @@ export function App() {
         title={state.conversations.find((c) => c.id === state.currentConversationId)?.title ?? "New Chat"}
         onNewChat={() => vscode.current.postMessage({ type: "newConversation" })}
         onToggleConversations={() => dispatch({ type: "TOGGLE_CONVERSATIONS" })}
+        onExport={state.currentConversationId ? (format) => vscode.current.postMessage({ type: "exportConversation", conversationId: state.currentConversationId, format }) : undefined}
         showingConversations={state.showConversations}
       />
       {state.showConversations ? (

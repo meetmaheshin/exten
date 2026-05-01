@@ -95,6 +95,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           this.postToWebview({ type: "messagesLoaded", data });
           break;
         }
+        case "exportConversation": {
+          await this.exportConversation(msg.conversationId, msg.format ?? "markdown");
+          break;
+        }
         case "login": {
           if (msg.email && msg.password) {
             const result = await this.authService.login(msg.email, msg.password);
@@ -128,6 +132,46 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   private postToWebview(message: unknown): void {
     this.view?.webview.postMessage(message);
+  }
+
+  private async exportConversation(conversationId: string, format: "markdown" | "json"): Promise<void> {
+    try {
+      // Fetch the export from the backend
+      const ext = format === "json" ? "json" : "md";
+      const resp = await this.apiClient.fetch(`/api/chat/conversations/${conversationId}/export?format=${format}`);
+      if (!resp.ok) {
+        vscode.window.showErrorMessage(`Export failed: ${resp.status} ${resp.statusText}`);
+        return;
+      }
+      const text = await resp.text();
+
+      // Suggest a filename pulled from the Content-Disposition header
+      const cd = resp.headers.get("Content-Disposition") ?? "";
+      const fileMatch = /filename="([^"]+)"/.exec(cd);
+      const defaultName = fileMatch?.[1] ?? `ailancers-conversation.${ext}`;
+
+      // VS Code save dialog — much better UX than browser blob downloads
+      const saveUri = await vscode.window.showSaveDialog({
+        defaultUri: vscode.Uri.file(path.join(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "", defaultName)),
+        filters: format === "json" ? { "JSON": ["json"] } : { "Markdown": ["md"] },
+        saveLabel: "Export conversation",
+      });
+      if (!saveUri) return; // user cancelled
+
+      await fs.promises.writeFile(saveUri.fsPath, text, "utf-8");
+      const choice = await vscode.window.showInformationMessage(
+        `Exported to ${path.basename(saveUri.fsPath)}`,
+        "Open file",
+        "Show in Explorer",
+      );
+      if (choice === "Open file") {
+        await vscode.window.showTextDocument(saveUri);
+      } else if (choice === "Show in Explorer") {
+        await vscode.commands.executeCommand("revealFileInOS", saveUri);
+      }
+    } catch (err) {
+      vscode.window.showErrorMessage(`Export failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   private async handleBrowserLogin(): Promise<void> {
