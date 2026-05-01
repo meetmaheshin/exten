@@ -36,6 +36,8 @@ export class ToolExecutor {
           return await this.listDirectory(toolInput);
         case "glob_files":
           return await this.globFiles(toolInput);
+        case "find_symbol":
+          return await this.findSymbol(toolInput);
         default:
           return { result: `Unknown tool: ${toolName}`, isError: true };
       }
@@ -327,6 +329,64 @@ export class ToolExecutor {
 
     return {
       result: files.join("\n") || "No files matched the pattern.",
+      isError: false,
+    };
+  }
+
+  // ─── find_symbol ───
+  // Uses VS Code's language server to find a function / class / variable by name
+  // across the workspace. Returns location + signature, far better than ripgrep
+  // for "where is foo defined" because it understands the language.
+  private async findSymbol(input: Record<string, unknown>): Promise<ToolResult> {
+    const query = (input.query as string ?? "").trim();
+    const limit = Math.min((input.limit as number) ?? 20, 50);
+    if (!query) return { result: "query is required", isError: true };
+
+    const root = this.getWorkspaceRoot();
+
+    interface SymbolHit {
+      name: string;
+      kind: string;
+      file: string;
+      line: number;
+      containerName?: string;
+    }
+
+    // executeWorkspaceSymbolProvider returns SymbolInformation[] from the LSP
+    const symbols = (await vscode.commands.executeCommand<vscode.SymbolInformation[]>(
+      "vscode.executeWorkspaceSymbolProvider",
+      query,
+    )) || [];
+
+    if (symbols.length === 0) {
+      return {
+        result: `No symbol matching "${query}" found. Try search_files for raw text matches, or check that the relevant language extension is installed (e.g. "TypeScript and JavaScript Language Features").`,
+        isError: false,
+      };
+    }
+
+    const KIND_NAMES: Record<number, string> = {
+      0: "File", 1: "Module", 2: "Namespace", 3: "Package", 4: "Class",
+      5: "Method", 6: "Property", 7: "Field", 8: "Constructor", 9: "Enum",
+      10: "Interface", 11: "Function", 12: "Variable", 13: "Constant",
+      14: "String", 15: "Number", 16: "Boolean", 17: "Array",
+    };
+
+    const hits: SymbolHit[] = symbols.slice(0, limit).map((s) => ({
+      name: s.name,
+      kind: KIND_NAMES[s.kind] ?? `Kind${s.kind}`,
+      file: path.relative(root, s.location.uri.fsPath).replace(/\\/g, "/"),
+      line: s.location.range.start.line + 1,
+      containerName: s.containerName || undefined,
+    }));
+
+    const lines = hits.map((h) => {
+      const where = h.containerName ? ` in ${h.containerName}` : "";
+      return `${h.kind}: ${h.name}${where} — ${h.file}:${h.line}`;
+    });
+    const truncatedNote = symbols.length > limit ? `\n…(${symbols.length - limit} more results truncated; refine the query)` : "";
+    return {
+      result: lines.join("\n") + truncatedNote,
       isError: false,
     };
   }

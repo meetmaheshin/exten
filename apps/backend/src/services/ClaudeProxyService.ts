@@ -119,7 +119,7 @@ export class ClaudeProxyService {
     }
 
     // In plan mode, narrow tool set to read-only ones. Names match agentTools.ts.
-    const READ_ONLY_TOOLS = new Set(["read_file", "search_files", "list_directory", "glob_files"]);
+    const READ_ONLY_TOOLS = new Set(["read_file", "search_files", "list_directory", "glob_files", "find_symbol"]);
     const activeTools = options?.planMode
       ? AGENT_TOOL_DEFINITIONS.filter((t) => READ_ONLY_TOOLS.has(t.name))
       : AGENT_TOOL_DEFINITIONS;

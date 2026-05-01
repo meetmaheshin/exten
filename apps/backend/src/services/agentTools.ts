@@ -179,6 +179,28 @@ export const AGENT_TOOL_DEFINITIONS: Anthropic.Tool[] = [
       required: ["pattern"],
     },
   },
+  {
+    name: "find_symbol",
+    description:
+      "Find a function / class / interface / variable by name across the workspace using the language server. " +
+      "Much better than search_files for 'where is X defined' because it understands the language (skips comments, " +
+      "string literals, irrelevant matches). Returns hits as `Kind: name in container — file:line`. " +
+      "Falls back gracefully if no language extension is installed for the file type.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        query: {
+          type: "string",
+          description: "Symbol name to find (or prefix). Case-insensitive in most language servers.",
+        },
+        limit: {
+          type: "number",
+          description: "Max results to return. Defaults to 20, capped at 50.",
+        },
+      },
+      required: ["query"],
+    },
+  },
 ];
 
 /** Check whether a tool call requires user approval */
