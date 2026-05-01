@@ -119,7 +119,8 @@ export function externalProjectsRoutes(
       jobPosition: cols[5] || undefined,
       managerName: cols[6] || undefined,
       company: cols[2] || undefined,
-      active: cols[0] === "True",
+      // Odoo-style "True"/"False" with mixed casing, plus lowercase / 1 / yes
+      active: ["true", "1", "yes", "y"].includes((cols[0] ?? "").trim().toLowerCase()),
     }));
 
     const result = await syncService.importEmployeeDirectory(rows);
