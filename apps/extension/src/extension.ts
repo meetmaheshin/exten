@@ -81,7 +81,15 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Register commands
   context.subscriptions.push(
-    vscode.commands.registerCommand("ailancers.login", () => authService.promptLogin()),
+    vscode.commands.registerCommand("ailancers.login", async () => {
+      // Open the Ailancers sidebar + focus the chat view so the LoginScreen
+      // (with the proper "Login with Ailancers" browser flow) renders.
+      // promptLogin() with raw VS Code input boxes is the legacy fallback —
+      // most users never have to see it now.
+      await vscode.commands.executeCommand("workbench.view.extension.ailancers-sidebar");
+      await vscode.commands.executeCommand("ailancers.chatView.focus");
+    }),
+    vscode.commands.registerCommand("ailancers.legacyEmailLogin", () => authService.promptLogin()),
     vscode.commands.registerCommand("ailancers.logout", async () => {
       await authService.logout();
       projectPicker.clearSelection();
@@ -165,6 +173,12 @@ export async function activate(context: vscode.ExtensionContext) {
     { dispose: () => systemIdleService.dispose() },
   );
 
+  // First-run onboarding — show this BEFORE auto-login so users always know
+  // where the chat panel is, even on subsequent restarts where login fails.
+  // Tracked in globalState so we only nag the user once per machine.
+  const FIRST_RUN_KEY = "ailancers.shownFirstRunWelcome";
+  const alreadyWelcomed = context.globalState.get<boolean>(FIRST_RUN_KEY, false);
+
   // Attempt auto-login
   const restored = await authService.tryRestoreSession();
   if (restored) {
@@ -190,6 +204,25 @@ export async function activate(context: vscode.ExtensionContext) {
     checkForUpdates(apiClient, log);
     // Schedule midnight session reset
     scheduleMidnightReset(telemetryService, screenCaptureService, log);
+  } else if (!alreadyWelcomed) {
+    // Brand new install (or wiped credentials) — make sure the user can
+    // *see* the login. Reveal the sidebar so the LoginScreen renders, AND
+    // show a notification with a "Sign In" button so they have a clear path.
+    void vscode.commands.executeCommand("workbench.view.extension.ailancers-sidebar")
+      .then(() => vscode.commands.executeCommand("ailancers.chatView.focus"))
+      .then(undefined, () => { /* sidebar / view not yet ready, harmless */ });
+
+    void vscode.window.showInformationMessage(
+      "Welcome to Ailancers Code! Sign in to start using the AI agent and time tracking.",
+      "Sign In",
+      "Later",
+    ).then(async (choice) => {
+      if (choice === "Sign In") {
+        await vscode.commands.executeCommand("ailancers.login");
+      }
+    });
+
+    await context.globalState.update(FIRST_RUN_KEY, true);
   }
 
   // Listen for auth changes

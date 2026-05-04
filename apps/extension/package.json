@@ -44,8 +44,15 @@
         }
       ]
     },
+    "viewsWelcome": [
+      {
+        "view": "ailancers.chatView",
+        "contents": "Welcome to Ailancers Code!\n\nSign in to start using the AI agent and time tracking.\n[Sign in with Ailancers](command:ailancers.login)\n\n[Open Get Started](command:workbench.action.openWalkthrough?%22ailancers.ailancers-code%23ailancers-getting-started%22)"
+      }
+    ],
     "commands": [
       { "command": "ailancers.login", "title": "Ailancers: Login" },
+      { "command": "ailancers.legacyEmailLogin", "title": "Ailancers: Login with Email/Password (legacy)" },
       { "command": "ailancers.logout", "title": "Ailancers: Logout" },
       { "command": "ailancers.openChat", "title": "Ailancers: Open Chat" },
       { "command": "ailancers.toggleAgentMode", "title": "Ailancers: Toggle Agent Mode" },
@@ -56,6 +63,36 @@
       { "command": "ailancers.selectProject", "title": "Ailancers: Select Active Project / Task" },
       { "command": "ailancers.refreshProjects", "title": "Ailancers: Refresh Project List" },
       { "command": "ailancers.toggleAutoStart", "title": "Ailancers: Toggle Auto-Start on Boot" }
+    ],
+    "walkthroughs": [
+      {
+        "id": "ailancers-getting-started",
+        "title": "Get Started with Ailancers Code",
+        "description": "Sign in, pick your project, and start coding with AI.",
+        "steps": [
+          {
+            "id": "ailancers-step-signin",
+            "title": "Sign in to Ailancers",
+            "description": "Click the button below to open the Ailancers sidebar and sign in via your browser.\n[Sign In](command:ailancers.login)",
+            "media": { "markdown": "resources/walkthroughs/welcome.md" },
+            "completionEvents": ["onCommand:ailancers.login"]
+          },
+          {
+            "id": "ailancers-step-project",
+            "title": "Pick your active project",
+            "description": "Tag your work to a project so time tracking and billing land on the right account.\n[Select Project](command:ailancers.selectProject)",
+            "media": { "markdown": "resources/walkthroughs/welcome.md" },
+            "completionEvents": ["onCommand:ailancers.selectProject"]
+          },
+          {
+            "id": "ailancers-step-chat",
+            "title": "Open the AI chat",
+            "description": "Try asking the agent to read a file or explain some code.\n[Open Chat](command:ailancers.openChat)",
+            "media": { "markdown": "resources/walkthroughs/welcome.md" },
+            "completionEvents": ["onCommand:ailancers.openChat"]
+          }
+        ]
+      }
     ],
     "configuration": {
       "title": "Ailancers Code",
