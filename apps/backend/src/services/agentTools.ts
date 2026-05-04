@@ -200,6 +200,30 @@ export const AGENT_TOOL_DEFINITIONS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "figma_read",
+    description:
+      "Read a Figma design from a URL. Returns the design's JSON tree (frames, " +
+      "layers, text content, colors, fonts, sizing) AND a rendered PNG of the " +
+      "selected node so you can visually inspect it. Use this when the user " +
+      "asks you to implement a design from Figma, audit a UI against a mockup, " +
+      "extract design tokens (colors / typography / spacing), or review a " +
+      "specific frame. Pass the URL exactly as the user provided it; the URL's " +
+      "node-id parameter (if present) controls which frame is rendered.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        url: {
+          type: "string",
+          description:
+            "Figma URL (figma.com/design/... or figma.com/file/...). Include " +
+            "the ?node-id=... query parameter to focus on a single frame, " +
+            "otherwise the whole file's first page is summarized.",
+        },
+      },
+      required: ["url"],
+    },
+  },
+  {
     name: "find_symbol",
     description:
       "Find a function / class / interface / variable by name across the workspace using the language server. " +

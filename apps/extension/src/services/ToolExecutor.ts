@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import * as path from "node:path";
 import { exec } from "node:child_process";
+import type { ApiClient } from "./ApiClient";
 
 const MAX_FILE_SIZE = 100 * 1024; // 100KB max for read output
 const MAX_WRITE_SIZE = 1024 * 1024; // 1MB max for write
@@ -15,7 +16,7 @@ export interface ToolResult {
 }
 
 export class ToolExecutor {
-  constructor(private outputChannel: vscode.OutputChannel) {}
+  constructor(private outputChannel: vscode.OutputChannel, private apiClient?: ApiClient) {}
 
   async execute(toolName: string, toolInput: Record<string, unknown>): Promise<ToolResult> {
     this.outputChannel.appendLine(`[Tool] ${toolName}: ${JSON.stringify(toolInput).slice(0, 200)}`);
@@ -38,6 +39,8 @@ export class ToolExecutor {
           return await this.globFiles(toolInput);
         case "find_symbol":
           return await this.findSymbol(toolInput);
+        case "figma_read":
+          return await this.figmaRead(toolInput);
         default:
           return { result: `Unknown tool: ${toolName}`, isError: true };
       }
@@ -389,5 +392,69 @@ export class ToolExecutor {
       result: lines.join("\n") + truncatedNote,
       isError: false,
     };
+  }
+
+  // ─── figma_read ───
+  // Calls our backend's /api/figma/read endpoint. The Figma token lives only on
+  // the backend, so users don't need to set anything up locally.
+  private async figmaRead(input: Record<string, unknown>): Promise<ToolResult> {
+    const url = (input.url as string ?? "").trim();
+    if (!url) return { result: "url is required", isError: true };
+    if (!this.apiClient) return { result: "Internal error: API client not wired into ToolExecutor", isError: true };
+
+    try {
+      type FigmaNode = {
+        id: string; name: string; type: string;
+        size?: { width: number; height: number };
+        colors?: string[];
+        text?: string;
+        font?: { family: string; size: number; weight?: number };
+        children?: FigmaNode[];
+      };
+      type FigmaResp = {
+        fileName: string;
+        tree: FigmaNode;
+        image: { mimeType: string; base64: string } | null;
+        imageSourceUrl: string | null;
+      };
+
+      const data = await this.apiClient.get<FigmaResp>(
+        `/api/figma/read?url=${encodeURIComponent(url)}`,
+      );
+
+      // Pretty-print the tree as indented text — much easier for Claude to reason
+      // about than raw JSON, and roughly half the tokens.
+      const lines: string[] = [];
+      lines.push(`Figma file: ${data.fileName}`);
+      lines.push("");
+
+      const indent = (depth: number) => "  ".repeat(depth);
+      const visit = (n: FigmaNode, depth: number) => {
+        const parts: string[] = [`${n.type} "${n.name}"`];
+        if (n.size) parts.push(`${n.size.width}×${n.size.height}`);
+        if (n.colors && n.colors.length > 0) parts.push(`fills: ${n.colors.join(", ")}`);
+        if (n.font) parts.push(`font: ${n.font.family} ${n.font.size}px${n.font.weight ? ` w${n.font.weight}` : ""}`);
+        lines.push(`${indent(depth)}- ${parts.join(" · ")}`);
+        if (n.text) lines.push(`${indent(depth + 1)}text: "${n.text.replace(/\n/g, " / ")}"`);
+        if (n.children) for (const c of n.children) visit(c, depth + 1);
+      };
+      visit(data.tree, 0);
+
+      if (data.image) {
+        lines.push("");
+        lines.push(`(rendered PNG fetched server-side, ${Math.round(data.image.base64.length / 1024)} KB — currently passed as text only; ` +
+          `if the user asks you to "look at" the image, suggest they paste a screenshot of the Figma frame into the chat for direct vision.)`);
+      } else if (data.imageSourceUrl) {
+        lines.push("");
+        lines.push(`(no PNG bytes returned, but Figma rendered URL: ${data.imageSourceUrl} — short-lived)`);
+      }
+
+      return { result: lines.join("\n"), isError: false };
+    } catch (err) {
+      return {
+        result: `Figma read failed: ${err instanceof Error ? err.message : String(err)}`,
+        isError: true,
+      };
+    }
   }
 }

@@ -41,6 +41,12 @@ const envSchema = z.object({
   AILANCERS_BILLING_API_URL: z.string().default(""),
   AILANCERS_BILLING_HMAC_SECRET: z.string().default(""),
   AILANCERS_BILLING_REPORT_INTERVAL_MS: z.coerce.number().default(180000), // 3 minutes
+
+  // Figma — for the figma_read agent tool. One team-shared Personal Access Token,
+  // generated at https://www.figma.com/settings → Personal access tokens with the
+  // "File content" + "File metadata" scopes. If empty, the figma_read tool returns
+  // an actionable error message to the agent.
+  FIGMA_TOKEN: z.string().default(""),
 });
 
 export type Env = z.infer<typeof envSchema>;

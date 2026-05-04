@@ -119,7 +119,7 @@ export class ClaudeProxyService {
     }
 
     // In plan mode, narrow tool set to read-only ones. Names match agentTools.ts.
-    const READ_ONLY_TOOLS = new Set(["read_file", "search_files", "list_directory", "glob_files", "find_symbol"]);
+    const READ_ONLY_TOOLS = new Set(["read_file", "search_files", "list_directory", "glob_files", "find_symbol", "figma_read"]);
     const activeTools = options?.planMode
       ? AGENT_TOOL_DEFINITIONS.filter((t) => READ_ONLY_TOOLS.has(t.name))
       : AGENT_TOOL_DEFINITIONS;
@@ -266,7 +266,7 @@ export class ClaudeProxyService {
     options: { model?: string; abortSignal?: AbortSignal; parentMsgs?: Anthropic.MessageParam[]; parentTurn?: number }
   ): Promise<{ result: string; isError: boolean; inputTokens: number; outputTokens: number; costUsd: number }> {
     const SUB_AGENT_MAX_TURNS = 8;
-    const READ_ONLY_TOOLS = new Set(["read_file", "search_files", "list_directory", "glob_files", "find_symbol"]);
+    const READ_ONLY_TOOLS = new Set(["read_file", "search_files", "list_directory", "glob_files", "find_symbol", "figma_read"]);
     const subTools = AGENT_TOOL_DEFINITIONS.filter((t) => READ_ONLY_TOOLS.has(t.name));
 
     const subSystem = `You are a focused research sub-agent. Your job is to investigate the codebase and answer a single, well-defined question for the parent agent.

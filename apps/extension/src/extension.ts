@@ -38,7 +38,7 @@ export async function activate(context: vscode.ExtensionContext) {
   const authService = new AuthService(context.secrets);
   const apiClient = new ApiClient(authService);
   const wsClient = new WebSocketClient(authService);
-  const toolExecutor = new ToolExecutor(outputChannel);
+  const toolExecutor = new ToolExecutor(outputChannel, apiClient);
   const approvalService = new ApprovalService();
   const chatService = new ChatService(apiClient, wsClient, toolExecutor, approvalService);
   const workspaceContext = new WorkspaceContextService();

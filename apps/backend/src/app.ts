@@ -11,6 +11,7 @@ import { AuthService } from "./services/AuthService.js";
 import { AIService } from "./services/AIService.js";
 import { BillingReporter } from "./services/BillingReporter.js";
 import { HourlyTrackerReporter } from "./services/HourlyTrackerReporter.js";
+import { FigmaService } from "./services/FigmaService.js";
 import { eq, and, desc, isNull, like, gte } from "drizzle-orm";
 import { activitySessions } from "./models/index.js";
 import { requireAuth } from "./middleware/requireAuth.js";
@@ -138,6 +139,22 @@ export async function buildApp(env: Env, db: Database) {
   const billingReporter = new BillingReporter(env);
   billingReporter.start();
   const hourlyTrackerReporter = new HourlyTrackerReporter(env);
+  const figmaService = new FigmaService(env);
+
+  // Figma URL reader — used by the figma_read agent tool. Auth-required so
+  // anonymous traffic can't burn through our team's Figma rate limit.
+  app.get("/api/figma/read", { preHandler: requireAuth(authService) }, async (request, reply) => {
+    const { url } = request.query as { url?: string };
+    if (!url) return reply.status(400).send({ error: "Missing 'url' query param" });
+    try {
+      const result = await figmaService.readUrl(url);
+      return reply.send(result);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // Use 422 so the agent gets a parseable error, not a generic 500
+      return reply.status(422).send({ error: "Figma read failed", message: msg });
+    }
+  });
 
   // Model discovery endpoint
   app.get("/api/models", async () => ({
