@@ -540,6 +540,15 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
       manualCount: number; // sessions where editor_version == 'manual-entry'
     };
 
+    // Build a typed UUID list for the IN clause. Using a sql.join of casted
+    // placeholders avoids the postgres-js "cannot cast type record to uuid[]"
+    // error that ANY(${jsArray}::uuid[]) hits when the driver can't infer
+    // the element type from a plain JS array.
+    const userIdList = sql.join(
+      visibleIds.map((id) => sql`${id}::uuid`),
+      sql`, `,
+    );
+
     const agg = await db.execute<AggRow>(sql`
       SELECT
         s.user_id::text AS "userId",
@@ -548,7 +557,7 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
         COUNT(*) FILTER (WHERE s.editor_version IS DISTINCT FROM 'manual-entry')::int AS "autoCount",
         COUNT(*) FILTER (WHERE s.editor_version = 'manual-entry')::int AS "manualCount"
       FROM activity_sessions s
-      WHERE s.user_id = ANY(${visibleIds}::uuid[])
+      WHERE s.user_id IN (${userIdList})
         AND s.started_at >= ${fromTs}::timestamptz
         AND s.started_at <= ${toTs}::timestamptz
       GROUP BY s.user_id, day
@@ -724,11 +733,16 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
     const fromTs = `${query.from}T00:00:00Z`;
     const toTs = `${query.to}T23:59:59Z`;
 
+    const userIdList = sql.join(
+      visibleIds.map((id) => sql`${id}::uuid`),
+      sql`, `,
+    );
+
     const totals = await db.execute<{ userId: string; activeSeconds: number }>(sql`
       SELECT s.user_id::text AS "userId",
              COALESCE(SUM(s.active_seconds), 0)::int AS "activeSeconds"
       FROM activity_sessions s
-      WHERE s.user_id = ANY(${visibleIds}::uuid[])
+      WHERE s.user_id IN (${userIdList})
         AND s.started_at >= ${fromTs}::timestamptz
         AND s.started_at <= ${toTs}::timestamptz
       GROUP BY s.user_id
@@ -817,13 +831,18 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
     const fromTs = `${query.from}T00:00:00Z`;
     const toTs = `${query.to}T23:59:59Z`;
 
+    const userIdList = sql.join(
+      visibleIds.map((id) => sql`${id}::uuid`),
+      sql`, `,
+    );
+
     // Per-(user, day) totals so we can bucket each working day for each employee
     const perDay = await db.execute<{ userId: string; day: string; activeSeconds: number }>(sql`
       SELECT s.user_id::text AS "userId",
              to_char(s.started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS "day",
              COALESCE(SUM(s.active_seconds), 0)::int AS "activeSeconds"
       FROM activity_sessions s
-      WHERE s.user_id = ANY(${visibleIds}::uuid[])
+      WHERE s.user_id IN (${userIdList})
         AND s.started_at >= ${fromTs}::timestamptz
         AND s.started_at <= ${toTs}::timestamptz
       GROUP BY s.user_id, day
