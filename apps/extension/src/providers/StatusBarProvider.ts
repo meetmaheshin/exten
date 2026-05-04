@@ -5,6 +5,7 @@ import type { ProjectPickerService } from "../services/ProjectPickerService";
 import type { HourlyBillingTracker } from "../services/HourlyBillingTracker";
 
 export class StatusBarProvider implements vscode.Disposable {
+  private signInItem: vscode.StatusBarItem;
   private statusBarItem: vscode.StatusBarItem;
   private projectBarItem: vscode.StatusBarItem;
   private trackerBarItem: vscode.StatusBarItem;
@@ -17,6 +18,15 @@ export class StatusBarProvider implements vscode.Disposable {
     private projectPicker: ProjectPickerService,
     private hourlyBillingTracker?: HourlyBillingTracker,
   ) {
+    // Highest priority: a hard-to-miss yellow Sign in button shown only when
+    // not authenticated. Separate from statusBarItem so its presence is the
+    // discoverability cue, not just a label change on a single item.
+    this.signInItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 101);
+    this.signInItem.text = "$(sign-in) Sign in to Ailancers";
+    this.signInItem.tooltip = "Click to open the Ailancers sidebar and sign in";
+    this.signInItem.command = "ailancers.login";
+    this.signInItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
+
     // Left side: time + AI requests
     this.statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
     this.statusBarItem.command = "ailancers.openChat";
@@ -30,8 +40,6 @@ export class StatusBarProvider implements vscode.Disposable {
     this.trackerBarItem.command = "ailancers.openChat";
 
     this.refresh();
-    this.statusBarItem.show();
-    this.projectBarItem.show();
 
     this.updateInterval = setInterval(() => this.refresh(), 30_000);
 
@@ -43,13 +51,16 @@ export class StatusBarProvider implements vscode.Disposable {
 
   refresh(): void {
     if (!this.authService.isAuthenticated) {
-      this.statusBarItem.text = "$(comment-discussion) Ailancers: Sign In";
-      this.statusBarItem.tooltip = "Click to sign in to Ailancers Code";
-      this.statusBarItem.command = "ailancers.login";
+      // Show the yellow Sign in pill, hide everything else
+      this.signInItem.show();
+      this.statusBarItem.hide();
       this.projectBarItem.hide();
       this.trackerBarItem.hide();
       return;
     }
+    // Authenticated — hide the Sign in pill, show the regular status items
+    this.signInItem.hide();
+    this.statusBarItem.show();
 
     const totalSeconds = this.activityTracker.getTotalActiveSeconds();
     const hours = Math.floor(totalSeconds / 3600);
@@ -124,6 +135,7 @@ export class StatusBarProvider implements vscode.Disposable {
 
   dispose(): void {
     clearInterval(this.updateInterval);
+    this.signInItem.dispose();
     this.statusBarItem.dispose();
     this.projectBarItem.dispose();
     this.trackerBarItem.dispose();

@@ -105,7 +105,7 @@ export default function DownloadsPage() {
             <div style={stepTextStyle}>
               <strong>Install the extension:</strong>
               <div style={tipStyle}>
-                Open VS Code → Press <span style={kbdStyle}>Ctrl+Shift+P</span> (or <span style={kbdStyle}>Cmd+Shift+P</span> on Mac) → Type <strong>"Install from VSIX"</strong> → Select the downloaded file → Click <strong>Install</strong> → Reload VS Code when prompted.
+                Open VS Code → Press <span style={kbdStyle}>Ctrl+Shift+P</span> (or <span style={kbdStyle}>Cmd+Shift+P</span> on Mac) → Type <strong>"Install from VSIX"</strong> → Select the downloaded file → Click <strong>Install</strong>.
               </div>
             </div>
           </div>
@@ -113,9 +113,11 @@ export default function DownloadsPage() {
           <div style={stepRowStyle}>
             <span style={stepNumStyle}>4</span>
             <div style={stepTextStyle}>
-              <strong>Login:</strong> You{"'"}ll see the Ailancers panel in the sidebar. Click <strong>"Login with Ailancers"</strong> — your browser will open for authentication. Sign in with your Ailancers account (email, Google, etc). The extension will auto-detect your login.
+              <strong>Reload VS Code</strong> — required for the new code to load.
               <div style={tipStyle}>
-                Alternatively, type your email and password directly in the extension{"'"}s login form.
+                Click the blue <strong>Restart Extensions</strong> button if VS Code shows it,
+                OR fully close VS Code and reopen it. Without this, the extension shows up but
+                runs the old version (you{"'"}ll get an outdated email/password popup instead of the proper login).
               </div>
             </div>
           </div>
@@ -123,13 +125,35 @@ export default function DownloadsPage() {
           <div style={stepRowStyle}>
             <span style={stepNumStyle}>5</span>
             <div style={stepTextStyle}>
+              <strong>Open the AI chat panel:</strong> after restart, the Ailancers sidebar should auto-open. If not:
+              <div style={tipStyle}>
+                Press <span style={kbdStyle}>Ctrl+Shift+P</span> → type <strong>"Ailancers: Open Chat"</strong> → Enter.
+                <br />
+                Or click the <strong>"Sign in to Ailancers"</strong> button in the bottom-left status bar.
+              </div>
+            </div>
+          </div>
+
+          <div style={stepRowStyle}>
+            <span style={stepNumStyle}>6</span>
+            <div style={stepTextStyle}>
+              <strong>Login:</strong> in the Ailancers chat panel, click <strong>"Login with Ailancers"</strong> — your browser will open for authentication. Sign in with your Ailancers account (Google, email, etc). The extension will auto-detect your login.
+              <div style={tipStyle}>
+                Alternatively, type your email and password directly in the extension{"'"}s login form.
+              </div>
+            </div>
+          </div>
+
+          <div style={stepRowStyle}>
+            <span style={stepNumStyle}>7</span>
+            <div style={stepTextStyle}>
               <strong>Select your project:</strong> Click the <strong>📁 Select Project</strong> button in the bottom status bar, or press <span style={kbdStyle}>Ctrl+Shift+P</span> → <strong>"Ailancers: Select Project"</strong>. Pick the project and sub-project you{"'"}re working on.
               <div style={tipStyle}>You can switch projects anytime. All your activity will be tagged to the selected project for billing and reporting.</div>
             </div>
           </div>
 
           <div style={stepRowStyle}>
-            <span style={stepNumStyle}>6</span>
+            <span style={stepNumStyle}>8</span>
             <div style={stepTextStyle}>
               <strong>Start working!</strong> Tracking starts automatically. The extension tracks:
               <ul style={{ marginTop: 6, paddingLeft: 18 }}>
