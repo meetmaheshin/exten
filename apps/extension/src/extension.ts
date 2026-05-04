@@ -173,12 +173,6 @@ export async function activate(context: vscode.ExtensionContext) {
     { dispose: () => systemIdleService.dispose() },
   );
 
-  // First-run onboarding — show this BEFORE auto-login so users always know
-  // where the chat panel is, even on subsequent restarts where login fails.
-  // Tracked in globalState so we only nag the user once per machine.
-  const FIRST_RUN_KEY = "ailancers.shownFirstRunWelcome";
-  const alreadyWelcomed = context.globalState.get<boolean>(FIRST_RUN_KEY, false);
-
   // Attempt auto-login
   const restored = await authService.tryRestoreSession();
   if (restored) {
@@ -204,25 +198,46 @@ export async function activate(context: vscode.ExtensionContext) {
     checkForUpdates(apiClient, log);
     // Schedule midnight session reset
     scheduleMidnightReset(telemetryService, screenCaptureService, log);
-  } else if (!alreadyWelcomed) {
-    // Brand new install (or wiped credentials) — make sure the user can
-    // *see* the login. Reveal the sidebar so the LoginScreen renders, AND
-    // show a notification with a "Sign In" button so they have a clear path.
-    void vscode.commands.executeCommand("workbench.view.extension.ailancers-sidebar")
-      .then(() => vscode.commands.executeCommand("ailancers.chatView.focus"))
-      .then(undefined, () => { /* sidebar / view not yet ready, harmless */ });
+  } else {
+    // Not logged in — open the Ailancers sidebar so the LoginScreen renders.
+    // This runs every time the user starts VS Code while signed out, not just
+    // on first install: a missed notification on day 1 doesn't doom them.
+    log("[Onboarding] No session — revealing sidebar so the LoginScreen is visible");
+    setTimeout(() => {
+      void vscode.commands.executeCommand("workbench.view.extension.ailancers-sidebar")
+        .then(() => vscode.commands.executeCommand("ailancers.chatView.focus"))
+        .then(undefined, (err) => log(`Sidebar reveal failed: ${err}`));
+    }, 1500); // Small delay so VS Code's window-restore finishes first
 
-    void vscode.window.showInformationMessage(
-      "Welcome to Ailancers Code! Sign in to start using the AI agent and time tracking.",
-      "Sign In",
-      "Later",
-    ).then(async (choice) => {
-      if (choice === "Sign In") {
-        await vscode.commands.executeCommand("ailancers.login");
-      }
-    });
-
-    await context.globalState.update(FIRST_RUN_KEY, true);
+    // Modal welcome — only on the very first install per machine. Modal so it
+    // can't be missed or auto-dismissed; users have to actively click Later or
+    // Sign In. After they click, we never bother them again.
+    const FIRST_RUN_KEY = "ailancers.shownFirstRunWelcome";
+    const alreadyWelcomed = context.globalState.get<boolean>(FIRST_RUN_KEY, false);
+    if (!alreadyWelcomed) {
+      // Don't await — let activate() finish so other commands can register
+      void (async () => {
+        // Small delay so the welcome doesn't fight other startup notifications
+        await new Promise((r) => setTimeout(r, 2000));
+        const choice = await vscode.window.showInformationMessage(
+          "Welcome to Ailancers Code! Sign in to start using the AI agent and time tracking.",
+          { modal: true },
+          "Sign In",
+          "Open Get Started",
+          "Later",
+        );
+        if (choice === "Sign In") {
+          await vscode.commands.executeCommand("ailancers.login");
+        } else if (choice === "Open Get Started") {
+          await vscode.commands.executeCommand(
+            "workbench.action.openWalkthrough",
+            "ailancers.ailancers-code#ailancers-getting-started",
+            true,
+          );
+        }
+        await context.globalState.update(FIRST_RUN_KEY, true);
+      })();
+    }
   }
 
   // Listen for auth changes
@@ -258,7 +273,7 @@ export async function activate(context: vscode.ExtensionContext) {
   log("Ailancers Code extension activated");
 }
 
-const CURRENT_VERSION = "0.2.1";
+const CURRENT_VERSION = "0.2.2";
 
 async function checkForUpdates(apiClient: import("./services/ApiClient").ApiClient, log: (msg: string) => void): Promise<void> {
   try {
