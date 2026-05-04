@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { API_BASE } from "@/lib/api";
 
 // Google Drive direct-download URLs
-const VSIX_URL = "https://drive.google.com/uc?export=download&id=1gsivGhrlo1_dUa0XkjtrWNwkhCOIftdY";
+const VSIX_URL = "https://drive.google.com/uc?export=download&id=1UqOSYXoLGiSAd8RcRpl-5_G7e0GAOsri";
 const DESKTOP_WIN_URL = "https://drive.google.com/uc?export=download&id=1akdGout7A5__VwKEDc1KM8dq5P8vcpu5";
 const DESKTOP_LINUX_DEB_URL = "https://drive.google.com/uc?export=download&id=1_l9i9Ou9JC-bUqIxs3X2FF3Vm83UzeCd";
 const DESKTOP_LINUX_TARGZ_URL = "https://drive.google.com/uc?export=download&id=15Az6MglS6boAvrxNALLM-xA7OIHPAk33";
