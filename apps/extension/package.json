@@ -2,7 +2,7 @@
   "name": "ailancers-code",
   "displayName": "Ailancers Code",
   "description": "AI coding agent that reads, writes, and edits your code — with time tracking, screen capture, and team analytics — powered by Claude",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "publisher": "ailancers",
   "license": "MIT",
   "repository": {
@@ -18,12 +18,28 @@
     "color": "#1e1e2e",
     "theme": "dark"
   },
-  "keywords": ["ai", "claude", "chat", "coding-agent", "time-tracking", "team", "activity", "screenshot", "analytics"],
+  "keywords": [
+    "ai",
+    "claude",
+    "chat",
+    "coding-agent",
+    "time-tracking",
+    "team",
+    "activity",
+    "screenshot",
+    "analytics"
+  ],
   "engines": {
     "vscode": "^1.96.0"
   },
-  "categories": ["Programming Languages", "Machine Learning", "Other"],
-  "activationEvents": ["onStartupFinished"],
+  "categories": [
+    "Programming Languages",
+    "Machine Learning",
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "viewsContainers": {
@@ -51,18 +67,54 @@
       }
     ],
     "commands": [
-      { "command": "ailancers.login", "title": "Ailancers: Login" },
-      { "command": "ailancers.legacyEmailLogin", "title": "Ailancers: Login with Email/Password (legacy)" },
-      { "command": "ailancers.logout", "title": "Ailancers: Logout" },
-      { "command": "ailancers.openChat", "title": "Ailancers: Open Chat" },
-      { "command": "ailancers.toggleAgentMode", "title": "Ailancers: Toggle Agent Mode" },
-      { "command": "ailancers.toggleTracking", "title": "Ailancers: Toggle Activity Tracking" },
-      { "command": "ailancers.newConversation", "title": "Ailancers: New Conversation" },
-      { "command": "ailancers.captureScreen", "title": "Ailancers: Capture Screenshot Now" },
-      { "command": "ailancers.openActivityDashboard", "title": "Ailancers: Open Activity Dashboard" },
-      { "command": "ailancers.selectProject", "title": "Ailancers: Select Active Project / Task" },
-      { "command": "ailancers.refreshProjects", "title": "Ailancers: Refresh Project List" },
-      { "command": "ailancers.toggleAutoStart", "title": "Ailancers: Toggle Auto-Start on Boot" }
+      {
+        "command": "ailancers.login",
+        "title": "Ailancers: Login"
+      },
+      {
+        "command": "ailancers.legacyEmailLogin",
+        "title": "Ailancers: Login with Email/Password (legacy)"
+      },
+      {
+        "command": "ailancers.logout",
+        "title": "Ailancers: Logout"
+      },
+      {
+        "command": "ailancers.openChat",
+        "title": "Ailancers: Open Chat"
+      },
+      {
+        "command": "ailancers.toggleAgentMode",
+        "title": "Ailancers: Toggle Agent Mode"
+      },
+      {
+        "command": "ailancers.toggleTracking",
+        "title": "Ailancers: Toggle Activity Tracking"
+      },
+      {
+        "command": "ailancers.newConversation",
+        "title": "Ailancers: New Conversation"
+      },
+      {
+        "command": "ailancers.captureScreen",
+        "title": "Ailancers: Capture Screenshot Now"
+      },
+      {
+        "command": "ailancers.openActivityDashboard",
+        "title": "Ailancers: Open Activity Dashboard"
+      },
+      {
+        "command": "ailancers.selectProject",
+        "title": "Ailancers: Select Active Project / Task"
+      },
+      {
+        "command": "ailancers.refreshProjects",
+        "title": "Ailancers: Refresh Project List"
+      },
+      {
+        "command": "ailancers.toggleAutoStart",
+        "title": "Ailancers: Toggle Auto-Start on Boot"
+      }
     ],
     "walkthroughs": [
       {
@@ -74,22 +126,34 @@
             "id": "ailancers-step-signin",
             "title": "Sign in to Ailancers",
             "description": "Click the button below to open the Ailancers sidebar and sign in via your browser.\n[Sign In](command:ailancers.login)",
-            "media": { "markdown": "resources/walkthroughs/welcome.md" },
-            "completionEvents": ["onCommand:ailancers.login"]
+            "media": {
+              "markdown": "resources/walkthroughs/welcome.md"
+            },
+            "completionEvents": [
+              "onCommand:ailancers.login"
+            ]
           },
           {
             "id": "ailancers-step-project",
             "title": "Pick your active project",
             "description": "Tag your work to a project so time tracking and billing land on the right account.\n[Select Project](command:ailancers.selectProject)",
-            "media": { "markdown": "resources/walkthroughs/welcome.md" },
-            "completionEvents": ["onCommand:ailancers.selectProject"]
+            "media": {
+              "markdown": "resources/walkthroughs/welcome.md"
+            },
+            "completionEvents": [
+              "onCommand:ailancers.selectProject"
+            ]
           },
           {
             "id": "ailancers-step-chat",
             "title": "Open the AI chat",
             "description": "Try asking the agent to read a file or explain some code.\n[Open Chat](command:ailancers.openChat)",
-            "media": { "markdown": "resources/walkthroughs/welcome.md" },
-            "completionEvents": ["onCommand:ailancers.openChat"]
+            "media": {
+              "markdown": "resources/walkthroughs/welcome.md"
+            },
+            "completionEvents": [
+              "onCommand:ailancers.openChat"
+            ]
           }
         ]
       }
