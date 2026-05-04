@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 // Google Drive direct-download URLs
-const VSIX_URL = "https://drive.google.com/uc?export=download&id=1fEHytm4817ligiYhucoiSUHKFEdYnlVX";
+const VSIX_URL = "https://drive.google.com/uc?export=download&id=1gsivGhrlo1_dUa0XkjtrWNwkhCOIftdY";
 const DESKTOP_WIN_URL = "https://drive.google.com/uc?export=download&id=1akdGout7A5__VwKEDc1KM8dq5P8vcpu5";
 const DESKTOP_LINUX_DEB_URL = "https://drive.google.com/uc?export=download&id=1_l9i9Ou9JC-bUqIxs3X2FF3Vm83UzeCd";
 const DESKTOP_LINUX_TARGZ_URL = "https://drive.google.com/uc?export=download&id=15Az6MglS6boAvrxNALLM-xA7OIHPAk33";
