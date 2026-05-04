@@ -1,12 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { API_BASE } from "@/lib/api";
 
 // Google Drive direct-download URLs
 const VSIX_URL = "https://drive.google.com/uc?export=download&id=1gsivGhrlo1_dUa0XkjtrWNwkhCOIftdY";
 const DESKTOP_WIN_URL = "https://drive.google.com/uc?export=download&id=1akdGout7A5__VwKEDc1KM8dq5P8vcpu5";
 const DESKTOP_LINUX_DEB_URL = "https://drive.google.com/uc?export=download&id=1_l9i9Ou9JC-bUqIxs3X2FF3Vm83UzeCd";
 const DESKTOP_LINUX_TARGZ_URL = "https://drive.google.com/uc?export=download&id=15Az6MglS6boAvrxNALLM-xA7OIHPAk33";
+
+interface VersionResponse {
+  extension: { version: string };
+  desktop:   { version: string };
+}
 
 const sectionStyle = { background: "#1c1e2e", borderRadius: 12, border: "1px solid #2a2d3e", padding: 28, marginBottom: 24 };
 const headingStyle = { fontSize: 16, fontWeight: 700 as const, color: "#818cf8", marginBottom: 16 };
@@ -18,6 +24,19 @@ const kbdStyle = { display: "inline-block", background: "#0f0f23", border: "1px 
 
 export default function DownloadsPage() {
   const [copied, setCopied] = useState(false);
+  const [versions, setVersions] = useState<VersionResponse | null>(null);
+
+  // Pull live version numbers from /api/version so the page never lies about
+  // what users are about to download — even if we forget to bump a string here.
+  useEffect(() => {
+    fetch(`${API_BASE}/api/version`)
+      .then((r) => (r.ok ? r.json() as Promise<VersionResponse> : null))
+      .then((v) => v && setVersions(v))
+      .catch(() => { /* leave versions=null, badges hide */ });
+  }, []);
+
+  const extVersion = versions?.extension.version;
+  const dtVersion = versions?.desktop.version;
 
   return (
     <div style={{ minHeight: "100vh", background: "#0f1117", color: "#e4e4e7" }}>
@@ -41,8 +60,15 @@ export default function DownloadsPage() {
         <div style={sectionStyle}>
           <div style={{ display: "flex", gap: 16, alignItems: "center", marginBottom: 8 }}>
             <span style={{ fontSize: 36 }}>💻</span>
-            <div>
-              <h2 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>VS Code Extension</h2>
+            <div style={{ flex: 1 }}>
+              <h2 style={{ fontSize: 22, fontWeight: 700, margin: 0, display: "flex", alignItems: "center", gap: 10 }}>
+                VS Code Extension
+                {extVersion && (
+                  <span style={{ fontSize: 11, fontWeight: 600, background: "#22c55e22", color: "#4ade80", padding: "2px 8px", borderRadius: 4, letterSpacing: 0.3 }}>
+                    v{extVersion}
+                  </span>
+                )}
+              </h2>
               <p style={{ color: "#8b8d98", fontSize: 13, margin: 0 }}>For developers and engineers who use VS Code</p>
             </div>
           </div>
@@ -52,7 +78,7 @@ export default function DownloadsPage() {
 
           {/* Download */}
           <a href={VSIX_URL} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px", background: "#6366f1", color: "white", borderRadius: 8, fontWeight: 600, fontSize: 15, textDecoration: "none", marginBottom: 24 }}>
-            <span>⬇ Download VS Code Extension (.vsix)</span>
+            <span>⬇ Download VS Code Extension (.vsix){extVersion ? ` v${extVersion}` : ""}</span>
             <span style={{ fontSize: 12, opacity: 0.8 }}>~450 KB</span>
           </a>
 
@@ -151,8 +177,15 @@ export default function DownloadsPage() {
         <div style={sectionStyle}>
           <div style={{ display: "flex", gap: 16, alignItems: "center", marginBottom: 8 }}>
             <span style={{ fontSize: 36 }}>🖥️</span>
-            <div>
-              <h2 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Desktop Tracker</h2>
+            <div style={{ flex: 1 }}>
+              <h2 style={{ fontSize: 22, fontWeight: 700, margin: 0, display: "flex", alignItems: "center", gap: 10 }}>
+                Desktop Tracker
+                {dtVersion && (
+                  <span style={{ fontSize: 11, fontWeight: 600, background: "#22c55e22", color: "#4ade80", padding: "2px 8px", borderRadius: 4, letterSpacing: 0.3 }}>
+                    v{dtVersion}
+                  </span>
+                )}
+              </h2>
               <p style={{ color: "#8b8d98", fontSize: 13, margin: 0 }}>For HR, admins, designers, managers — anyone not using VS Code</p>
             </div>
           </div>
@@ -163,15 +196,15 @@ export default function DownloadsPage() {
           {/* Downloads */}
           <div style={{ display: "flex", flexDirection: "column" as const, gap: 8, marginBottom: 24 }}>
             <a href={DESKTOP_WIN_URL} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px", background: "#6366f1", color: "white", borderRadius: 8, fontWeight: 600, fontSize: 15, textDecoration: "none" }}>
-              <span>⬇ Download for Windows (.exe)</span>
+              <span>⬇ Download for Windows (.exe){dtVersion ? ` v${dtVersion}` : ""}</span>
               <span style={{ fontSize: 12, opacity: 0.8 }}>~80 MB</span>
             </a>
             <a href={DESKTOP_LINUX_DEB_URL} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px", background: "#6366f1", color: "white", borderRadius: 8, fontWeight: 600, fontSize: 15, textDecoration: "none" }}>
-              <span>⬇ Download for Linux — Ubuntu/Debian (.deb)</span>
+              <span>⬇ Download for Linux — Ubuntu/Debian (.deb){dtVersion ? ` v${dtVersion}` : ""}</span>
               <span style={{ fontSize: 12, opacity: 0.8 }}>~75 MB</span>
             </a>
             <a href={DESKTOP_LINUX_TARGZ_URL} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", background: "#2a2d3e", color: "#e4e4e7", borderRadius: 8, fontWeight: 500, fontSize: 14, textDecoration: "none", border: "1px solid #3a3d4e" }}>
-              <span>⬇ Download for Linux — other distros (.tar.gz)</span>
+              <span>⬇ Download for Linux — other distros (.tar.gz){dtVersion ? ` v${dtVersion}` : ""}</span>
               <span style={{ fontSize: 12, opacity: 0.7 }}>~110 MB</span>
             </a>
             <div style={{ display: "flex", gap: 8 }}>
