@@ -147,7 +147,7 @@ export async function buildApp(env: Env, db: Database) {
 
   // Version endpoint — clients check this on startup for updates
   app.get("/api/version", async () => ({
-    extension: { version: "0.2.0", downloadUrl: "https://apivscode.ailancers.com/dashboard/downloads/" },
+    extension: { version: "0.2.1", downloadUrl: "https://apivscode.ailancers.com/dashboard/downloads/" },
     desktop: { version: "0.1.0", downloadUrl: "https://apivscode.ailancers.com/dashboard/downloads/" },
   }));
 
