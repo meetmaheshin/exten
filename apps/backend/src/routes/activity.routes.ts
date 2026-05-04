@@ -4,8 +4,22 @@ import { eq, and, gte, lte, desc, sql, asc } from "drizzle-orm";
 import { requireAuth, requireAdmin, requireManager } from "../middleware/requireAuth.js";
 import type { AuthService } from "../services/AuthService.js";
 import type { Database } from "../config/database.js";
-import { activitySessions, users, aiUsageDaily, screenshots, holidays, leaveDays } from "../models/index.js";
+import { activitySessions, users, aiUsageDaily, screenshots, holidays, leaveDays, employeeDirectory } from "../models/index.js";
 import { inArray } from "drizzle-orm";
+
+/**
+ * Return the lowercased emails of every employee in the directory. When the
+ * directory has any rows, Team Snapshot / Bandwidth / Summary should restrict
+ * their user lists to people whose email is in this set — otherwise we'd be
+ * showing seed/test users (Bob Smith, Alice Johnson, etc.) that no admin ever
+ * imported. Returns null when the directory is empty so the caller falls back
+ * to "show everyone in users".
+ */
+async function loadDirectoryEmailSet(db: Database): Promise<Set<string> | null> {
+  const rows = await db.select({ email: employeeDirectory.email }).from(employeeDirectory);
+  if (rows.length === 0) return null;
+  return new Set(rows.map((r) => (r.email || "").trim().toLowerCase()).filter((e) => e.length > 0));
+}
 
 const dateRangeSchema = z.object({
   from: z.string().datetime().optional(),
@@ -495,12 +509,20 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
       .from(users)
       .where(eq(users.isActive, true));
 
+    // Restrict to users that exist in the employee directory (when one exists).
+    // Without this we'd show seed/test rows (Bob Smith, Alice Johnson, etc.)
+    // that nobody ever imported via the HR CSV.
+    const dirEmails = await loadDirectoryEmailSet(db);
+    const dirFiltered = dirEmails
+      ? userRows.filter((u) => dirEmails.has((u.email || "").trim().toLowerCase()) || u.id === me.id)
+      : userRows;
+
     // For managers: only show users whose team matches their fullName.
     // Admins see everyone. We always include the viewer themselves so the grid
     // is never empty.
     const visibleUsers = isAdmin
-      ? userRows
-      : userRows.filter((u) => u.team === me.fullName || u.id === me.id);
+      ? dirFiltered
+      : dirFiltered.filter((u) => u.team === me.fullName || u.id === me.id);
 
     if (visibleUsers.length === 0) return reply.send({ dates, groups: [] });
 
@@ -721,12 +743,19 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
     // Pull active employees only — resigned / on_leave / notice etc. don't
     // contribute to expected-vs-actual team capacity math
     const allUsers = await db
-      .select({ id: users.id, fullName: users.fullName, team: users.team, employmentStatus: users.employmentStatus })
+      .select({ id: users.id, fullName: users.fullName, email: users.email, team: users.team, employmentStatus: users.employmentStatus })
       .from(users)
       .where(and(eq(users.isActive, true), eq(users.employmentStatus, "active")));
+
+    // Filter to employee_directory entries only (see helper for rationale)
+    const dirEmails = await loadDirectoryEmailSet(db);
+    const dirFiltered = dirEmails
+      ? allUsers.filter((u) => dirEmails.has((u.email || "").trim().toLowerCase()) || u.id === me.id)
+      : allUsers;
+
     const visibleUsers = isAdmin
-      ? allUsers
-      : allUsers.filter((u) => u.team === me.fullName || u.id === me.id);
+      ? dirFiltered
+      : dirFiltered.filter((u) => u.team === me.fullName || u.id === me.id);
     if (visibleUsers.length === 0) return reply.send({ workingDays, rows: [] });
 
     const visibleIds = visibleUsers.map((u) => u.id);
@@ -811,12 +840,19 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
     // Org-wide KPIs: only count active employees. Resigned / on_leave /
     // notice / maternity get excluded so the metrics reflect productive capacity.
     const allUsers = await db
-      .select({ id: users.id, fullName: users.fullName, team: users.team })
+      .select({ id: users.id, fullName: users.fullName, email: users.email, team: users.team })
       .from(users)
       .where(and(eq(users.isActive, true), eq(users.employmentStatus, "active")));
+
+    // Filter to employee_directory entries only (see helper for rationale)
+    const dirEmails = await loadDirectoryEmailSet(db);
+    const dirFiltered = dirEmails
+      ? allUsers.filter((u) => dirEmails.has((u.email || "").trim().toLowerCase()) || u.id === me.id)
+      : allUsers;
+
     const visibleUsers = isAdmin
-      ? allUsers
-      : allUsers.filter((u) => u.team === me.fullName || u.id === me.id);
+      ? dirFiltered
+      : dirFiltered.filter((u) => u.team === me.fullName || u.id === me.id);
     const visibleIds = visibleUsers.map((u) => u.id);
 
     if (visibleUsers.length === 0) {
