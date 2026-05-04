@@ -3,11 +3,19 @@
 import { useEffect, useState } from "react";
 import { API_BASE } from "@/lib/api";
 
-// Google Drive direct-download URLs
-const VSIX_URL = "https://drive.google.com/uc?export=download&id=1UqOSYXoLGiSAd8RcRpl-5_G7e0GAOsri";
-const DESKTOP_WIN_URL = "https://drive.google.com/uc?export=download&id=1akdGout7A5__VwKEDc1KM8dq5P8vcpu5";
-const DESKTOP_LINUX_DEB_URL = "https://drive.google.com/uc?export=download&id=1_l9i9Ou9JC-bUqIxs3X2FF3Vm83UzeCd";
-const DESKTOP_LINUX_TARGZ_URL = "https://drive.google.com/uc?export=download&id=15Az6MglS6boAvrxNALLM-xA7OIHPAk33";
+// GitHub Releases — stable permalinks. The /releases/latest/download/ pattern
+// always serves the most recent release's asset, so we never have to update
+// these URLs again. Just publish a new release with the same asset filenames.
+//
+// To release:
+//   1) Build artifacts locally (pnpm run package, etc.)
+//   2) Run scripts/release.sh <version> — uploads to GitHub
+// Repo: https://github.com/dmahaesh/ailancers-code
+const RELEASES_BASE = "https://github.com/dmahaesh/ailancers-code/releases/latest/download";
+const VSIX_URL = `${RELEASES_BASE}/ailancers-code.vsix`;
+const DESKTOP_WIN_URL = `${RELEASES_BASE}/Ailancers-Tracker-Setup.exe`;
+const DESKTOP_LINUX_DEB_URL = `${RELEASES_BASE}/ailancers-tracker-x64.deb`;
+const DESKTOP_LINUX_TARGZ_URL = `${RELEASES_BASE}/ailancers-tracker-x64.tar.gz`;
 
 interface VersionResponse {
   extension: { version: string };

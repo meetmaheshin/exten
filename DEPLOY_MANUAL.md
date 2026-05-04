@@ -167,3 +167,51 @@ sudo systemctl restart ailancers-vscode-ext-backend
 **502 Bad Gateway from nginx:**
 - Backend not running: `systemctl start ailancers-vscode-ext-backend`
 - Wrong port in nginx config — backend runs on port 5000
+
+---
+
+## Releasing a new version of the VS Code extension or desktop tracker
+
+Binary distribution lives on GitHub Releases at <https://github.com/dmahaesh/ailancers-code/releases>. The dashboard download buttons point at `releases/latest/download/<filename>`, which always serves the most recent release — so once a release is published, the website "just updates" without any code changes.
+
+### Prerequisites (one-time setup)
+
+```bash
+# Authenticate the gh CLI on whatever machine runs the release
+gh auth login
+# Pick GitHub.com → HTTPS → Login with web browser
+```
+
+You also need write access to the `dmahaesh/ailancers-code` repo on GitHub.
+
+### Cutting a release
+
+```bash
+# Optional: build the desktop installer first if it's part of this release
+pnpm --filter "@ailancers/desktop" package:win     # Windows .exe
+pnpm --filter "@ailancers/desktop" package:linux   # .deb + .tar.gz
+
+# Then run the release script with the new version number
+./scripts/release.sh 0.2.4
+```
+
+The script:
+
+1. Bumps version in `apps/extension/package.json`, `CURRENT_VERSION` in `extension.ts`, and the `/api/version` response in `backend/src/app.ts`
+2. Builds the .vsix
+3. Renames artifacts to stable filenames (`ailancers-code.vsix`, `Ailancers-Tracker-Setup.exe`, etc.)
+4. Tags and pushes
+5. Creates a GitHub Release with all artifacts attached
+
+**After the script finishes**, redeploy the backend so `/api/version` reports the new version (otherwise existing users won't see the "Update available" toast):
+
+```bash
+# On the VPS
+cd /root/ailancers-vscode-ext
+git pull
+pnpm --filter @ailancers/shared-types build
+pnpm --filter @ailancers/backend build
+sudo systemctl restart ailancers-backend
+```
+
+That's the whole flow. The downloads page on the dashboard automatically shows the new version (it reads `/api/version` live) and the download buttons keep working.
