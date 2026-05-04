@@ -129,7 +129,24 @@ git push origin "v$VERSION" --force 2>&1 | tail -3 || echo "  (push tag to origi
 # ── 5. Create the GitHub Release ──
 echo ""
 echo "[5/5] Creating GitHub Release on $RELEASE_REPO…"
-gh release create "v$VERSION" \
+
+# On Windows the gh CLI is at "C:\Program Files\GitHub CLI\gh.exe" and
+# Git Bash doesn't always have it on PATH. Try a few well-known locations.
+GH_CMD=""
+if command -v gh >/dev/null 2>&1; then
+  GH_CMD="gh"
+elif [ -x "/c/Program Files/GitHub CLI/gh.exe" ]; then
+  GH_CMD="/c/Program Files/GitHub CLI/gh.exe"
+elif [ -x "/c/Program Files (x86)/GitHub CLI/gh.exe" ]; then
+  GH_CMD="/c/Program Files (x86)/GitHub CLI/gh.exe"
+elif [ -x "$LOCALAPPDATA/Programs/GitHub CLI/gh.exe" ]; then
+  GH_CMD="$LOCALAPPDATA/Programs/GitHub CLI/gh.exe"
+else
+  echo "ERROR: gh CLI not found. Install with 'winget install GitHub.cli' (Windows) or your distro's package manager, then run 'gh auth login'."
+  exit 1
+fi
+
+"$GH_CMD" release create "v$VERSION" \
   --repo "$RELEASE_REPO" \
   --title "v$VERSION" \
   --notes "Release $VERSION. See git log for changes." \
