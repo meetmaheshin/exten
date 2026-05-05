@@ -27,11 +27,24 @@ const DEFAULT_CONFIG: ScreenCaptureConfig = {
   blurSensitive: false,
 };
 
+interface PendingUpload {
+  filePath: string;
+  capturedAt: string;
+  metadata: Record<string, unknown>;
+  attempts: number;
+}
+
+const MAX_QUEUE_SIZE = 20;     // Cap memory; oldest dropped if exceeded
+const MAX_ATTEMPTS = 5;        // After this many failed retries, give up on a screenshot
+const MAX_QUEUE_AGE_MS = 30 * 60 * 1000; // Don't keep a screenshot in the queue more than 30 minutes
+
 export class ScreenCaptureService implements vscode.Disposable {
   private captureInterval: ReturnType<typeof setInterval> | null = null;
   private screenshotDir: string;
   private sessionId: string | null = null;
   private isCapturing = false;
+  /** Failed uploads waiting to retry. Drained at the start of each capture cycle. */
+  private retryQueue: PendingUpload[] = [];
 
   constructor(
     private extensionContext: vscode.ExtensionContext,
@@ -85,20 +98,36 @@ export class ScreenCaptureService implements vscode.Disposable {
   private async captureAndUpload(): Promise<string | null> {
     if (this.isCapturing || !this.sessionId) return null;
 
-    // Skip screenshot when OS is idle (no input for 10+ min)
-    // Skip screenshot when user is idle (no PC activity for 10+ min)
-    if (this.activityTracker?.isIdle) return null;
-
     this.isCapturing = true;
 
     try {
+      // 1. Drain retry queue first — uploads that previously failed get another shot
+      // before we even take a new screenshot. This way an offline period followed
+      // by reconnect catches up everything that was queued during the outage.
+      await this.drainRetryQueue();
+
+      // 2. Skip a fresh capture when the user is idle. Note: we still drain the
+      // queue above, so if an idle period followed a network outage the queued
+      // shots still get uploaded — they're not held hostage by the idle skip.
+      if (this.activityTracker?.isIdle) {
+        return null;
+      }
+
       const filePath = await this.takeScreenshot();
       if (!filePath) return null;
 
-      // Upload to backend
-      const screenshotId = await this.uploadScreenshot(filePath);
+      const capturedAt = new Date().toISOString();
+      const metadata = {
+        activeEditor: vscode.window.activeTextEditor?.document.uri.fsPath
+          ? vscode.workspace.asRelativePath(vscode.window.activeTextEditor.document.uri)
+          : null,
+        language: vscode.window.activeTextEditor?.document.languageId ?? null,
+      };
 
-      // Show notification with delete option
+      // 3. Try the upload. On failure, push to retry queue instead of dropping.
+      const screenshotId = await this.tryUpload({ filePath, capturedAt, metadata, attempts: 1 });
+
+      // 4. Show notification with delete option (only on successful upload)
       if (screenshotId) {
         const action = await vscode.window.showInformationMessage(
           "Screenshot captured",
@@ -115,7 +144,8 @@ export class ScreenCaptureService implements vscode.Disposable {
         }
       }
 
-      // Cleanup old local screenshots
+      // 5. Cleanup old local screenshots — but never delete a file that's still
+      // in the retry queue, otherwise retries would 404 reading the file.
       await this.cleanupLocalScreenshots();
 
       return filePath;
@@ -124,6 +154,76 @@ export class ScreenCaptureService implements vscode.Disposable {
       return null;
     } finally {
       this.isCapturing = false;
+    }
+  }
+
+  /**
+   * Try to upload one pending screenshot. On success returns the server's id;
+   * on failure adds it to the retry queue (or increments attempts if already
+   * there). Returns null on failure.
+   */
+  private async tryUpload(item: PendingUpload): Promise<string | null> {
+    if (!this.sessionId) return null;
+
+    try {
+      const fileBuffer = await fs.promises.readFile(item.filePath);
+      const base64Data = fileBuffer.toString("base64");
+      const filename = path.basename(item.filePath);
+
+      const resp = await this.apiClient.post<{ id: string }>("/api/telemetry/screenshot", {
+        sessionId: this.sessionId,
+        filename,
+        imageBase64: base64Data,
+        capturedAt: item.capturedAt,
+        metadata: item.metadata,
+      });
+      return resp.id || null;
+    } catch (err) {
+      // ENOENT or read failure → file is gone, drop without queuing
+      const errCode = (err as { code?: string })?.code;
+      if (errCode === "ENOENT") {
+        console.warn(`[ScreenCapture] File missing for queued upload: ${item.filePath}`);
+        return null;
+      }
+
+      console.warn(`[ScreenCapture] Upload failed (attempt ${item.attempts}): ${err instanceof Error ? err.message : String(err)}`);
+
+      // Queue for retry if we haven't exhausted attempts and the file is reasonably young.
+      const ageMs = Date.now() - new Date(item.capturedAt).getTime();
+      if (item.attempts < MAX_ATTEMPTS && ageMs < MAX_QUEUE_AGE_MS) {
+        // Don't double-queue if it's already there (drainRetryQueue picked it up)
+        const existing = this.retryQueue.find((q) => q.filePath === item.filePath);
+        if (existing) {
+          existing.attempts = item.attempts + 1;
+        } else {
+          this.retryQueue.push({ ...item, attempts: item.attempts + 1 });
+          // Cap queue size — drop oldest if over the limit
+          while (this.retryQueue.length > MAX_QUEUE_SIZE) {
+            this.retryQueue.shift();
+          }
+        }
+      } else {
+        console.warn(`[ScreenCapture] Giving up on ${item.filePath} after ${item.attempts} attempts (age ${Math.round(ageMs / 1000)}s)`);
+      }
+      return null;
+    }
+  }
+
+  /** Drain the retry queue. Called at the start of every capture cycle. */
+  private async drainRetryQueue(): Promise<void> {
+    if (this.retryQueue.length === 0) return;
+
+    // Snapshot the queue so we don't loop forever on re-queues
+    const items = [...this.retryQueue];
+    this.retryQueue = [];
+
+    for (const item of items) {
+      const ageMs = Date.now() - new Date(item.capturedAt).getTime();
+      if (ageMs > MAX_QUEUE_AGE_MS) {
+        console.warn(`[ScreenCapture] Dropping queued screenshot — too old (${Math.round(ageMs / 1000)}s)`);
+        continue;
+      }
+      await this.tryUpload(item); // Failed retries will re-add themselves to the queue
     }
   }
 
@@ -203,32 +303,8 @@ export class ScreenCaptureService implements vscode.Disposable {
     throw new Error("No screenshot tool available. Install gnome-screenshot, scrot, or imagemagick.");
   }
 
-  private async uploadScreenshot(filePath: string): Promise<string | null> {
-    if (!this.sessionId) return null;
-
-    const fileBuffer = await fs.promises.readFile(filePath);
-    const base64Data = fileBuffer.toString("base64");
-    const filename = path.basename(filePath);
-
-    try {
-      const resp = await this.apiClient.post<{ id: string }>("/api/telemetry/screenshot", {
-        sessionId: this.sessionId,
-        filename,
-        imageBase64: base64Data,
-        capturedAt: new Date().toISOString(),
-        metadata: {
-          activeEditor: vscode.window.activeTextEditor?.document.uri.fsPath
-            ? vscode.workspace.asRelativePath(vscode.window.activeTextEditor.document.uri)
-            : null,
-          language: vscode.window.activeTextEditor?.document.languageId ?? null,
-        },
-      });
-      return resp.id || null;
-    } catch (err) {
-      console.error("Screenshot upload failed:", err);
-      return null;
-    }
-  }
+  // Note: the previous uploadScreenshot() helper was inlined into tryUpload()
+  // because the retry queue needs full control over capturedAt + metadata.
 
   private async cleanupLocalScreenshots(): Promise<void> {
     const config = this.getConfig();
@@ -240,7 +316,11 @@ export class ScreenCaptureService implements vscode.Disposable {
         .sort(); // sorted by timestamp in filename
 
       if (pngFiles.length > config.maxLocalScreenshots) {
-        const toDelete = pngFiles.slice(0, pngFiles.length - config.maxLocalScreenshots);
+        // Don't delete files that are waiting for retry — would 404 the next attempt
+        const queuedBasenames = new Set(this.retryQueue.map((q) => path.basename(q.filePath)));
+        const toDelete = pngFiles
+          .slice(0, pngFiles.length - config.maxLocalScreenshots)
+          .filter((f) => !queuedBasenames.has(f));
         for (const file of toDelete) {
           await fs.promises.unlink(path.join(this.screenshotDir, file)).catch(() => {});
         }
