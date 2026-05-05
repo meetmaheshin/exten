@@ -3,6 +3,7 @@
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { DashboardShell } from "@/components/DashboardShell";
+import { DateRangeFilter, dateRangePresets, dateRangeToISO, type DateRange } from "@/components/DateRangeFilter";
 import { StatCard } from "@/components/StatCard";
 import { useAuth } from "@/lib/auth";
 import { apiFetch, API_BASE } from "@/lib/api";
@@ -51,16 +52,25 @@ function DeveloperDetailContent() {
   const [sessions, setSessions] = useState<SessionWithTask[]>([]);
   const [screenshots, setScreenshots] = useState<ScreenshotEntry[]>([]);
   const [loading, setLoading] = useState(true);
-
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-  const fromParam = thirtyDaysAgo.toISOString();
+  const [dateRange, setDateRange] = useState<DateRange>(() => dateRangePresets.last30Days());
 
   useEffect(() => {
     if (!accessToken || !userId) return;
+    setLoading(true);
+    const iso = dateRangeToISO(dateRange);
+    const summaryParams = new URLSearchParams();
+    const sessionsParams = new URLSearchParams({ limit: "100" });
+    if (iso.from) {
+      summaryParams.set("from", iso.from);
+      sessionsParams.set("from", iso.from);
+    }
+    if (iso.to) {
+      summaryParams.set("to", iso.to);
+      sessionsParams.set("to", iso.to);
+    }
     Promise.all([
-      apiFetch<UserSummary>(`/api/admin/activity/user/${userId}?from=${fromParam}`, { token: accessToken }),
-      apiFetch<{ data: SessionWithTask[] }>(`/api/admin/activity/user/${userId}/sessions?from=${fromParam}&limit=100`, { token: accessToken }),
+      apiFetch<UserSummary>(`/api/admin/activity/user/${userId}?${summaryParams}`, { token: accessToken }),
+      apiFetch<{ data: SessionWithTask[] }>(`/api/admin/activity/user/${userId}/sessions?${sessionsParams}`, { token: accessToken }),
       apiFetch<{ data: ScreenshotEntry[] }>(`/api/admin/screenshots?userId=${userId}&limit=12`, { token: accessToken }),
     ])
       .then(([sum, sess, ss]) => {
@@ -70,13 +80,16 @@ function DeveloperDetailContent() {
       })
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [accessToken, userId]);
+  }, [accessToken, userId, dateRange.from, dateRange.to]);
 
   return (
     <DashboardShell>
-      <div className="page-header">
-        <div className="page-title">Developer Detail</div>
-        <div className="page-subtitle">Last 30 days activity</div>
+      <div className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
+        <div>
+          <div className="page-title">Developer Detail</div>
+          <div className="page-subtitle">Activity for the selected period</div>
+        </div>
+        <DateRangeFilter value={dateRange} onChange={setDateRange} />
       </div>
       {loading ? (
         <div className="loading">Loading developer data...</div>
@@ -98,7 +111,7 @@ function DeveloperDetailContent() {
           {/* Top apps the user spent time in */}
           {summary.topApps && summary.topApps.length > 0 && (
             <div className="card" style={{ marginBottom: 24 }}>
-              <div className="card-header">Top Apps (last 30 days)</div>
+              <div className="card-header">Top Apps</div>
               <div style={{ padding: "8px 16px 16px" }}>
                 {(() => {
                   const max = summary.topApps[0].seconds || 1;

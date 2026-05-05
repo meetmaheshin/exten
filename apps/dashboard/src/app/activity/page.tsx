@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { DashboardShell } from "@/components/DashboardShell";
+import { DateRangeFilter, dateRangePresets, dateRangeToISO, type DateRange } from "@/components/DateRangeFilter";
 import { StatCard } from "@/components/StatCard";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
@@ -35,19 +36,23 @@ export default function ActivityPage() {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [dateDetail, setDateDetail] = useState<DateDetail[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [dateRange, setDateRange] = useState<DateRange>(() => dateRangePresets.last30Days());
 
   useEffect(() => {
     if (!accessToken) return;
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    setLoading(true);
+    const iso = dateRangeToISO(dateRange);
+    const params = new URLSearchParams({ limit: "60" });
+    if (iso.from) params.set("from", iso.from);
+    if (iso.to) params.set("to", iso.to);
     apiFetch<{ data: DailyData[] }>(
-      `/api/admin/activity/daily?from=${thirtyDaysAgo.toISOString()}&limit=30`,
+      `/api/admin/activity/daily?${params}`,
       { token: accessToken }
     )
       .then((res) => setDaily(res.data))
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [accessToken]);
+  }, [accessToken, dateRange.from, dateRange.to]);
 
   async function loadDateDetail(date: string) {
     if (!accessToken) return;
@@ -68,9 +73,12 @@ export default function ActivityPage() {
 
   return (
     <DashboardShell>
-      <div className="page-header">
-        <div className="page-title">Daily Activity</div>
-        <div className="page-subtitle">Time tracked per day across the team — click any date for the per-user breakdown</div>
+      <div className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
+        <div>
+          <div className="page-title">Daily Activity</div>
+          <div className="page-subtitle">Time tracked per day across the team — click any date for the per-user breakdown</div>
+        </div>
+        <DateRangeFilter value={dateRange} onChange={setDateRange} />
       </div>
 
       <div className="stats-grid">

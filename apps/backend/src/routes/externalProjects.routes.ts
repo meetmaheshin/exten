@@ -598,6 +598,8 @@ export function externalProjectsRoutes(
   app.get("/api/admin/projects/list", { preHandler: admin }, async (request, reply) => {
     const query = z.object({
       search: z.string().optional(),
+      from: z.string().datetime().optional(),
+      to: z.string().datetime().optional(),
       limit: z.coerce.number().int().min(1).max(500).default(200),
       offset: z.coerce.number().int().min(0).default(0),
     }).parse(request.query);
@@ -605,6 +607,13 @@ export function externalProjectsRoutes(
     const searchFilter = query.search
       ? sql`AND ep.name ILIKE ${"%" + query.search + "%"}`
       : sql``;
+
+    // Optional date window. Applied inside the LATERAL subquery so projects
+    // whose activity sits outside the window still appear in the list (with
+    // zeroed stats), instead of vanishing entirely — admins still want to see
+    // their full project list.
+    const fromFilter = query.from ? sql`AND s.started_at >= ${query.from}::timestamptz` : sql``;
+    const toFilter = query.to ? sql`AND s.started_at <= ${query.to}::timestamptz` : sql``;
 
     const result = await db.execute<{
       id: number;
@@ -631,7 +640,7 @@ export function externalProjectsRoutes(
               COUNT(DISTINCT s.user_id)::int AS unique_developers,
               COUNT(*)::int AS session_count
             FROM activity_sessions s
-            WHERE s.external_project_id = ep.id
+            WHERE s.external_project_id = ep.id ${fromFilter} ${toFilter}
           ) stats ON true
           WHERE ep.active = true AND ep.is_closed = false ${searchFilter}
           ORDER BY COALESCE(stats.total_active_seconds, 0) DESC, ep.name

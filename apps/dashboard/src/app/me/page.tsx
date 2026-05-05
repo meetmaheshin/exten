@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { DashboardShell } from "@/components/DashboardShell";
+import { DateRangeFilter, dateRangePresets, dateRangeToISO, type DateRange } from "@/components/DateRangeFilter";
 import { StatCard } from "@/components/StatCard";
 import { useAuth } from "@/lib/auth";
 import { apiFetch, API_BASE } from "@/lib/api";
@@ -35,17 +36,25 @@ export default function MyPerformancePage() {
   const [daily, setDaily] = useState<MyDaily[]>([]);
   const [screenshots, setScreenshots] = useState<MyScreenshot[]>([]);
   const [loading, setLoading] = useState(true);
-
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-  const fromParam = thirtyDaysAgo.toISOString();
+  const [dateRange, setDateRange] = useState<DateRange>(() => dateRangePresets.last30Days());
 
   useEffect(() => {
     if (!accessToken) return;
     setLoading(true);
+    const iso = dateRangeToISO(dateRange);
+    const summaryParams = new URLSearchParams();
+    const dailyParams = new URLSearchParams({ limit: "60" });
+    if (iso.from) {
+      summaryParams.set("from", iso.from);
+      dailyParams.set("from", iso.from);
+    }
+    if (iso.to) {
+      summaryParams.set("to", iso.to);
+      dailyParams.set("to", iso.to);
+    }
     Promise.all([
-      apiFetch<{ data: MySummary }>(`/api/activity/me/summary?from=${fromParam}`, { token: accessToken }),
-      apiFetch<{ data: MyDaily[] }>(`/api/activity/me/daily?from=${fromParam}&limit=30`, { token: accessToken }),
+      apiFetch<{ data: MySummary }>(`/api/activity/me/summary?${summaryParams}`, { token: accessToken }),
+      apiFetch<{ data: MyDaily[] }>(`/api/activity/me/daily?${dailyParams}`, { token: accessToken }),
       apiFetch<{ data: MyScreenshot[] }>("/api/telemetry/screenshots/me?limit=8", { token: accessToken }),
     ])
       .then(([sum, d, ss]) => {
@@ -55,20 +64,34 @@ export default function MyPerformancePage() {
       })
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [accessToken]);
+  }, [accessToken, dateRange.from, dateRange.to]);
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const todayData = daily.find((d) => d.date === todayStr);
 
+  // Label e.g. "(30d)" used in stat-card sublabels
+  const rangeLabel = (() => {
+    if (!dateRange.from && !dateRange.to) return "(all time)";
+    if (dateRange.from && dateRange.to) {
+      const from = new Date(dateRange.from);
+      const to = new Date(dateRange.to);
+      if (dateRange.from === dateRange.to) return "(today)";
+      const days = Math.round((to.getTime() - from.getTime()) / 86400000) + 1;
+      return `(${days}d)`;
+    }
+    return "";
+  })();
+
   return (
     <DashboardShell>
-      <div className="page-header">
+      <div className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
         <div>
           <div className="page-title">My Performance</div>
           <div className="page-subtitle">
-            Welcome back, {user?.fullName} — last 30 days
+            Welcome back, {user?.fullName}
           </div>
         </div>
+        <DateRangeFilter value={dateRange} onChange={setDateRange} showAllTime />
       </div>
 
       {loading ? (
@@ -86,9 +109,9 @@ export default function MyPerformancePage() {
           )}
 
           <div className="stats-grid">
-            <StatCard value={formatDuration(summary?.totalActiveSeconds ?? 0)} label="Active Time (30d)" color="blue" />
-            <StatCard value={formatDuration(summary?.totalIdleSeconds ?? 0)} label="Idle Time (30d)" color="yellow" />
-            <StatCard value={formatNumber(summary?.totalFileSaves ?? 0)} label="File Saves (30d)" color="green" />
+            <StatCard value={formatDuration(summary?.totalActiveSeconds ?? 0)} label={`Active Time ${rangeLabel}`} color="blue" />
+            <StatCard value={formatDuration(summary?.totalIdleSeconds ?? 0)} label={`Idle Time ${rangeLabel}`} color="yellow" />
+            <StatCard value={formatNumber(summary?.totalFileSaves ?? 0)} label={`File Saves ${rangeLabel}`} color="green" />
             <StatCard value={String(summary?.totalSessions ?? 0)} label="Sessions" color="purple" />
           </div>
 

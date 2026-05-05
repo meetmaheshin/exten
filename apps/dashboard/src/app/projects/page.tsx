@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { DashboardShell } from "@/components/DashboardShell";
+import { DateRangeFilter, dateRangePresets, dateRangeToISO, type DateRange } from "@/components/DateRangeFilter";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import { formatDuration, formatNumber } from "@/lib/format";
@@ -55,12 +56,17 @@ export default function ProjectsPage() {
   const [syncing, setSyncing] = useState(false);
   const [tab, setTab] = useState<"projects" | "live">("projects");
   const [search, setSearch] = useState("");
+  const [dateRange, setDateRange] = useState<DateRange>(() => ({ from: "", to: "" }));
 
   useEffect(() => {
     if (!accessToken) return;
     setLoading(true);
+    const iso = dateRangeToISO(dateRange);
+    const projectsParams = new URLSearchParams({ limit: "500" });
+    if (iso.from) projectsParams.set("from", iso.from);
+    if (iso.to) projectsParams.set("to", iso.to);
     Promise.all([
-      apiFetch<{ data: Project[] }>("/api/admin/projects/list?limit=500", { token: accessToken }),
+      apiFetch<{ data: Project[] }>(`/api/admin/projects/list?${projectsParams}`, { token: accessToken }),
       apiFetch<SyncStatus>("/api/admin/sync/status", { token: accessToken }),
       apiFetch<{ data: LiveDev[] }>("/api/admin/projects/live", { token: accessToken }),
     ])
@@ -71,14 +77,18 @@ export default function ProjectsPage() {
       })
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [accessToken]);
+  }, [accessToken, dateRange.from, dateRange.to]);
 
   async function loadProjectDetail(projectId: number) {
     if (!accessToken) return;
     setDetailLoading(true);
+    const iso = dateRangeToISO(dateRange);
+    const params = new URLSearchParams();
+    if (iso.from) params.set("from", iso.from);
+    if (iso.to) params.set("to", iso.to);
     try {
       const detail = await apiFetch<ProjectDetail>(
-        `/api/admin/projects/${projectId}/detail`,
+        `/api/admin/projects/${projectId}/detail?${params}`,
         { token: accessToken }
       );
       setSelectedProject(detail);
@@ -103,7 +113,7 @@ export default function ProjectsPage() {
 
   return (
     <DashboardShell>
-      <div className="page-header">
+      <div className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
         <div>
           <div className="page-title">Projects</div>
           <div className="page-subtitle">
@@ -111,9 +121,12 @@ export default function ProjectsPage() {
             {syncStatus?.projects.lastSync && ` · Last sync: ${new Date(syncStatus.projects.lastSync).toLocaleString()}`}
           </div>
         </div>
-        <button className="btn btn-primary" onClick={triggerSync} disabled={syncing} style={{ minWidth: 120 }}>
-          {syncing ? "Syncing..." : "Sync Now"}
-        </button>
+        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+          <DateRangeFilter value={dateRange} onChange={setDateRange} showAllTime />
+          <button className="btn btn-primary" onClick={triggerSync} disabled={syncing} style={{ minWidth: 120 }}>
+            {syncing ? "Syncing..." : "Sync Now"}
+          </button>
+        </div>
       </div>
 
       <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>

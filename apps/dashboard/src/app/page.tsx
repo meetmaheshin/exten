@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { DashboardShell } from "@/components/DashboardShell";
+import { DateRangeFilter, dateRangePresets, dateRangeToISO, type DateRange } from "@/components/DateRangeFilter";
 import { StatCard } from "@/components/StatCard";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
@@ -26,6 +27,7 @@ export default function TeamOverviewPage() {
   const router = useRouter();
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(true);
+  const [dateRange, setDateRange] = useState<DateRange>(() => dateRangePresets.last30Days());
 
   // Send non-admins to a page that's actually for them. Auth check has to be done
   // first so we don't redirect mid-session-restore.
@@ -38,18 +40,21 @@ export default function TeamOverviewPage() {
 
   useEffect(() => {
     if (!accessToken || !isAdmin) return;
+    setLoading(true);
 
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const iso = dateRangeToISO(dateRange);
+    const params = new URLSearchParams({ limit: "100" });
+    if (iso.from) params.set("from", iso.from);
+    if (iso.to) params.set("to", iso.to);
 
     apiFetch<{ data: TeamMember[] }>(
-      `/api/admin/activity/overview?from=${thirtyDaysAgo.toISOString()}&limit=100`,
+      `/api/admin/activity/overview?${params}`,
       { token: accessToken }
     )
       .then((res) => setMembers(res.data))
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [accessToken, isAdmin]);
+  }, [accessToken, isAdmin, dateRange.from, dateRange.to]);
 
   const totalActive = members.reduce((sum, m) => sum + m.totalActiveSeconds, 0);
   const totalIdle = members.reduce((sum, m) => sum + m.totalIdleSeconds, 0);
@@ -60,6 +65,16 @@ export default function TeamOverviewPage() {
   const activeNow = members.filter(
     (m) => Date.now() - new Date(m.lastActive).getTime() < 10 * 60 * 1000
   ).length;
+
+  const rangeLabel = (() => {
+    if (!dateRange.from && !dateRange.to) return "(all time)";
+    if (dateRange.from === dateRange.to) return "(today)";
+    if (dateRange.from && dateRange.to) {
+      const days = Math.round((new Date(dateRange.to).getTime() - new Date(dateRange.from).getTime()) / 86400000) + 1;
+      return `(${days}d)`;
+    }
+    return "";
+  })();
 
   // Non-admins see a brief redirect message instead of the empty admin layout
   if (!authLoading && user && !isAdmin) {
@@ -72,11 +87,12 @@ export default function TeamOverviewPage() {
 
   return (
     <DashboardShell>
-      <div className="page-header">
+      <div className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
         <div>
           <div className="page-title">Team Overview</div>
           <div className="page-subtitle">{user?.fullName ? `Welcome back, ${user.fullName.split(" ")[0]}.` : ""} {activeNow > 0 ? `${activeNow} ${activeNow === 1 ? "person is" : "people are"} working right now.` : "No one is actively tracking right now."}</div>
         </div>
+        <DateRangeFilter value={dateRange} onChange={setDateRange} />
       </div>
 
       {/* Snapshot of right now */}
@@ -87,10 +103,10 @@ export default function TeamOverviewPage() {
         <StatCard value={String(totalSessions)} label="Sessions this month" color="yellow" />
       </div>
 
-      {/* 30-day totals */}
+      {/* Range totals */}
       <div className="stats-grid" style={{ marginTop: 8 }}>
-        <StatCard value={formatDuration(totalActive)} label="Active time (30d)" color="blue" />
-        <StatCard value={formatDuration(totalIdle)} label="Idle time (30d)" color="yellow" />
+        <StatCard value={formatDuration(totalActive)} label={`Active time ${rangeLabel}`} color="blue" />
+        <StatCard value={formatDuration(totalIdle)} label={`Idle time ${rangeLabel}`} color="yellow" />
         <StatCard value={String(activeDevelopers)} label="Active devs (24h)" color="green" />
         <StatCard value={String(members.length)} label="Total developers" color="purple" />
       </div>

@@ -3,9 +3,10 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { DashboardShell } from "@/components/DashboardShell";
+import { DateRangeFilter, dateRangePresets, dateRangeToISO, type DateRange } from "@/components/DateRangeFilter";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
-import { formatDuration, formatNumber } from "@/lib/format";
+import { formatDuration } from "@/lib/format";
 
 interface TeamMember {
   userId: string;
@@ -24,17 +25,20 @@ export default function MyTeamPage() {
   const { accessToken, user, isManager } = useAuth();
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(true);
-
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const [dateRange, setDateRange] = useState<DateRange>(() => dateRangePresets.last30Days());
 
   useEffect(() => {
     if (!accessToken) return;
-    apiFetch<{ data: TeamMember[] }>(`/api/my-team?from=${thirtyDaysAgo.toISOString()}`, { token: accessToken })
+    setLoading(true);
+    const iso = dateRangeToISO(dateRange);
+    const params = new URLSearchParams();
+    if (iso.from) params.set("from", iso.from);
+    if (iso.to) params.set("to", iso.to);
+    apiFetch<{ data: TeamMember[] }>(`/api/my-team?${params}`, { token: accessToken })
       .then((res) => setMembers(res.data))
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [accessToken]);
+  }, [accessToken, dateRange.from, dateRange.to]);
 
   if (!isManager) {
     return (
@@ -54,11 +58,12 @@ export default function MyTeamPage() {
 
   return (
     <DashboardShell>
-      <div className="page-header">
+      <div className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
         <div>
           <div className="page-title">My Team</div>
-          <div className="page-subtitle">{members.length} team members — last 30 days</div>
+          <div className="page-subtitle">{members.length} team members</div>
         </div>
+        <DateRangeFilter value={dateRange} onChange={setDateRange} />
       </div>
 
       {loading ? (
@@ -69,7 +74,10 @@ export default function MyTeamPage() {
             <StatCard value={String(members.length)} label="Team Members" color="blue" />
             <StatCard value={formatDuration(totalActive)} label="Total Active Time" color="green" />
             <StatCard value={formatDuration(totalIdle)} label="Total Idle Time" color="yellow" />
-            <StatCard value={String(members.filter((m) => m.lastActive && new Date(m.lastActive) > thirtyDaysAgo).length)} label="Active This Month" color="purple" />
+            <StatCard value={String(members.filter((m) => {
+              if (!m.lastActive || !dateRange.from) return Boolean(m.lastActive);
+              return new Date(m.lastActive) >= new Date(dateRange.from);
+            }).length)} label="Active in range" color="purple" />
           </div>
 
           <div className="card">

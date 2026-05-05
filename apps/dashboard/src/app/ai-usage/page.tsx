@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { DashboardShell } from "@/components/DashboardShell";
+import { DateRangeFilter, dateRangePresets, dateRangeToISO, type DateRange } from "@/components/DateRangeFilter";
 import { StatCard } from "@/components/StatCard";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
@@ -25,37 +26,53 @@ export default function AiUsagePage() {
   const [selectedUser, setSelectedUser] = useState<MemberWithAi | null>(null);
   const [userDaily, setUserDaily] = useState<UserDailyAi[]>([]);
   const [userDailyLoading, setUserDailyLoading] = useState(false);
-
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-  const fromParam = thirtyDaysAgo.toISOString();
+  const [dateRange, setDateRange] = useState<DateRange>(() => dateRangePresets.last30Days());
 
   useEffect(() => {
     if (!accessToken) return;
+    setLoading(true);
+    const iso = dateRangeToISO(dateRange);
+    const dailyParams = new URLSearchParams({ limit: "100" });
+    const overviewParams = new URLSearchParams({ limit: "100" });
+    const userParams = new URLSearchParams();
+    if (iso.from) {
+      dailyParams.set("from", iso.from);
+      overviewParams.set("from", iso.from);
+      userParams.set("from", iso.from);
+    }
+    if (iso.to) {
+      dailyParams.set("to", iso.to);
+      overviewParams.set("to", iso.to);
+      userParams.set("to", iso.to);
+    }
     Promise.all([
-      apiFetch<{ data: DailyUsage[] }>(`/api/admin/ai-usage/daily?from=${fromParam}&limit=100`, { token: accessToken }),
-      apiFetch<{ data: TeamMember[] }>(`/api/admin/activity/overview?from=${fromParam}&limit=100`, { token: accessToken }),
+      apiFetch<{ data: DailyUsage[] }>(`/api/admin/ai-usage/daily?${dailyParams}`, { token: accessToken }),
+      apiFetch<{ data: TeamMember[] }>(`/api/admin/activity/overview?${overviewParams}`, { token: accessToken }),
     ]).then(async ([dailyRes, teamRes]) => {
       setDailyUsage(dailyRes.data);
       const enriched = await Promise.all(
         teamRes.data.map(async (m) => {
           try {
-            const detail = await apiFetch<{ aiUsage: UserAiDetail }>(`/api/admin/activity/user/${m.userId}?from=${fromParam}`, { token: accessToken! });
+            const detail = await apiFetch<{ aiUsage: UserAiDetail }>(`/api/admin/activity/user/${m.userId}?${userParams}`, { token: accessToken! });
             return { ...m, ai: detail.aiUsage };
           } catch { return { ...m, ai: null }; }
         })
       );
       setMembers(enriched);
     }).catch(console.error).finally(() => setLoading(false));
-  }, [accessToken]);
+  }, [accessToken, dateRange.from, dateRange.to]);
 
   async function loadUserDaily(member: MemberWithAi) {
     if (!accessToken) return;
     if (selectedUser?.userId === member.userId) { setSelectedUser(null); return; }
     setSelectedUser(member);
     setUserDailyLoading(true);
+    const iso = dateRangeToISO(dateRange);
+    const params = new URLSearchParams();
+    if (iso.from) params.set("from", iso.from);
+    if (iso.to) params.set("to", iso.to);
     try {
-      const res = await apiFetch<{ data: UserDailyAi[] }>(`/api/admin/ai-usage/user/${member.userId}/daily?from=${fromParam}`, { token: accessToken });
+      const res = await apiFetch<{ data: UserDailyAi[] }>(`/api/admin/ai-usage/user/${member.userId}/daily?${params}`, { token: accessToken });
       setUserDaily(res.data);
     } catch { setUserDaily([]); }
     finally { setUserDailyLoading(false); }
@@ -68,9 +85,12 @@ export default function AiUsagePage() {
 
   return (
     <DashboardShell>
-      <div className="page-header">
-        <div className="page-title">AI Usage & Cost</div>
-        <div className="page-subtitle">Claude API usage across the team (last 30 days)</div>
+      <div className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
+        <div>
+          <div className="page-title">AI Usage & Cost</div>
+          <div className="page-subtitle">Claude API usage across the team</div>
+        </div>
+        <DateRangeFilter value={dateRange} onChange={setDateRange} />
       </div>
 
       <div className="stats-grid">

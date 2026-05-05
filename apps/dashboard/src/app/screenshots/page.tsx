@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/DashboardShell";
+import { DateRangeFilter, dateRangePresets, type DateRange } from "@/components/DateRangeFilter";
 import { useAuth } from "@/lib/auth";
 import { apiFetch, API_BASE } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
@@ -29,11 +30,16 @@ export default function ScreenshotsPage() {
   const [screenshots, setScreenshots] = useState<Screenshot[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [total, setTotal] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Default to today's date range so admins land on the current day's captures
+  const [dateRange, setDateRange] = useState<DateRange>(() => dateRangePresets.today());
   const [filterUserId, setFilterUserId] = useState("");
-  const [filterDate, setFilterDate] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
+
+  const PAGE_SIZE = 100;
 
   useEffect(() => {
     if (!accessToken) return;
@@ -42,22 +48,66 @@ export default function ScreenshotsPage() {
       .catch(console.error);
   }, [accessToken]);
 
-  const loadScreenshots = () => {
+  const loadScreenshots = useCallback(
+    (append = false) => {
+      if (!accessToken) return;
+      const offset = append ? screenshots.length : 0;
+      if (append) setLoadingMore(true);
+      else setLoading(true);
+
+      const params = new URLSearchParams({
+        limit: String(PAGE_SIZE),
+        offset: String(offset),
+      });
+      if (filterUserId) params.set("userId", filterUserId);
+      if (dateRange.from) params.set("from", `${dateRange.from}T00:00:00.000Z`);
+      if (dateRange.to) params.set("to", `${dateRange.to}T23:59:59.999Z`);
+      apiFetch<{ data: Screenshot[]; total: number; limit: number; offset: number }>(
+        `/api/admin/screenshots?${params}`,
+        { token: accessToken }
+      )
+        .then((res) => {
+          setTotal(res.total ?? res.data.length);
+          if (append) {
+            setScreenshots((prev) => [...prev, ...res.data]);
+          } else {
+            setScreenshots(res.data);
+            setSelectedIds(new Set());
+          }
+        })
+        .catch(console.error)
+        .finally(() => {
+          setLoading(false);
+          setLoadingMore(false);
+        });
+    },
+    [accessToken, filterUserId, dateRange.from, dateRange.to, screenshots.length]
+  );
+
+  // Reset + reload when filters change. Keep this dep list narrow so we don't
+  // re-run when screenshots.length changes (which would cause infinite reloads).
+  useEffect(() => {
     if (!accessToken) return;
     setLoading(true);
-    const params = new URLSearchParams({ limit: "100" });
+    const params = new URLSearchParams({
+      limit: String(PAGE_SIZE),
+      offset: "0",
+    });
     if (filterUserId) params.set("userId", filterUserId);
-    if (filterDate) {
-      params.set("from", `${filterDate}T00:00:00.000Z`);
-      params.set("to", `${filterDate}T23:59:59.999Z`);
-    }
-    apiFetch<{ data: Screenshot[] }>(`/api/admin/screenshots?${params}`, { token: accessToken })
-      .then((res) => { setScreenshots(res.data); setSelectedIds(new Set()); })
+    if (dateRange.from) params.set("from", `${dateRange.from}T00:00:00.000Z`);
+    if (dateRange.to) params.set("to", `${dateRange.to}T23:59:59.999Z`);
+    apiFetch<{ data: Screenshot[]; total: number; limit: number; offset: number }>(
+      `/api/admin/screenshots?${params}`,
+      { token: accessToken }
+    )
+      .then((res) => {
+        setTotal(res.total ?? res.data.length);
+        setScreenshots(res.data);
+        setSelectedIds(new Set());
+      })
       .catch(console.error)
       .finally(() => setLoading(false));
-  };
-
-  useEffect(() => { loadScreenshots(); }, [accessToken, filterUserId, filterDate]);
+  }, [accessToken, filterUserId, dateRange.from, dateRange.to]);
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
@@ -116,7 +166,7 @@ export default function ScreenshotsPage() {
         token: accessToken,
         method: "DELETE",
       });
-      loadScreenshots();
+      loadScreenshots(false);
     } catch (e) {
       alert("Delete failed: " + (e instanceof Error ? e.message : String(e)));
     } finally {
@@ -125,13 +175,37 @@ export default function ScreenshotsPage() {
   };
 
   const selectedScreenshot = screenshots.find((s) => s.id === selectedId);
+  const selectedIndex = selectedId ? screenshots.findIndex((s) => s.id === selectedId) : -1;
+  const hasPrev = selectedIndex > 0;
+  const hasNext = selectedIndex >= 0 && selectedIndex < screenshots.length - 1;
+  const goPrev = useCallback(() => {
+    if (hasPrev) setSelectedId(screenshots[selectedIndex - 1].id);
+  }, [hasPrev, screenshots, selectedIndex]);
+  const goNext = useCallback(() => {
+    if (hasNext) setSelectedId(screenshots[selectedIndex + 1].id);
+  }, [hasNext, screenshots, selectedIndex]);
+
+  // Keyboard navigation for the lightbox
+  useEffect(() => {
+    if (!selectedId) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "ArrowLeft") goPrev();
+      else if (e.key === "ArrowRight") goNext();
+      else if (e.key === "Escape") setSelectedId(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedId, goPrev, goNext]);
 
   return (
     <DashboardShell>
       <div className="page-header">
         <div>
           <div className="page-title">Screenshots</div>
-          <div className="page-subtitle">Screen captures from all developers ({screenshots.length} total)</div>
+          <div className="page-subtitle">
+            Screen captures from all developers
+            {total > 0 && ` (showing ${screenshots.length} of ${total})`}
+          </div>
         </div>
       </div>
 
@@ -143,9 +217,9 @@ export default function ScreenshotsPage() {
             <option key={u.id} value={u.id}>{u.fullName || u.email}</option>
           ))}
         </select>
-        <input type="date" className="form-input" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} style={{ maxWidth: 180 }} />
-        {(filterUserId || filterDate) && (
-          <button className="btn btn-secondary" onClick={() => { setFilterUserId(""); setFilterDate(""); }}>
+        <DateRangeFilter value={dateRange} onChange={setDateRange} showAllTime />
+        {(filterUserId || dateRange.from || dateRange.to) && (
+          <button className="btn btn-secondary" onClick={() => { setFilterUserId(""); setDateRange({ from: "", to: "" }); }}>
             Clear filters
           </button>
         )}
@@ -190,6 +264,40 @@ export default function ScreenshotsPage() {
             alignItems: "center", justifyContent: "center", cursor: "zoom-out",
           }}
         >
+          {/* Prev button */}
+          {hasPrev && (
+            <button
+              onClick={(e) => { e.stopPropagation(); goPrev(); }}
+              aria-label="Previous screenshot"
+              style={{
+                position: "absolute", left: 24, top: "50%", transform: "translateY(-50%)",
+                width: 48, height: 48, borderRadius: "50%",
+                background: "rgba(255,255,255,0.15)", color: "#fff",
+                border: "none", cursor: "pointer", fontSize: 24,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                backdropFilter: "blur(8px)",
+              }}
+            >
+              &#8249;
+            </button>
+          )}
+          {/* Next button */}
+          {hasNext && (
+            <button
+              onClick={(e) => { e.stopPropagation(); goNext(); }}
+              aria-label="Next screenshot"
+              style={{
+                position: "absolute", right: 24, top: "50%", transform: "translateY(-50%)",
+                width: 48, height: 48, borderRadius: "50%",
+                background: "rgba(255,255,255,0.15)", color: "#fff",
+                border: "none", cursor: "pointer", fontSize: 24,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                backdropFilter: "blur(8px)",
+              }}
+            >
+              &#8250;
+            </button>
+          )}
           <img
             src={`${API_BASE}/api/telemetry/screenshots/${selectedId}/image?token=${accessToken}`}
             alt="Screenshot"
@@ -201,6 +309,11 @@ export default function ScreenshotsPage() {
               <strong style={{ opacity: 1 }}>{selectedScreenshot.userName || selectedScreenshot.userEmail || selectedScreenshot.userId.slice(0, 8)}</strong>
               &nbsp;&middot;&nbsp;{formatDateTime(selectedScreenshot.capturedAt)}
               &nbsp;&middot;&nbsp;{Math.round(selectedScreenshot.fileSizeBytes / 1024)} KB
+              {selectedIndex >= 0 && (
+                <>
+                  &nbsp;&middot;&nbsp;{selectedIndex + 1} / {screenshots.length}
+                </>
+              )}
               <br />
               <button
                 onClick={(e) => { e.stopPropagation(); deleteSingle(selectedId); }}
@@ -209,7 +322,7 @@ export default function ScreenshotsPage() {
                 Delete this screenshot
               </button>
               <br />
-              <span style={{ fontSize: 11 }}>Click anywhere to close</span>
+              <span style={{ fontSize: 11 }}>Use &larr; &rarr; arrow keys, Esc to close</span>
             </div>
           )}
         </div>
@@ -278,6 +391,19 @@ export default function ScreenshotsPage() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Load more */}
+      {!loading && screenshots.length > 0 && screenshots.length < total && (
+        <div style={{ display: "flex", justifyContent: "center", marginTop: 16 }}>
+          <button
+            className="btn btn-secondary"
+            disabled={loadingMore}
+            onClick={() => loadScreenshots(true)}
+          >
+            {loadingMore ? "Loading..." : `Load more (${screenshots.length} of ${total})`}
+          </button>
         </div>
       )}
     </DashboardShell>

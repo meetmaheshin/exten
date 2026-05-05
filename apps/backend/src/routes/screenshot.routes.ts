@@ -20,7 +20,9 @@ const querySchema = z.object({
   sessionId: z.string().uuid().optional(),
   from: z.string().datetime().optional(),
   to: z.string().datetime().optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(20),
+  // Bumped from 100 → 500 because admins viewing a full day across the team
+  // routinely exceed 100 (one shot per 5 min × 8h × 5 people = 480).
+  limit: z.coerce.number().int().min(1).max(500).default(50),
   offset: z.coerce.number().int().min(0).default(0),
 });
 
@@ -101,7 +103,12 @@ export function screenshotRoutes(
       .limit(query.limit)
       .offset(query.offset);
 
-    return reply.send({ data: results });
+    const [{ total } = { total: 0 }] = await db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(screenshots)
+      .where(and(...conditions));
+
+    return reply.send({ data: results, total, limit: query.limit, offset: query.offset });
   });
 
   // Admin: get screenshots for any user
@@ -135,7 +142,14 @@ export function screenshotRoutes(
       .limit(query.limit)
       .offset(query.offset);
 
-    return reply.send({ data: results });
+    // Total count for pagination — using sql<number> instead of count() because Drizzle's count() needs a different import we don't have here
+    const [{ total } = { total: 0 }] = await db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(screenshots)
+      .leftJoin(users, eq(screenshots.userId, users.id))
+      .where(whereClause);
+
+    return reply.send({ data: results, total, limit: query.limit, offset: query.offset });
   });
 
   // Serve screenshot image by id — read from DB

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { DashboardShell } from "@/components/DashboardShell";
+import { DateRangeFilter, dateRangePresets, dateRangeToISO, type DateRange } from "@/components/DateRangeFilter";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import { formatDuration } from "@/lib/format";
@@ -29,28 +30,32 @@ export default function MyProjectsPage() {
   const { accessToken } = useAuth();
   const [sessions, setSessions] = useState<MySession[]>([]);
   const [loading, setLoading] = useState(true);
-
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const [dateRange, setDateRange] = useState<DateRange>(() => dateRangePresets.last30Days());
 
   useEffect(() => {
     if (!accessToken) return;
-    apiFetch<{ data: MySession[] }>(`/api/activity/me/sessions?from=${thirtyDaysAgo.toISOString()}&limit=100`, { token: accessToken })
+    setLoading(true);
+    const iso = dateRangeToISO(dateRange);
+    const params = new URLSearchParams({ limit: "100" });
+    if (iso.from) params.set("from", iso.from);
+    if (iso.to) params.set("to", iso.to);
+    apiFetch<{ data: MySession[] }>(`/api/activity/me/sessions?${params}`, { token: accessToken })
       .then((res) => setSessions(res.data || []))
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [accessToken]);
+  }, [accessToken, dateRange.from, dateRange.to]);
 
   // Group by project
   const totalActive = sessions.reduce((s, sess) => s + (sess.activeSeconds || 0), 0);
 
   return (
     <DashboardShell>
-      <div className="page-header">
+      <div className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
         <div>
           <div className="page-title">My Projects</div>
-          <div className="page-subtitle">Your activity across projects — last 30 days</div>
+          <div className="page-subtitle">Your activity across projects</div>
         </div>
+        <DateRangeFilter value={dateRange} onChange={setDateRange} showAllTime />
       </div>
 
       {loading ? (
