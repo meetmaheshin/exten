@@ -24,7 +24,8 @@ interface Props {
 
 export function SlashCommandPicker({ prefix, selectedIndex, commitNonce, onSelect, onCountChange, customCommands = [] }: Props) {
   const filtered = useMemo(() => filterCommands(prefix, customCommands), [prefix, customCommands]);
-  const lastNonceRef = useRef(0);
+  // Init to current commitNonce so a remount doesn't auto-commit on a stale value.
+  const lastNonceRef = useRef(commitNonce);
 
   useEffect(() => { onCountChange?.(filtered.length); }, [filtered.length, onCountChange]);
 

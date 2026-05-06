@@ -14,7 +14,13 @@ interface Props {
 }
 
 export function AtFilePicker({ matches, selectedIndex, commitNonce, onSelect, isLoading }: Props) {
-  const lastNonceRef = useRef(0);
+  // Initialise to the current `commitNonce` so a fresh mount (e.g. user
+  // dismisses the picker and types `@` again) doesn't auto-commit on the
+  // stale value the parent still holds. Without this guard, the second
+  // `@` after a successful pick would silently re-pick whatever the
+  // highlighted index happens to be — which looked like "auto-selecting
+  // for me" to the user.
+  const lastNonceRef = useRef(commitNonce);
 
   useEffect(() => {
     if (commitNonce > 0 && commitNonce !== lastNonceRef.current && matches.length > 0) {

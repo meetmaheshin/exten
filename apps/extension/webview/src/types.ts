@@ -30,6 +30,7 @@ export type OutgoingMessage =
   | { type: "loadChecklist" }
   | { type: "saveChecklist"; completed: string[]; dismissed: boolean }
   | { type: "openMarkdownInEditor"; content: string; suggestedName?: string }
+  | { type: "webviewError"; message: string; stack: string; componentStack: string }
   | { type: "loadFilePreview"; path: string }
   | { type: "openAuditLog" }
   | { type: "pickMemoryFile" }

@@ -2164,6 +2164,66 @@ textarea:focus-visible {
   text-underline-offset: 2px;
 }
 
+/* Error-boundary fallback — caught render crashes show this instead of
+   blanking the whole webview. Reset button keeps the user going without
+   reload; the actual error is in the Output panel. */
+.error-boundary {
+  display: flex;
+  gap: 12px;
+  padding: 16px;
+  margin: 16px;
+  border: 1px solid var(--vscode-inputValidation-errorBorder, var(--vscode-charts-red, #f48771));
+  border-radius: 6px;
+  background: var(--vscode-inputValidation-errorBackground, rgba(244, 71, 71, 0.08));
+  color: var(--vscode-foreground);
+}
+.error-boundary-icon {
+  font-size: 22px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.error-boundary-body {
+  flex: 1;
+  min-width: 0;
+}
+.error-boundary-title {
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+.error-boundary-message {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  background: var(--vscode-textCodeBlock-background, rgba(0, 0, 0, 0.2));
+  padding: 6px 8px;
+  border-radius: 3px;
+  margin-bottom: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.error-boundary-hint {
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+.error-boundary-actions {
+  display: flex;
+  gap: 6px;
+}
+.error-boundary-btn {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  border: none;
+  border-radius: 3px;
+  padding: 4px 12px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.error-boundary-btn:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
 /* "Load earlier messages" toggle — surfaces when virtualisation kicks in. */
 .virtualise-toggle {
   margin: 8px auto;

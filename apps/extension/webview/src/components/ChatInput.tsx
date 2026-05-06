@@ -946,7 +946,7 @@ export function ChatInput({
               aria-expanded={overflowOpen}
               title="More options \u2014 Permission, Effort"
             >
-              {"\u22ef"}
+              <span aria-hidden="true">⋯</span>
             </button>
             {overflowOpen && (
               <div className="overflow-popover" role="dialog" aria-label="More options">

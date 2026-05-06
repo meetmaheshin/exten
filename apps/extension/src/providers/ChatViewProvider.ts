@@ -548,6 +548,24 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           await vscode.window.showTextDocument(doc, { preview: false });
           break;
         }
+        case "webviewError": {
+          // Forward webview render crashes to the host's output channel.
+          // Caught by the top-level <ErrorBoundary>; gives us a single
+          // log surface for chat-side bugs that would otherwise only show
+          // in DevTools (which most users never open).
+          const message = String(msg.message ?? "");
+          const stack = String(msg.stack ?? "");
+          const componentStack = String(msg.componentStack ?? "");
+          const ts = new Date().toISOString();
+          // outputChannel is held by the global namespace (extension.ts
+          // stashes it on `globalThis.__ailancersOutput`). Fetch lazily
+          // so the host doesn't need to inject it everywhere.
+          const ch = (globalThis as Record<string, unknown>).__ailancersOutput as vscode.OutputChannel | undefined;
+          ch?.appendLine(`[${ts}] [webview-error] ${message}`);
+          if (stack) ch?.appendLine(stack);
+          if (componentStack) ch?.appendLine(`Component stack:${componentStack}`);
+          break;
+        }
         case "saveChecklist": {
           await this.extensionContext.globalState.update(
             ChatViewProvider.CHECKLIST_KEY,

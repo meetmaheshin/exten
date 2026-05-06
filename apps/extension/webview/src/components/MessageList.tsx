@@ -328,9 +328,20 @@ export function MessageList({ messages, isStreaming, stream, streamingThinking, 
           )}
           {msg.role === "assistant" && (msg.inputTokens != null || msg.outputTokens != null || (msg.costUsd != null && msg.costUsd > 0)) && (
             <div className="msg-meta">
-              {msg.inputTokens != null && <span>{msg.inputTokens.toLocaleString()} in</span>}
-              {msg.outputTokens != null && <span>{msg.outputTokens.toLocaleString()} out</span>}
-              {msg.costUsd != null && msg.costUsd > 0 && <span>${msg.costUsd.toFixed(4)}</span>}
+              {(() => {
+                const n = typeof msg.inputTokens === "number" ? msg.inputTokens : Number(msg.inputTokens);
+                return msg.inputTokens != null && Number.isFinite(n) ? <span>{n.toLocaleString()} in</span> : null;
+              })()}
+              {(() => {
+                const n = typeof msg.outputTokens === "number" ? msg.outputTokens : Number(msg.outputTokens);
+                return msg.outputTokens != null && Number.isFinite(n) ? <span>{n.toLocaleString()} out</span> : null;
+              })()}
+              {(() => {
+                // Drizzle decimal columns come back as strings, not numbers,
+                // so naive `.toFixed()` blows up. Coerce defensively.
+                const c = typeof msg.costUsd === "number" ? msg.costUsd : Number(msg.costUsd);
+                return Number.isFinite(c) && c > 0 ? <span>${c.toFixed(4)}</span> : null;
+              })()}
             </div>
           )}
         </div>
