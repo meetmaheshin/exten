@@ -1620,7 +1620,7 @@ Three parallel passes. Net: 13 more `[x]` items. Typecheck + build clean across 
 - New bundled `get_diagnostics` tool (registered everywhere; reads `vscode.languages.getDiagnostics()` filtered by severity) — captures most of MCP `mcp__ide__getDiagnostics` day-1 value with zero protocol surface
 - `mcp__server*` / `Agent(<name>)` / `Hook(<id>)` namespaces reserved in `AilancersSettings.permissions` JSDoc
 - `opusplan` hybrid: backend regex-swaps `claude-{sonnet,haiku}-X-Y` → `claude-opus-X-Y` whenever planMode is on
-- `[~]` Inline rename — needs new backend route, deferred
+- `[x]` Inline rename — shipped in v0.2.6 (PATCH `/api/chat/conversations/:id` + double-click sidebar input)
 - `[~]` Image compression — needs sharp/jimp dep, deferred
 
 **Pass B — Slash-command system Phase 1** (1 `[x]`, the largest single shipment of this pass):
@@ -1868,6 +1868,54 @@ Seven items shipped — six finishing `[~]` partials, one closing a strategic `[
 **Tally update**: previously 101 `[x]` + 15 `[~]` + 7 `[ ]`. After this pass: **108 `[x]` + 9 `[~]` + 5 `[ ]`**.
 
 **Remaining items**: MCP Phase 1, MCP Phases 2+, Subagent system, Fork/rewind, Auto-memory tool (full read/write protocol, separate from `<memory_suggestion>`), per-project conversation scoping, checkpoint hover.
+
+### Implementation log — 2026-05-06 sixteenth-pass session (v0.2.6 → v0.2.8 polish)
+
+Three releases in one session — each driven by user-testing feedback against v0.2.5. No audit-line items, but three relevant strategic deltas worth recording.
+
+**v0.2.6 — 8 UX issues from first-day testing** (commit `e1b22b1`):
+
+1. `@`-picker no longer auto-selects on Enter — Enter sends, Tab commits.
+2. Explicit `@`-mention auto-suppresses pinned editor context for that turn.
+3. AGENT_SYSTEM_PROMPT relaxed: skip plan.md for simple tasks.
+4. Toolbar gear/help/feedback buttons reuse `.icon-btn` (no white-card boxes).
+5. `⋯` literal in overflow button — first attempt at fix.
+6. Send button visibility — agent-mode uses primary button colour; disabled opacity raised.
+7. AgentStatusBar pins the most recent user prompt as a second line.
+8. Auto-title race — backend pushes `conversation_titled` WS event, webview reloads sidebar on receipt.
+
+**v0.2.7 — render-crash + auto-commit + escape-literal regressions** (commit `70d92bd`):
+
+- **Old conversations open blank** (real crash): Drizzle decimal columns deserialize as strings; `msg.costUsd.toFixed()` on `"0.0042"` threw and React unmounted the tree. Defensive `Number()` coerce + `Number.isFinite` guards on `costUsd`/`inputTokens`/`outputTokens`.
+- **`@`-picker still auto-committing on second use**: `lastNonceRef` initialised to 0 but parent's `commitNonce` was already > 0 from an earlier successful commit; on remount the effect saw the gap and re-fired. Init `lastNonceRef` to the current `commitNonce` so a fresh mount needs a real bump.
+- **`⋯` still rendering as `⋯`**: esbuild minifier preserves unicode escapes inside JSX-text strings to save bytes; `{"⋯"}` stayed as the 6-char literal in the bundle. Fix: emit the actual unicode char via `<span>⋯</span>`.
+- **New surface — ErrorBoundary + host log channel**: top-level `<ErrorBoundary>` catches webview render crashes, shows an in-place fallback instead of blanking, forwards to the host's "Ailancers Code" output channel via a new `webviewError` postMessage.
+
+**v0.2.8 — chat panel placement + super-admin screenshot kill switch + post-logout capture bug** (commit `982f043`):
+
+- **Chat panel right-side default** (G): `viewsContainers` moved from `activitybar` to `auxiliarybar` so the sidebar opens on the right by default — same place Claude Code, Codex, and Copilot Chat live.
+- **Super-admin: disable screenshot capture per user** (H): new migration `0010_screenshots_disabled.sql` adds `users.screenshots_disabled boolean`; `PUT /api/admin/users/:id/screenshots` (gated by `requireSuperAdmin`); `POST /api/telemetry/screenshot` returns `403 { error: "screenshots_disabled" }` for users with the flag set; `/api/auth/me` + `/api/admin/users` expose the field; dashboard Users page gains a "Screenshots" column visible only to `super_admin` role; extension's `ScreenCaptureService` catches the 403, sets a local short-circuit, and clears the retry queue. Resets on next session/login.
+- **Bug: screenshots still captured + "Screenshot captured" toast fired after logout** (I): `ScreenCaptureService` now takes an `isAuthenticated` getter and refuses to `start()` or run `captureAndUpload()` when it returns false; `scheduleMidnightReset` bails early when logged out.
+
+**Tally unchanged** at the audit-item level: **108 `[x]` + 9 `[~]` + 5 `[ ]`**. The closed `inline rename` `[~]` (was deferred pending the PATCH route) is now `[x]` since both ends shipped in v0.2.6.
+
+**Open backlog (5 items, all multi-week strategic)**:
+1. MCP Phase 1 (stdio transport)
+2. MCP Phases 2+ (HTTP + OAuth)
+3. Subagent system (full)
+4. Fork/rewind + checkpoint hover
+5. Per-project conversation scoping
+
+These need dedicated sessions, not polish passes.
+
+**Open `[~]` partials (8 items, all defer reasons stand)**:
+- Best-available model alias (backend deploy gating)
+- Context-fullness bar (backend wire format)
+- Coalesce periodic timers (multi-service refactor)
+- Image compression before upload (sharp/jimp dep)
+- Crash-report opt-in toast (new backend endpoint)
+- aria-label coverage on icon-only buttons (~one component left)
+- Slash Phase 3 plugin/MCP-sourced commands (depends on MCP Phase 1)
 
 ---
 
