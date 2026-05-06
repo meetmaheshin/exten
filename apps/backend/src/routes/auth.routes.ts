@@ -98,9 +98,50 @@ export function authRoutes(app: FastifyInstance, authService: AuthService, db: D
       pending.token = localToken;
       pending.platformToken = body.platformToken;
       pending.user = user;
+
+      // Set a same-origin session cookie scoped to /auth-bridge so the next
+      // device-code login from this browser auto-completes without asking
+      // for credentials again. HttpOnly + Secure + SameSite=Lax — only
+      // readable server-side via /api/auth/auth-bridge-session below.
+      // 7 days; refreshed on each successful complete. Cross-origin cookies
+      // from ailancers.com aren't visible here so this is the practical
+      // path to remembering the platform session for VSIX-side logins.
+      reply.header(
+        "Set-Cookie",
+        `ailancers_session=${encodeURIComponent(body.platformToken)}; Path=/; Max-Age=${7 * 24 * 60 * 60}; HttpOnly; Secure; SameSite=Lax`,
+      );
       return reply.send({ ok: true });
     } catch {
       return reply.status(401).send({ error: "Invalid platform token" });
+    }
+  });
+
+  // Auth-bridge auto-login probe. The /auth-bridge page calls this on
+  // load; if a same-origin `ailancers_session` cookie exists from a prior
+  // successful device-code completion, we hand the platform token back to
+  // the page so it can auto-claim the new device code without asking the
+  // user for credentials again. Cookie is HttpOnly so this is the only
+  // path the page has to learn its value.
+  app.get("/api/auth/auth-bridge-session", async (request, reply) => {
+    const raw = request.headers.cookie ?? "";
+    const cookies = raw.split(";").map((c) => c.trim());
+    const sessionCookie = cookies.find((c) => c.startsWith("ailancers_session="));
+    if (!sessionCookie) return reply.send({ hasSession: false });
+    const platformToken = decodeURIComponent(sessionCookie.slice("ailancers_session=".length));
+    if (!platformToken) return reply.send({ hasSession: false });
+    // Validate the token still works before we hand it back. The platform
+    // can revoke/expire it server-side; checking here means a stale cookie
+    // doesn't loop the user through "looks fine, then 401" UX.
+    try {
+      await authService.verifyPlatformToken(platformToken);
+      return reply.send({ hasSession: true, platformToken });
+    } catch {
+      // Stale — clear it so the page falls through to manual login cleanly.
+      reply.header(
+        "Set-Cookie",
+        "ailancers_session=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax",
+      );
+      return reply.send({ hasSession: false });
     }
   });
 
@@ -228,15 +269,43 @@ input:focus{border-color:#818cf8}
 <script>
 const code="${code}";
 
-// Try auto-login from shared cookie first
+// Try auto-login. Three layers:
+//   1. Same-origin session cookie set by a prior successful login through
+//      this very page. Highest hit rate — once a user signs in here once,
+//      every future device-code request auto-completes for ~7 days.
+//   2. Legacy ailance_token cookie set by ailancers.com (only works if
+//      the cookie was set with Domain=.ailancers.com — usually not the
+//      case so this branch rarely fires).
+//   3. Legacy ailance_token from localStorage (same scope problem).
+//
+// Falls through to the manual sign-in form when none of these work.
 async function tryAutoLogin(){
   const autoMsg=document.getElementById("autoMsg");
   autoMsg.style.display="block";
 
-  // Check for ailance_token cookie (set by ailancers.com)
+  // 1. Same-origin session cookie — the canonical path. The cookie is
+  // HttpOnly so we ask the server to read it for us.
+  try{
+    autoMsg.textContent="Checking saved session...";
+    const sessR=await fetch("/api/auth/auth-bridge-session",{credentials:"same-origin"});
+    if(sessR.ok){
+      const sess=await sessR.json();
+      if(sess.hasSession&&sess.platformToken){
+        autoMsg.textContent="Found existing session, connecting...";
+        const r=await fetch("/api/auth/device-code/complete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code,platformToken:sess.platformToken})});
+        if(r.ok){
+          showSuccess();
+          return;
+        }
+      }
+    }
+  }catch{}
+
+  // 2. Legacy: ailance_token cookie. Only visible here when set with
+  // Domain=.ailancers.com — the common case is a host-only cookie which
+  // we can't see, so this is best-effort.
   const cookies=document.cookie.split(";").map(c=>c.trim());
   const tokenCookie=cookies.find(c=>c.startsWith("ailance_token="));
-
   if(tokenCookie){
     const token=tokenCookie.split("=").slice(1).join("=");
     if(token){
@@ -251,7 +320,7 @@ async function tryAutoLogin(){
     }
   }
 
-  // Also check localStorage (some Ailancers pages store here)
+  // 3. Legacy: localStorage from ailancers.com. Same scope problem.
   try{
     const lsToken=localStorage.getItem("ailance_token");
     if(lsToken){
@@ -266,9 +335,9 @@ async function tryAutoLogin(){
     }
   }catch{}
 
-  // No auto-login possible — show login form
+  // Nothing worked — show the sign-in form.
   autoMsg.style.display="none";
-  document.getElementById("subtitle").textContent="Sign in with your Ailancers account. Code: ${code}";
+  document.getElementById("subtitle").innerHTML="Sign in to connect your tracker. <span style='color:#94a3b8;font-size:11px'>Code: <span class='code-badge'>${code}</span></span>";
   document.getElementById("googleBtn").style.display="block";
   document.getElementById("divider").style.display="flex";
   document.getElementById("form").style.display="block";
