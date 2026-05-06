@@ -2,7 +2,7 @@
   "name": "ailancers-code",
   "displayName": "Ailancers Code",
   "description": "AI coding agent that reads, writes, and edits your code — with time tracking, screen capture, and team analytics — powered by Claude",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "publisher": "ailancers",
   "license": "MIT",
   "repository": {
