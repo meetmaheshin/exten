@@ -56,7 +56,12 @@ export async function activate(context: vscode.ExtensionContext) {
   const projectPicker = new ProjectPickerService(authService, context);
   chatService.setProjectPicker(projectPicker);
   const telemetryService = new TelemetryService(apiClient, activityTracker, projectPicker);
-  const screenCaptureService = new ScreenCaptureService(context, apiClient, activityTracker);
+  const screenCaptureService = new ScreenCaptureService(
+    context,
+    apiClient,
+    activityTracker,
+    () => authService.isAuthenticated,
+  );
   const hourlyBillingTracker = new HourlyBillingTracker(
     context,
     apiClient,
@@ -435,7 +440,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // Check for updates
     checkForUpdates(apiClient, log);
     // Schedule midnight session reset
-    scheduleMidnightReset(telemetryService, screenCaptureService, log);
+    scheduleMidnightReset(telemetryService, screenCaptureService, log, authService);
   } else {
     // Not logged in — open the Ailancers sidebar so the LoginScreen renders.
     // This runs every time the user starts VS Code while signed out, not just
@@ -535,7 +540,8 @@ async function checkForUpdates(apiClient: import("./services/ApiClient").ApiClie
 function scheduleMidnightReset(
   telemetryService: import("./services/TelemetryService").TelemetryService,
   screenCaptureService: import("./services/ScreenCaptureService").ScreenCaptureService,
-  log: (msg: string) => void
+  log: (msg: string) => void,
+  authService: import("./services/AuthService").AuthService,
 ): void {
   const now = new Date();
   const midnight = new Date(now);
@@ -544,6 +550,16 @@ function scheduleMidnightReset(
 
   setTimeout(async () => {
     log("Midnight — resetting session for new day");
+    // Skip the whole reset if the user logged out before midnight.
+    // ScreenCaptureService also guards internally, but we want to skip
+    // telemetryService.startSession() too — no point starting a new
+    // tracking session for a logged-out user.
+    if (!authService.isAuthenticated) {
+      log("Skipping midnight reset — user is not authenticated");
+      // Don't reschedule until they sign back in. The auth-state listener
+      // re-arms the timer on next login via the start() path.
+      return;
+    }
     await telemetryService.endSession();
     const newSessionId = await telemetryService.startSession();
     if (newSessionId) {
@@ -551,7 +567,7 @@ function scheduleMidnightReset(
       screenCaptureService.start(newSessionId);
     }
     // Schedule next midnight
-    scheduleMidnightReset(telemetryService, screenCaptureService, log);
+    scheduleMidnightReset(telemetryService, screenCaptureService, log, authService);
   }, msUntilMidnight);
 
   log(`Midnight reset scheduled in ${Math.round(msUntilMidnight / 60000)}m`);

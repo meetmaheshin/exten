@@ -45,17 +45,38 @@ export class ScreenCaptureService implements vscode.Disposable {
   private isCapturing = false;
   /** Failed uploads waiting to retry. Drained at the start of each capture cycle. */
   private retryQueue: PendingUpload[] = [];
+  /** Set true when the server reports `screenshots_disabled` for this user.
+   *  Short-circuits future captures so we don't waste battery / disk taking
+   *  shots that will be refused. Cleared on `start()` so a re-enable on the
+   *  server side picks up on the next session. */
+  private disabledByAdmin = false;
 
   constructor(
     private extensionContext: vscode.ExtensionContext,
     private apiClient: ApiClient,
-    private activityTracker?: ActivityTracker
+    private activityTracker?: ActivityTracker,
+    /** Read-only check: are we currently signed in? Defence-in-depth so a
+     *  rogue call to `start()` after logout (e.g. the midnight reset firing
+     *  with a stale closure) doesn't keep capturing on a logged-out user. */
+    private isAuthenticated?: () => boolean,
   ) {
     this.screenshotDir = path.join(extensionContext.globalStorageUri.fsPath, "screenshots");
   }
 
   async start(sessionId: string): Promise<void> {
+    // Refuse to start when the user isn't authenticated. Defends against
+    // the midnight reset (or any other re-entrant caller) firing after the
+    // user has logged out — without this, the interval would happily keep
+    // taking screenshots even though uploads would all fail.
+    if (this.isAuthenticated && !this.isAuthenticated()) {
+      this.stop();
+      return;
+    }
     this.sessionId = sessionId;
+    // Reset the admin-disable cache on session start. Each new session
+    // re-checks with the server (lazily, via the first 403) so a re-enable
+    // doesn't require an extension reload.
+    this.disabledByAdmin = false;
     const config = this.getConfig();
     if (!config.enabled) return;
 
@@ -97,6 +118,20 @@ export class ScreenCaptureService implements vscode.Disposable {
 
   private async captureAndUpload(): Promise<string | null> {
     if (this.isCapturing || !this.sessionId) return null;
+    // Hard guard: refuse to capture if the user isn't logged in. The
+    // periodic interval can outlive a logout (race between logout flow
+    // and the next tick); this short-circuits before we shell out to
+    // PowerShell, save the file, AND show the "Screenshot captured"
+    // toast to a logged-out user. Stops the interval too — no point
+    // letting it keep firing.
+    if (this.isAuthenticated && !this.isAuthenticated()) {
+      this.stop();
+      return null;
+    }
+    // Short-circuit when a super-admin has disabled screenshots for this
+    // user. The server will refuse uploads anyway; checking locally avoids
+    // taking the screenshot in the first place (saves battery + disk).
+    if (this.disabledByAdmin) return null;
 
     this.isCapturing = true;
 
@@ -186,7 +221,19 @@ export class ScreenCaptureService implements vscode.Disposable {
         return null;
       }
 
-      console.warn(`[ScreenCapture] Upload failed (attempt ${item.attempts}): ${err instanceof Error ? err.message : String(err)}`);
+      // Super-admin disabled screenshots for this user — flip the local
+      // short-circuit so we stop scheduling captures + drop the queued
+      // file. ApiClient throws "API error 403: <body>" — sniff the body
+      // for the stable error code.
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (errMsg.includes("403") && errMsg.includes("screenshots_disabled")) {
+        this.disabledByAdmin = true;
+        this.retryQueue = []; // queued shots will all 403 too — drop them
+        console.warn("[ScreenCapture] Disabled by admin — stopping captures.");
+        return null;
+      }
+
+      console.warn(`[ScreenCapture] Upload failed (attempt ${item.attempts}): ${errMsg}`);
 
       // Queue for retry if we haven't exhausted attempts and the file is reasonably young.
       const ageMs = Date.now() - new Date(item.capturedAt).getTime();

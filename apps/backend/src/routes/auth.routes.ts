@@ -50,6 +50,10 @@ export function authRoutes(app: FastifyInstance, authService: AuthService, db: D
           role: users.role,
           team: users.team,
           avatarUrl: users.avatarUrl,
+          // Extension reads this on session start to skip captureNow()
+          // entirely when the super-admin has disabled screenshots for
+          // this user. Saves bandwidth + battery vs. capture-then-403.
+          screenshotsDisabled: users.screenshotsDisabled,
         })
         .from(users)
         .where(eq(users.id, request.user.sub))
@@ -371,5 +375,24 @@ tryAutoLogin();
       .where(eq(users.id, userId));
 
     return reply.send({ ok: true });
+  });
+
+  // Super-admin: toggle screenshot capture for a specific user.
+  // When `screenshotsDisabled = true` the upload route 403s and the
+  // extension skips captureNow() entirely. Gated to super_admin only —
+  // disabling tracking on a teammate is a privacy-affecting action that
+  // shouldn't be available to regular admins.
+  app.put("/api/admin/users/:userId/screenshots", { preHandler: requireSuperAdmin(authService) }, async (request, reply) => {
+    const { userId } = z.object({ userId: z.string().uuid() }).parse(request.params);
+    const body = z.object({
+      screenshotsDisabled: z.boolean(),
+    }).parse(request.body);
+
+    await db
+      .update(users)
+      .set({ screenshotsDisabled: body.screenshotsDisabled, updatedAt: new Date() })
+      .where(eq(users.id, userId));
+
+    return reply.send({ ok: true, screenshotsDisabled: body.screenshotsDisabled });
   });
 }

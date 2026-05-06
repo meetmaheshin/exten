@@ -16,6 +16,11 @@ interface User {
   avatarUrl: string | null;
   isActive: boolean;
   employmentStatus: "active" | "on_leave" | "notice" | "resigned" | "maternity" | string;
+  /** Super-admin kill switch — when true, the extension stops uploading
+   *  screen captures and the upload endpoint refuses any that slip through.
+   *  Backend exposes via /api/admin/users; toggle PUT
+   *  /api/admin/users/:id/screenshots is super_admin-only. */
+  screenshotsDisabled?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -81,6 +86,9 @@ export default function UsersPage() {
                 <th>Team</th>
                 <th>Employment</th>
                 <th>Status</th>
+                {/* Screenshots column — super-admin-only. Hidden for regular
+                    admins so the toggle isn't visible / dangling-disabled. */}
+                {isSuperAdmin && <th>Screenshots</th>}
                 <th>Joined</th>
                 <th>Last Updated</th>
                 <th></th>
@@ -212,6 +220,49 @@ export default function UsersPage() {
                       {u.isActive ? "Active" : "Inactive"}
                     </span>
                   </td>
+                  {isSuperAdmin && (
+                    <td>
+                      <button
+                        type="button"
+                        title={u.screenshotsDisabled
+                          ? "Screenshots are OFF for this user. Click to re-enable."
+                          : "Screenshots are ON for this user. Click to disable."}
+                        onClick={async () => {
+                          const next = !u.screenshotsDisabled;
+                          const verb = next ? "DISABLE" : "RE-ENABLE";
+                          if (!confirm(`${verb} screenshot capture for ${u.fullName || u.email}?\n\n` +
+                            (next
+                              ? "The extension will stop uploading screenshots for this user, and the server will refuse any in-flight uploads."
+                              : "Screenshots will resume on this user's next session."))) return;
+                          try {
+                            await apiFetch(`/api/admin/users/${u.id}/screenshots`, {
+                              token: accessToken!,
+                              method: "PUT",
+                              body: JSON.stringify({ screenshotsDisabled: next }),
+                            });
+                            setUsers((prev) => prev.map((x) =>
+                              x.id === u.id ? { ...x, screenshotsDisabled: next } : x
+                            ));
+                          } catch (err) {
+                            const msg = err instanceof Error ? err.message : String(err);
+                            alert("Failed to toggle screenshots: " + msg);
+                          }
+                        }}
+                        style={{
+                          background: "var(--bg-card)",
+                          color: u.screenshotsDisabled ? "var(--danger)" : "var(--success)",
+                          border: `1px solid ${u.screenshotsDisabled ? "var(--danger)" : "var(--border)"}`,
+                          borderRadius: 4,
+                          padding: "2px 10px",
+                          fontSize: 12,
+                          fontWeight: 600,
+                          cursor: "pointer",
+                        }}
+                      >
+                        {u.screenshotsDisabled ? "Disabled" : "Enabled"}
+                      </button>
+                    </td>
+                  )}
                   <td style={{ color: "var(--text-muted)", fontSize: 12 }}>
                     {timeAgo(u.createdAt)}
                   </td>
@@ -231,7 +282,9 @@ export default function UsersPage() {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: "center", color: "var(--text-muted)", padding: 32 }}>
+                  {/* colSpan tracks the column count: 8 base cols + 1 when
+                      the super-admin Screenshots column is visible. */}
+                  <td colSpan={isSuperAdmin ? 9 : 8} style={{ textAlign: "center", color: "var(--text-muted)", padding: 32 }}>
                     No users found
                   </td>
                 </tr>

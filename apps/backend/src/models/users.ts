@@ -16,6 +16,10 @@ export const users = pgTable(
     isActive: boolean("is_active").notNull().default(true),
     // 'active' | 'on_leave' | 'notice' | 'resigned' | 'maternity' — see migration 0009
     employmentStatus: varchar("employment_status", { length: 20 }).notNull().default("active"),
+    // Super-admin kill switch for periodic screen capture (migration 0010).
+    // When true, the upload endpoint returns 403 and the extension stops
+    // calling captureNow().
+    screenshotsDisabled: boolean("screenshots_disabled").notNull().default(false),
     avatarUrl: varchar("avatar_url", { length: 512 }),
     monthlyBudgetUsd: decimal("monthly_budget_usd", { precision: 10, scale: 2 }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

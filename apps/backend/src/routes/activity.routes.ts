@@ -307,6 +307,7 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
         avatarUrl: users.avatarUrl,
         isActive: users.isActive,
         employmentStatus: users.employmentStatus,
+        screenshotsDisabled: users.screenshotsDisabled,
         createdAt: users.createdAt,
         updatedAt: users.updatedAt,
       })

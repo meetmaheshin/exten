@@ -39,6 +39,21 @@ export function screenshotRoutes(
   app.post("/api/telemetry/screenshot", { preHandler: auth }, async (request, reply) => {
     const body = uploadSchema.parse(request.body);
 
+    // Super-admin kill switch: refuse uploads from users whose
+    // `screenshotsDisabled` flag is on. Returns a stable error code the
+    // extension uses to stop scheduling captures locally.
+    const [me] = await db
+      .select({ screenshotsDisabled: users.screenshotsDisabled })
+      .from(users)
+      .where(eq(users.id, request.user.sub))
+      .limit(1);
+    if (me?.screenshotsDisabled) {
+      return reply.status(403).send({
+        error: "screenshots_disabled",
+        message: "Screenshots are disabled for your account by an admin.",
+      });
+    }
+
     // Validate base64 size
     const imageBuffer = Buffer.from(body.imageBase64, "base64");
     const maxBytes = env.SCREENSHOT_MAX_SIZE_MB * 1024 * 1024;

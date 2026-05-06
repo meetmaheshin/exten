@@ -46,7 +46,7 @@
   ],
   "contributes": {
     "viewsContainers": {
-      "activitybar": [
+      "auxiliarybar": [
         {
           "id": "ailancers-sidebar",
           "title": "Ailancers Code",
