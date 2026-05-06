@@ -631,17 +631,19 @@ body {
 }
 
 .send-btn:disabled {
-  opacity: 0.3;
+  opacity: 0.55;
   cursor: not-allowed;
 }
 
+/* Agent send — uses VS Code's primary button colours so it pops on every
+   theme. The old yellow looked muted/brown on dark backgrounds. */
 .send-btn.agent-send {
-  background: var(--vscode-charts-yellow, #cca700);
-  color: #000;
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
 }
 
 .send-btn.agent-send:hover {
-  background: #ddb800;
+  background: var(--vscode-button-hoverBackground);
 }
 
 .cancel-btn {
@@ -1229,14 +1231,37 @@ body {
 /* ========== Agent Status Bar ========== */
 .agent-status-bar {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 3px;
   padding: 5px 12px;
   background: rgba(204, 167, 0, 0.15);
   border-top: 1px solid rgba(204, 167, 0, 0.3);
   color: var(--vscode-charts-yellow, #cca700);
   font-size: 11px;
   font-weight: 500;
+}
+.agent-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.agent-status-prompt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--vscode-foreground);
+  opacity: 0.85;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agent-status-prompt-icon {
+  color: var(--vscode-charts-yellow, #cca700);
+  font-weight: 700;
+  flex-shrink: 0;
 }
 
 .agent-status-bar.agent-status-qa {

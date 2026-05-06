@@ -89,7 +89,8 @@ export type IncomingMessage =
    *  it into the approval response. */
   | { type: "editableProposedClosed"; toolCallId: string; editedContent: string }
   | { type: "compactResult"; conversationId: string; compacted: boolean; summarised?: number; reason?: string }
-  | { type: "conversationRenamed"; conversationId: string; title: string };
+  | { type: "conversationRenamed"; conversationId: string; title: string }
+  | { type: "conversation_titled"; conversationId: string; title: string };
 
 /** A user-authored slash command loaded from `.ailancers/commands/*.md`.
  *  The body is a prompt template; `$ARGUMENTS` is replaced with whatever

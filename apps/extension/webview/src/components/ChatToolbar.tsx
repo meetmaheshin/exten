@@ -37,7 +37,7 @@ export function ChatToolbar({
       <span className="toolbar-title">{title}</span>
       <div className="toolbar-actions">
         <button
-          className="chat-toolbar-btn"
+          className="icon-btn"
           onClick={handleOpenSettings}
           title="Open Ailancers settings"
           aria-label="Open Ailancers settings"
@@ -45,7 +45,7 @@ export function ChatToolbar({
           {"⚙"}
         </button>
         <button
-          className="chat-toolbar-btn"
+          className="icon-btn"
           onClick={handleOpenDocs}
           title="Open documentation"
           aria-label="Open documentation"
@@ -53,7 +53,7 @@ export function ChatToolbar({
           ?
         </button>
         <button
-          className="chat-toolbar-btn"
+          className="icon-btn"
           onClick={handleSendFeedback}
           title="Send feedback"
           aria-label="Send feedback"

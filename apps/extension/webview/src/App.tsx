@@ -554,9 +554,13 @@ export function App() {
         editedProposedRef.current.set(msg.toolCallId, msg.editedContent);
         break;
       }
-      case "conversationRenamed": {
+      case "conversationRenamed":
+      case "conversation_titled": {
         // Reload the sidebar so the new title shows. Cheaper than threading
         // the (stale) `state.conversations` through this empty-deps closure.
+        // `conversation_titled` is the backend's auto-title push that fires
+        // shortly after `agent_complete`; `conversationRenamed` is the
+        // user-driven double-click rename flow. Same handling.
         vscode.current.postMessage({ type: "loadConversations" });
         break;
       }
@@ -635,9 +639,17 @@ export function App() {
     // is detected loosely — any `@<non-space>` substring counts as a mention
     // attempt, which matches the picker's own trigger heuristic.
     dispatch({ type: "MARK_CHECKLIST_ITEM", itemId: "firstMessage" });
-    if (/(^|\s)@\S/.test(content)) {
+    const hasAtMention = /(^|\s)@\S/.test(content);
+    if (hasAtMention) {
       dispatch({ type: "MARK_CHECKLIST_ITEM", itemId: "tryAt" });
     }
+    // When the user explicitly `@`-mentions a file in the prompt, suppress
+    // the auto-attached editor context for THIS turn only. Without this,
+    // the pinned active file (📎) leaks into every send and the model
+    // tends to keep referring to it instead of the file the user just
+    // asked about. The `excludeEditorContext` reducer flag is unchanged —
+    // future turns without an @-mention still get editor context.
+    const sendExcludeEditorContext = state.excludeEditorContext || hasAtMention;
 
     if (!state.currentConversationId) {
       dispatch({ type: "SET_PENDING", content: outboundContent, images });
@@ -650,7 +662,7 @@ export function App() {
       conversationId: state.currentConversationId,
       content: outboundContent,
       model: state.selectedModel || undefined,
-      ...(state.agentMode ? { agentType: outboundAgentType, planMode: state.planMode, excludeEditorContext: state.excludeEditorContext, ...(state.effort ? { effort: state.effort } : {}) } : {}),
+      ...(state.agentMode ? { agentType: outboundAgentType, planMode: state.planMode, excludeEditorContext: sendExcludeEditorContext, ...(state.effort ? { effort: state.effort } : {}) } : {}),
       ...(images ? { images } : {}),
     });
   };
@@ -1039,6 +1051,24 @@ export function App() {
             isActive={state.isStreaming && state.agentMode && state.agentTurnNumber > 0}
             agentType={state.agentType}
             onCancel={handleCancel}
+            currentPrompt={(() => {
+              // Most recent user message — single line, capped, used by the
+              // status bar to keep "what you asked" visible while the agent
+              // burns through tool calls. Strips any auto-attached editor
+              // context block so the user sees their actual prompt, not the
+              // <editor_context>...</editor_context> wrapper.
+              for (let i = state.messages.length - 1; i >= 0; i--) {
+                if (state.messages[i].role !== "user") continue;
+                let c = state.messages[i].content;
+                if (c.startsWith("<editor_context>")) {
+                  const end = c.indexOf("</editor_context>");
+                  if (end !== -1) c = c.slice(end + "</editor_context>".length).trim();
+                }
+                const firstLine = c.split("\n")[0].trim();
+                return firstLine.length > 140 ? firstLine.slice(0, 140) + "…" : firstLine;
+              }
+              return undefined;
+            })()}
           />
           <ChatInput
             onSend={handleSend}

@@ -235,19 +235,11 @@ export function ChatInput({
         setAtIndex((i) => Math.max(i - 1, 0));
         return;
       }
-      if (e.key === "Enter") {
-        // Same submit-key shape as the slash picker: useCtrlEnterToSend
-        // flips the chord, otherwise plain Enter (without Shift) commits.
-        const wantsCommit = useCtrlEnterToSend
-          ? (e.metaKey || e.ctrlKey)
-          : !e.shiftKey;
-        if (wantsCommit && matchCount > 0) {
-          e.preventDefault();
-          setAtCommitNonce((n) => n + 1);
-          return;
-        }
-        // Else fall through to the regular Enter handling below.
-      }
+      // Enter intentionally falls through to the regular send path — users
+      // expect Enter to submit, even when the @-picker is open. Tab is the
+      // commit key for the picker (plus mouse click). This matches GitHub's
+      // and VS Code's autocomplete conventions and avoids the "I typed @foo
+      // and hit Enter to send but it inserted the first file instead" trap.
       if (e.key === "Tab") {
         e.preventDefault();
         if (matchCount > 0) setAtCommitNonce((n) => n + 1);
@@ -954,7 +946,7 @@ export function ChatInput({
               aria-expanded={overflowOpen}
               title="More options \u2014 Permission, Effort"
             >
-              \u22ef
+              {"\u22ef"}
             </button>
             {overflowOpen && (
               <div className="overflow-popover" role="dialog" aria-label="More options">

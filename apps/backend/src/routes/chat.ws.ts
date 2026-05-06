@@ -692,6 +692,16 @@ export function chatWsRoute(
                       .update(conversations)
                       .set({ title, updatedAt: new Date() })
                       .where(eq(conversations.id, msg.conversationId));
+                    // Push the new title to the webview so the sidebar
+                    // updates without waiting for a manual reload. Cast
+                    // through `unknown` because conversation_titled isn't
+                    // declared in the strict WsServerMessage union yet —
+                    // older clients ignore unknown types.
+                    send(socket, {
+                      type: "conversation_titled",
+                      conversationId: msg.conversationId,
+                      title,
+                    } as unknown as Parameters<typeof send>[1]);
                   } catch {
                     // Silent — auto-titling is a polish, not a critical path.
                   }
