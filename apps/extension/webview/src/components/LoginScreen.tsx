@@ -50,8 +50,8 @@ export function LoginScreen() {
   return (
     <div className="login-container">
       <div className="login-brand">
-        <div className="login-logo" style={{ background: "#f5c518", color: "#0f0f23" }}>A</div>
-        <div className="login-title" style={{ color: "#f5c518" }}>Ailancers Code</div>
+        <div className="login-logo" style={{ background: "var(--vscode-charts-yellow, #f5c518)", color: "#0f0f23" }}>A</div>
+        <div className="login-title" style={{ color: "var(--vscode-charts-yellow, #f5c518)" }}>Ailancers Code</div>
         <div className="login-version">AI-Powered Development</div>
       </div>
 
@@ -115,6 +115,18 @@ export function LoginScreen() {
 
       <div className="login-footer">
         Your team&apos;s AI coding assistant
+        <div style={{ fontSize: 11, marginTop: 8, opacity: 0.7 }}>
+          By signing in you agree to our{" "}
+          <a
+            href="https://ailancers.com/privacy"
+            target="_blank"
+            rel="noopener"
+            style={{ color: "var(--vscode-textLink-foreground)" }}
+          >
+            Privacy Policy
+          </a>
+          .
+        </div>
       </div>
     </div>
   );

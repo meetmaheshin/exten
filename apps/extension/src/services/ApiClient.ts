@@ -50,4 +50,15 @@ export class ApiClient {
     }
     return response.json() as Promise<T>;
   }
+
+  async patch<T>(path: string, body?: unknown): Promise<T> {
+    const response = await this.fetch(path, {
+      method: "PATCH",
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+    if (!response.ok) {
+      throw new Error(`API error ${response.status}: ${await response.text()}`);
+    }
+    return response.json() as Promise<T>;
+  }
 }

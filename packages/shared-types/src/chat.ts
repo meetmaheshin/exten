@@ -62,6 +62,12 @@ export interface WsStreamDelta {
   delta: string;
 }
 
+export interface WsStreamThinking {
+  type: "stream_thinking";
+  conversationId: string;
+  delta: string;
+}
+
 export interface WsStreamEnd {
   type: "stream_end";
   conversationId: string;
@@ -87,6 +93,7 @@ export interface WsRateLimited {
 export type WsServerMessage =
   | WsStreamStart
   | WsStreamDelta
+  | WsStreamThinking
   | WsStreamEnd
   | WsError
   | WsRateLimited

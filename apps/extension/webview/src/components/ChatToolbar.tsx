@@ -1,3 +1,5 @@
+import { getVsCodeApi } from "../vscodeApi";
+
 interface ChatToolbarProps {
   title: string;
   onNewChat: () => void;
@@ -13,6 +15,16 @@ export function ChatToolbar({
   onExport,
   showingConversations,
 }: ChatToolbarProps) {
+  const handleOpenSettings = () => {
+    getVsCodeApi().postMessage({ type: "openSettings" });
+  };
+  const handleOpenDocs = () => {
+    getVsCodeApi().postMessage({ type: "openDocs" });
+  };
+  const handleSendFeedback = () => {
+    getVsCodeApi().postMessage({ type: "sendFeedback" });
+  };
+
   return (
     <div className="toolbar">
       <button
@@ -20,10 +32,34 @@ export function ChatToolbar({
         onClick={onToggleConversations}
         title={showingConversations ? "Back to chat" : "Conversation history"}
       >
-        {showingConversations ? "\u2190" : "\u2630"}
+        {showingConversations ? "←" : "☰"}
       </button>
       <span className="toolbar-title">{title}</span>
       <div className="toolbar-actions">
+        <button
+          className="chat-toolbar-btn"
+          onClick={handleOpenSettings}
+          title="Open Ailancers settings"
+          aria-label="Open Ailancers settings"
+        >
+          {"⚙"}
+        </button>
+        <button
+          className="chat-toolbar-btn"
+          onClick={handleOpenDocs}
+          title="Open documentation"
+          aria-label="Open documentation"
+        >
+          ?
+        </button>
+        <button
+          className="chat-toolbar-btn"
+          onClick={handleSendFeedback}
+          title="Send feedback"
+          aria-label="Send feedback"
+        >
+          {"\u{1F4AC}"}
+        </button>
         {onExport && !showingConversations && (
           <>
             <button
@@ -31,7 +67,7 @@ export function ChatToolbar({
               onClick={() => onExport("markdown")}
               title="Export this conversation as Markdown"
             >
-              \u2913
+              ⤓
             </button>
           </>
         )}

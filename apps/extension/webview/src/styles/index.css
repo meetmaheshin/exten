@@ -112,6 +112,18 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.conv-item-edit-input {
+  flex: 1;
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 4px;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-focusBorder, var(--vscode-widget-border));
+  border-radius: 3px;
+  outline: none;
+  min-width: 0;
+}
 
 .conv-item-date {
   font-size: 10px;
@@ -544,6 +556,25 @@ body {
   padding: 8px 10px 10px;
   border-top: 1px solid var(--vscode-panel-border, var(--vscode-widget-border));
   background: var(--vscode-sideBar-background);
+  position: relative;
+}
+.input-area.is-dragging {
+  outline: 2px dashed var(--vscode-focusBorder, #007acc);
+  outline-offset: -4px;
+}
+.drop-hint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--vscode-editorWidget-background, rgba(40, 40, 40, 0.9));
+  color: var(--vscode-foreground);
+  font-size: 13px;
+  font-weight: 500;
+  pointer-events: none;
+  z-index: 10;
+  border-radius: 2px;
 }
 
 /* Textarea + send button row (now on top) */
@@ -632,102 +663,281 @@ body {
 .cancel-btn:hover {
   opacity: 0.85;
 }
+.cancel-btn.is-cancelling {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+/* ── Slash-command picker ─────────────────────────────────────────────────
+   Floats above the textarea, anchored to the bottom of the relative wrapper.
+   Keyboard-driven; mouse click is supported via mouseDown to avoid the
+   blur-then-collapse race. */
+.slash-picker {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  margin-bottom: 4px;
+  background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+  border: 1px solid var(--vscode-widget-border, var(--vscode-focusBorder, rgba(255, 255, 255, 0.1)));
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 50;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+.slash-picker-empty {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+}
+.slash-picker-group {
+  padding: 2px 0;
+}
+.slash-picker-group + .slash-picker-group {
+  border-top: 1px solid var(--vscode-widget-border, rgba(255,255,255,0.05));
+}
+.slash-picker-group-label {
+  padding: 4px 12px 2px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--vscode-descriptionForeground);
+}
+.slash-picker-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: 12px;
+  color: var(--vscode-foreground);
+}
+.slash-picker-item:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+.slash-picker-item.active {
+  background: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground);
+}
+.slash-picker-name {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.slash-picker-arg {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  flex-shrink: 0;
+}
+.slash-picker-desc {
+  flex: 1;
+  color: var(--vscode-descriptionForeground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.slash-picker-item.active .slash-picker-arg,
+.slash-picker-item.active .slash-picker-desc {
+  color: var(--vscode-list-activeSelectionForeground);
+  opacity: 0.85;
+}
 
 /* Controls row (below textarea) */
 .input-controls {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   flex-wrap: wrap;
 }
 
-.mode-toggle {
+/* Segmented mode picker — Code / QA / Design / Chat. One pill, four equal
+   tabs, active tab gets a thin accent underline + textLink colour. No
+   yellow background, no emoji icons. Reads as a settings row, not a
+   row of competing buttons. */
+.mode-segment {
   display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 2px 8px;
-  font-size: 10px;
-  font-weight: 600;
-  border: 1px solid var(--vscode-widget-border, rgba(255,255,255,0.1));
-  border-radius: 10px;
-  cursor: pointer;
-  background: transparent;
-  color: var(--vscode-descriptionForeground);
-  transition: all 0.15s;
-  white-space: nowrap;
-}
-
-.mode-toggle:hover {
-  background: var(--vscode-toolbar-hoverBackground);
-}
-
-.mode-toggle:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.mode-toggle.mode-agent {
-  background: rgba(204, 167, 0, 0.2);
-  color: var(--vscode-charts-yellow, #cca700);
-  border-color: rgba(204, 167, 0, 0.4);
-}
-
-.agent-type-toggle {
-  display: inline-flex;
-  border: 1px solid var(--vscode-widget-border, rgba(255,255,255,0.1));
-  border-radius: 8px;
+  align-items: stretch;
+  gap: 0;
+  padding: 1px;
+  background: var(--vscode-input-background, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--vscode-widget-border, rgba(255, 255, 255, 0.08));
+  border-radius: 6px;
   overflow: hidden;
 }
-
-.agent-type-btn {
-  padding: 2px 7px;
-  font-size: 10px;
-  font-weight: 600;
-  border: none;
-  cursor: pointer;
+.mode-tab {
   background: transparent;
+  border: none;
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 500;
   color: var(--vscode-descriptionForeground);
-  transition: all 0.15s;
+  cursor: pointer;
   white-space: nowrap;
+  border-radius: 4px;
+  transition: background-color 0.12s, color 0.12s;
 }
-
-.agent-type-btn:hover {
-  background: var(--vscode-toolbar-hoverBackground);
+.mode-tab:hover:not(:disabled):not(.active) {
+  color: var(--vscode-foreground);
+  background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.06));
 }
-
-.agent-type-btn:disabled {
+.mode-tab.active {
+  background: var(--vscode-button-secondaryBackground, rgba(255, 255, 255, 0.10));
+  color: var(--vscode-foreground);
+  font-weight: 600;
+}
+.mode-tab:disabled {
   opacity: 0.4;
   cursor: not-allowed;
-}
-
-.agent-type-btn.active {
-  background: rgba(204, 167, 0, 0.25);
-  color: var(--vscode-charts-yellow, #cca700);
 }
 
 .input-controls-spacer {
   flex: 1;
 }
 
-.model-select {
-  padding: 2px 4px;
-  font-size: 10px;
+/* Flat dropdown shared by permission-mode / model / effort. Same height
+   and visual weight as the mode-segment so the row reads as one unit. */
+.mode-select {
+  padding: 3px 6px;
+  font: inherit;
+  font-size: 11px;
   background: var(--vscode-input-background);
   color: var(--vscode-input-foreground);
-  border: 1px solid var(--vscode-widget-border, rgba(255,255,255,0.1));
+  border: 1px solid var(--vscode-widget-border, rgba(255, 255, 255, 0.08));
   border-radius: 6px;
   cursor: pointer;
   outline: none;
-  max-width: 120px;
+  max-width: 180px;
+  text-overflow: ellipsis;
 }
-
-.model-select:focus {
+.mode-select:focus {
   border-color: var(--vscode-focusBorder);
 }
-
-.model-select:disabled {
+.mode-select:hover:not(:disabled) {
+  border-color: var(--vscode-input-border, var(--vscode-focusBorder));
+}
+.mode-select:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+.mode-select.active {
+  border-color: var(--vscode-textLink-foreground, var(--vscode-focusBorder));
+  color: var(--vscode-foreground);
+  font-weight: 500;
+}
+.mode-select.danger {
+  border-color: var(--vscode-charts-red, #f48771);
+  color: var(--vscode-charts-red, #f48771);
+  font-weight: 600;
+}
+
+/* Overflow `⋯` button + popover — holds Permission + Effort so they're
+   not always inline in the toolbar. Wrapper supplies positioning. */
+.overflow-wrapper {
+  position: relative;
+  display: inline-flex;
+}
+.overflow-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+}
+.overflow-btn:hover:not(:disabled) {
+  color: var(--vscode-foreground);
+  background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.06));
+}
+.overflow-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.overflow-popover {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  min-width: 220px;
+  padding: 8px 10px;
+  background: var(--vscode-editorWidget-background, #252526);
+  border: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border, rgba(128, 128, 128, 0.4)));
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.overflow-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--vscode-foreground);
+}
+.overflow-row-label {
+  flex-shrink: 0;
+  width: 70px;
+  color: var(--vscode-descriptionForeground);
+}
+.overflow-row .mode-select {
+  flex: 1;
+  max-width: none;
+}
+.overflow-close {
+  background: none;
+  border: none;
+  padding: 0;
+  align-self: flex-end;
+  font: inherit;
+  font-size: 11px;
+  color: var(--vscode-textLink-foreground);
+  cursor: pointer;
+}
+.overflow-close:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Backwards-compat shims — old class names map to the flat look so any
+   leftover render path still picks up the new styling. The corresponding
+   JSX nodes are now display:none, but keeping these defined avoids a
+   visual regression if a downstream component still uses them. */
+.mode-toggle, .agent-type-btn { display: none; }
+.agent-type-toggle { display: none; }
+.model-select {
+  padding: 3px 6px;
+  font-size: 11px;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-widget-border, rgba(255, 255, 255, 0.08));
+  border-radius: 6px;
+  cursor: pointer;
+  outline: none;
+  max-width: 180px;
+}
+.model-select:focus { border-color: var(--vscode-focusBorder); }
+.model-select:disabled { opacity: 0.4; cursor: not-allowed; }
+.permission-mode-select { max-width: 140px; }
+.permission-mode-select.active {
+  border-color: var(--vscode-focusBorder);
+  color: var(--vscode-foreground);
+  font-weight: 500;
+}
+.permission-mode-select.danger {
+  border-color: var(--vscode-charts-red, #f48771);
+  color: var(--vscode-charts-red, #f48771);
+  font-weight: 600;
 }
 
 .input-hint {
@@ -903,6 +1113,119 @@ body {
   opacity: 0.7;
 }
 
+/* Custom Read renderer — line numbers in a fixed-width gutter, code on the right.
+   Replaces the raw `<pre>` block when the tool is `read_file`. */
+.tc-read-file {
+  background: var(--vscode-textCodeBlock-background, rgba(0,0,0,0.2));
+  border-radius: 4px;
+  max-height: 200px;
+  overflow: auto;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--vscode-foreground);
+}
+.tc-read-file-pre {
+  margin: 0;
+  padding: 6px 0;
+  display: block;
+  white-space: pre;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+.tc-read-row {
+  display: flex;
+  gap: 12px;
+  padding: 0 8px;
+}
+.tc-read-row:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+.tc-read-gutter {
+  flex-shrink: 0;
+  min-width: 32px;
+  text-align: right;
+  color: var(--vscode-editorLineNumber-foreground, var(--vscode-descriptionForeground));
+  user-select: none;
+  opacity: 0.7;
+}
+.tc-read-content {
+  flex: 1;
+  min-width: 0;
+  white-space: pre;
+}
+.tc-read-meta {
+  padding: 6px 8px;
+  font-size: 10px;
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+  border-top: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.2));
+}
+
+/* Custom Grep/search renderer — clickable match list, opens file at line. */
+.tc-search-result {
+  background: var(--vscode-textCodeBlock-background, rgba(0,0,0,0.2));
+  border-radius: 4px;
+  max-height: 240px;
+  overflow: auto;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.tc-search-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+}
+.tc-search-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 2px 8px;
+}
+.tc-search-item:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+.tc-search-link {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: var(--vscode-textLink-foreground);
+  text-align: left;
+  white-space: nowrap;
+}
+.tc-search-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.tc-search-path {
+  font-weight: 500;
+}
+.tc-search-lineno {
+  color: var(--vscode-textLink-activeForeground, var(--vscode-textLink-foreground));
+  opacity: 0.85;
+}
+.tc-search-preview {
+  flex: 1;
+  min-width: 0;
+  color: var(--vscode-foreground);
+  opacity: 0.9;
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tc-search-more {
+  padding: 6px 8px;
+  font-size: 10px;
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+  border-top: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.2));
+}
+
 /* ========== Agent Status Bar ========== */
 .agent-status-bar {
   display: flex;
@@ -1008,6 +1331,241 @@ body {
   opacity: 0.8;
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
+}
+
+.tc-diffstat {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 10px;
+  color: var(--vscode-charts-green, #4ec9b0);
+  opacity: 0.85;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.2px;
+}
+
+/* Editor-context indicator above the input-controls row.
+   Surfaces auto-attach so the user knows what the agent already sees. */
+.editor-context-indicator {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px 0;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.editor-context-indicator .ec-path {
+  font-family: var(--vscode-editor-font-family, monospace);
+  color: var(--vscode-foreground);
+  opacity: 0.85;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 280px;
+}
+.editor-context-indicator .ec-sel {
+  opacity: 0.7;
+}
+.editor-context-indicator {
+  /* button defaults */
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+}
+.editor-context-indicator:hover {
+  color: var(--vscode-foreground);
+}
+.editor-context-indicator.excluded {
+  text-decoration: line-through;
+  text-decoration-color: var(--vscode-charts-red, #f48771);
+  opacity: 0.55;
+}
+
+/* Wrapper provides positioning context for the popover. */
+.editor-context-wrapper {
+  position: relative;
+}
+.editor-context-popover {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 8px;
+  right: 8px;
+  z-index: 20;
+  background: var(--vscode-editorWidget-background, #252526);
+  border: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border, rgba(128, 128, 128, 0.4)));
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--vscode-foreground);
+}
+.ec-popover-row {
+  margin-bottom: 6px;
+}
+.ec-popover-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-weight: 500;
+}
+.ec-popover-toggle input[type="checkbox"] {
+  margin: 0;
+}
+.ec-popover-hint {
+  margin-top: 4px;
+  margin-left: 22px;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  line-height: 1.4;
+}
+.ec-popover-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.2));
+}
+.ec-popover-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--vscode-textLink-foreground);
+  cursor: pointer;
+}
+.ec-popover-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ========== Onboarding checklist ==========
+   Sits between ChatToolbar and MessageList. Auto-hides once every item is
+   done; can also be dismissed via the × button (persists in globalState).
+   Theme-aware via VS Code variables — no hard-coded colours. */
+.onboarding-checklist {
+  border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+  border-radius: 4px;
+  margin: 8px 8px 0;
+  background: var(--vscode-editor-inactiveSelectionBackground, rgba(128, 128, 128, 0.08));
+  overflow: hidden;
+}
+.onboarding-header-row {
+  display: flex;
+  align-items: center;
+}
+.onboarding-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  padding: 8px 10px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  color: var(--vscode-foreground);
+  font: inherit;
+}
+.onboarding-header:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+.onboarding-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.onboarding-title {
+  flex: 1;
+  font-weight: 600;
+  font-size: 12px;
+}
+.onboarding-progress {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  font-variant-numeric: tabular-nums;
+}
+.onboarding-chevron {
+  display: inline-block;
+  font-size: 9px;
+  transition: transform 0.15s ease;
+  opacity: 0.6;
+}
+.onboarding-chevron.open {
+  transform: rotate(90deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-chevron {
+    transition: none;
+  }
+}
+.onboarding-dismiss {
+  background: none;
+  border: none;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 4px 10px;
+  border-radius: 2px;
+  margin-right: 4px;
+  flex-shrink: 0;
+}
+.onboarding-dismiss:hover {
+  color: var(--vscode-foreground);
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+}
+.onboarding-items {
+  list-style: none;
+  margin: 0;
+  padding: 4px 10px 8px;
+}
+.onboarding-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+}
+.onboarding-checkbox {
+  font-family: var(--vscode-editor-font-family, monospace);
+  width: 14px;
+  flex-shrink: 0;
+  color: var(--vscode-descriptionForeground);
+  font-size: 13px;
+  line-height: 1.3;
+}
+.onboarding-item.done .onboarding-checkbox {
+  color: var(--vscode-charts-green, #4ec9b0);
+}
+.onboarding-item-body {
+  flex: 1;
+  min-width: 0;
+}
+.onboarding-item-title {
+  color: var(--vscode-foreground);
+}
+.onboarding-item.done .onboarding-item-title {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+.onboarding-item-hint {
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  margin-top: 2px;
+  line-height: 1.4;
+}
+.onboarding-item-hint code {
+  font-family: var(--vscode-editor-font-family, monospace);
+  background: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, 0.15));
+  padding: 0 4px;
+  border-radius: 2px;
+  font-size: 10.5px;
 }
 
 /* Elapsed badge next to AI label when thinking */
@@ -1334,6 +1892,17 @@ body {
   background: rgba(137, 209, 133, 0.35);
 }
 
+/* "View diff" button — neutral colour, distinct from Allow/Deny so it's
+   visually clear it doesn't make a decision. */
+.approval-btn-diff {
+  background: transparent;
+  color: var(--vscode-textLink-foreground, #4fc1ff);
+  border-color: var(--vscode-widget-border, rgba(255, 255, 255, 0.15));
+}
+.approval-btn-diff:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.06));
+}
+
 .approval-btn-allow-all {
   background: rgba(78, 154, 240, 0.2);
   color: var(--vscode-charts-blue, #4e9af0);
@@ -1377,22 +1946,18 @@ body {
 button:focus-visible,
 .icon-btn:focus-visible,
 .mode-toggle:focus-visible,
+.mode-tab:focus-visible,
 .agent-type-btn:focus-visible,
 .send-btn:focus-visible,
 .approval-btn:focus-visible,
 .tc-header:focus-visible,
 .conv-item:focus-visible,
 .model-select:focus-visible,
+.mode-select:focus-visible,
 .conversation-search-input:focus-visible,
 textarea:focus-visible {
   outline: 2px solid var(--vscode-focusBorder, #007fd4);
   outline-offset: 1px;
-}
-
-.agent-type-btn.plan-mode-on {
-  background: #f59e0b;
-  color: #1a1a2e;
-  font-weight: 700;
 }
 
 .msg-edit-btn {
@@ -1462,7 +2027,7 @@ textarea:focus-visible {
 }
 .conversation-search-clear:hover { color: var(--vscode-foreground, #e4e4e7); }
 
-.model-select { max-width: 220px !important; }
+.model-select, .mode-select { max-width: 220px !important; }
 
 .approval-block {
   margin-bottom: 8px;
@@ -1507,14 +2072,18 @@ textarea:focus-visible {
   max-height: 320px;
   overflow-y: auto;
 }
-.approval-block-add {
+.approval-block-add,
+.tc-block-add {
   background: rgba(74, 222, 128, 0.05);
   border-left: 2px solid #4ade80;
 }
-.approval-block-remove {
+.approval-block-remove,
+.tc-block-remove {
   background: rgba(248, 113, 113, 0.05);
   border-left: 2px solid #f87171;
 }
+.tc-block-label-add { color: #4ade80; }
+.tc-block-label-remove { color: #f87171; }
 
 .tc-block-label-row {
   display: flex;
@@ -1544,4 +2113,350 @@ textarea:focus-visible {
   padding: 1px 5px;
   font-family: var(--vscode-editor-font-family, monospace);
   font-size: 10px;
+}
+
+.msg-stopped-tag {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--vscode-descriptionForeground);
+  margin-left: 6px;
+  font-style: italic;
+}
+
+/* File-link: paths the agent mentions (e.g. `src/foo.ts:42`) become clickable
+   links — click handler lives in MessageList. Visually distinct from external
+   URLs; underlined on hover. */
+.file-link {
+  color: var(--vscode-textLink-foreground, #4fc1ff);
+  text-decoration: none;
+  cursor: pointer;
+  border-bottom: 1px dotted var(--vscode-textLink-foreground, #4fc1ff);
+  transition: opacity 0.15s;
+}
+.file-link:hover {
+  opacity: 0.85;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* "Load earlier messages" toggle — surfaces when virtualisation kicks in. */
+.virtualise-toggle {
+  margin: 8px auto;
+  display: block;
+  background: var(--vscode-button-secondaryBackground, rgba(128, 128, 128, 0.18));
+  color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+  border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.3));
+  border-radius: 4px;
+  padding: 5px 12px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.virtualise-toggle:hover {
+  background: var(--vscode-button-secondaryHoverBackground, rgba(128, 128, 128, 0.3));
+}
+
+/* Extended-thinking block — collapsible "Reasoning" panel that streams above
+   the visible answer when the model is using extended thinking. Auto-expands
+   on first appearance; user can collapse via the standard <details> chevron. */
+.thinking-block {
+  margin: 4px 0;
+  padding: 0;
+  border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+  border-radius: 4px;
+  background: var(--vscode-editorWidget-background, rgba(255, 255, 255, 0.02));
+  font-size: 11px;
+}
+.thinking-block > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+  user-select: none;
+  color: var(--vscode-descriptionForeground);
+}
+.thinking-block > summary::-webkit-details-marker { display: none; }
+.thinking-icon {
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.thinking-label {
+  font-weight: 500;
+  color: var(--vscode-foreground);
+}
+.thinking-meta {
+  margin-left: auto;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 10px;
+  opacity: 0.7;
+}
+.thinking-content {
+  margin: 0;
+  padding: 8px 10px;
+  border-top: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.2));
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--vscode-foreground);
+  opacity: 0.85;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 240px;
+  overflow: auto;
+}
+
+/* Memory suggestion card — appears under any assistant message that emits
+   a `<memory_suggestion>` block. One-click save to instructions.local.md. */
+.memory-suggestion-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 12px 0;
+  padding: 6px 10px;
+  border: 1px dashed var(--vscode-panel-border, rgba(128, 128, 128, 0.4));
+  border-radius: 4px;
+  background: var(--vscode-editorWidget-background, rgba(255, 255, 255, 0.02));
+  font-size: 11px;
+}
+.memory-suggestion-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.memory-suggestion-body {
+  flex: 1;
+  min-width: 0;
+}
+.memory-suggestion-title {
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--vscode-foreground);
+}
+.memory-suggestion-quote {
+  margin-top: 2px;
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.memory-suggestion-btn {
+  background: var(--vscode-button-secondaryBackground, rgba(128, 128, 128, 0.2));
+  color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+  border: 1px solid transparent;
+  border-radius: 3px;
+  padding: 4px 9px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.memory-suggestion-btn:hover {
+  background: var(--vscode-button-secondaryHoverBackground, rgba(128, 128, 128, 0.3));
+}
+
+/* Approve-plan card — surfaces under the last assistant message after a
+   plan-mode turn, with an Execute button. Theme-aware via VS Code variables. */
+.approve-plan-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 8px 12px 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--vscode-focusBorder, var(--vscode-panel-border, rgba(128, 128, 128, 0.4)));
+  border-radius: 6px;
+  background: var(--vscode-editorWidget-background, rgba(255, 255, 255, 0.04));
+}
+.approve-plan-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+  line-height: 1;
+  margin-top: 2px;
+}
+.approve-plan-body {
+  flex: 1;
+  min-width: 0;
+}
+.approve-plan-title {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--vscode-foreground);
+}
+.approve-plan-hint {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  line-height: 1.45;
+}
+.approve-plan-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.approve-plan-btn {
+  background: var(--vscode-button-secondaryBackground, rgba(128, 128, 128, 0.2));
+  color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+  border: 1px solid transparent;
+  border-radius: 3px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.approve-plan-btn:hover {
+  background: var(--vscode-button-secondaryHoverBackground, rgba(128, 128, 128, 0.3));
+}
+.approve-plan-btn-primary {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+}
+.approve-plan-btn-primary:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
+/* Hover preview tooltip for `.file-link`. Position is set inline (anchored to
+   the link's bounding rect); the rest of the styling stays here. */
+.file-link-preview {
+  position: fixed;
+  z-index: 1000;
+  max-width: 480px;
+  max-height: 320px;
+  overflow: hidden;
+  background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background, #252526));
+  border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-panel-border, rgba(128, 128, 128, 0.4)));
+  border-radius: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+.file-link-preview-path {
+  padding: 4px 8px;
+  font-size: 10px;
+  color: var(--vscode-descriptionForeground);
+  background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.04));
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.2));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.file-link-preview-pre {
+  margin: 0;
+  padding: 6px 8px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--vscode-foreground);
+  white-space: pre;
+  overflow: auto;
+  max-height: 280px;
+}
+.file-link-preview-loading,
+.file-link-preview-empty {
+  padding: 8px;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+}
+
+/* Long-code-block collapse — `<details>` block under the visible 30 lines */
+.code-block-rest {
+  border-top: 1px dashed var(--vscode-widget-border, rgba(255, 255, 255, 0.08));
+}
+.code-block-rest > summary {
+  padding: 6px 12px;
+  cursor: pointer;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  user-select: none;
+}
+.code-block-rest > summary:hover {
+  color: var(--vscode-foreground);
+}
+.code-block-rest[open] > summary {
+  color: var(--vscode-foreground);
+}
+.code-block-rest > pre {
+  margin: 0;
+}
+
+.code-block-truncated {
+  font-size: 10px;
+  color: var(--vscode-descriptionForeground);
+  margin-left: 8px;
+  font-style: italic;
+  flex: 1;
+  text-align: right;
+}
+
+/* Theme-aware syntax highlighting overrides for highlight.js tokens. The
+   default hljs stylesheet looks fine in dark, looks washed-out in light, and
+   illegible in high-contrast. We pull from VS Code's own symbolIcon tokens so
+   we get pixel-perfect theme parity for free. */
+.theme-light .hljs,
+.theme-light .hljs * {
+  color: var(--vscode-foreground);
+}
+.theme-light .hljs-keyword,
+.theme-light .hljs-built_in,
+.theme-light .hljs-type {
+  color: var(--vscode-symbolIcon-keywordForeground, #af00db);
+}
+.theme-light .hljs-string,
+.theme-light .hljs-attr {
+  color: var(--vscode-symbolIcon-stringForeground, #a31515);
+}
+.theme-light .hljs-number,
+.theme-light .hljs-literal {
+  color: var(--vscode-symbolIcon-numberForeground, #098658);
+}
+.theme-light .hljs-comment,
+.theme-light .hljs-quote {
+  color: var(--vscode-symbolIcon-textForeground, #008000);
+}
+.theme-light .hljs-function,
+.theme-light .hljs-title,
+.theme-light .hljs-class {
+  color: var(--vscode-symbolIcon-functionForeground, #795e26);
+}
+
+.theme-hc .hljs,
+.theme-hc .hljs * {
+  color: var(--vscode-foreground);
+}
+.theme-hc .hljs-keyword,
+.theme-hc .hljs-built_in,
+.theme-hc .hljs-type {
+  color: var(--vscode-symbolIcon-keywordForeground);
+  font-weight: 700;
+}
+.theme-hc .hljs-string,
+.theme-hc .hljs-attr {
+  color: var(--vscode-symbolIcon-stringForeground);
+}
+.theme-hc .hljs-comment,
+.theme-hc .hljs-quote {
+  color: var(--vscode-symbolIcon-textForeground);
+  font-style: italic;
+}
+
+/* Honour the OS / VS Code reduced-motion preference. Vestibular-sensitive
+   users disable continuous animations; the streaming cursor blink, agent
+   activity pulse, and any fade-ins should collapse to a static state. */
+@media (prefers-reduced-motion: reduce) {
+  .streaming-cursor::after,
+  .agent-status-dot,
+  .tc-running-text {
+    animation: none !important;
+    transition: none !important;
+    opacity: 1 !important;
+  }
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }

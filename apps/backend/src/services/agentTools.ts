@@ -245,7 +245,87 @@ export const AGENT_TOOL_DEFINITIONS: Anthropic.Tool[] = [
       required: ["query"],
     },
   },
+  {
+    name: "get_diagnostics",
+    description:
+      "Read VS Code's Problems panel — language-server / linter / TypeScript errors and warnings " +
+      "for a file. Use this BEFORE editing if the user said 'fix the errors' or 'address the warnings', " +
+      "and AFTER editing to verify your fix didn't introduce new issues. Far more reliable than parsing " +
+      "compiler output yourself.",
+    input_schema: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          description: "File path (workspace-relative). Omit to get diagnostics for ALL files.",
+        },
+        severity: {
+          type: "string",
+          enum: ["error", "warning", "info", "hint"],
+          description: "Minimum severity to include. Defaults to 'warning'.",
+        },
+      },
+    },
+  },
 ];
+
+/**
+ * Split a shell command on chain operators (`&&`, `||`, `;`, `|`) but NOT on
+ * occurrences inside quoted strings. Returns the trimmed subcommands.
+ *
+ * Why: a model emitting `ls && rm -rf node_modules` would auto-approve under a
+ * naive `cmd.startsWith("ls ")` check — a real prompt-injection surface. Each
+ * subcommand needs to be checked independently against the safe list.
+ */
+function splitCompoundCommand(cmd: string): string[] {
+  const parts: string[] = [];
+  let buf = "";
+  let inSingle = false;
+  let inDouble = false;
+  let inBacktick = false;
+
+  for (let i = 0; i < cmd.length; i++) {
+    const c = cmd[i];
+    const next = cmd[i + 1];
+
+    // Track quote state. Backslash-escaped quotes don't toggle.
+    if (c === "\\" && (next === "'" || next === '"' || next === "`")) {
+      buf += c + next;
+      i++;
+      continue;
+    }
+    if (!inDouble && !inBacktick && c === "'") inSingle = !inSingle;
+    else if (!inSingle && !inBacktick && c === '"') inDouble = !inDouble;
+    else if (!inSingle && !inDouble && c === "`") inBacktick = !inBacktick;
+
+    if (!inSingle && !inDouble && !inBacktick) {
+      // `&&` / `||`
+      if ((c === "&" && next === "&") || (c === "|" && next === "|")) {
+        if (buf.trim()) parts.push(buf.trim());
+        buf = "";
+        i++;
+        continue;
+      }
+      // `;` or single `|` (pipe — also separator since each segment runs)
+      if (c === ";" || c === "|") {
+        if (buf.trim()) parts.push(buf.trim());
+        buf = "";
+        continue;
+      }
+    }
+
+    buf += c;
+  }
+  if (buf.trim()) parts.push(buf.trim());
+  return parts;
+}
+
+/** Is this single subcommand safe to auto-approve? */
+function isSafeCommand(cmd: string): boolean {
+  return AUTO_APPROVED_COMMANDS.some(
+    (safe) => cmd === safe || cmd.startsWith(safe + " ")
+  );
+}
 
 /** Check whether a tool call requires user approval */
 export function requiresApproval(toolName: string, toolInput: Record<string, unknown>): boolean {
@@ -253,12 +333,13 @@ export function requiresApproval(toolName: string, toolInput: Record<string, unk
     return false;
   }
 
-  // Terminal commands: auto-approve safe read-only commands
+  // Terminal commands: auto-approve only when EVERY subcommand in the chain is
+  // on the safe list. A single dangerous step (`ls && rm -rf x`) flips the
+  // whole compound back to needing approval.
   if (toolName === "run_terminal" && typeof toolInput.command === "string") {
-    const cmd = toolInput.command.trim();
-    return !AUTO_APPROVED_COMMANDS.some(
-      (safe) => cmd === safe || cmd.startsWith(safe + " ")
-    );
+    const subs = splitCompoundCommand(toolInput.command);
+    if (subs.length === 0) return true; // empty / parse-failure: be safe
+    return !subs.every(isSafeCommand);
   }
 
   // write_file and edit_file always require approval
@@ -443,6 +524,15 @@ Before coding, commit to a BOLD aesthetic direction:
 - Clean architecture, proper error handling, type safety
 - Follow language idioms and best practices
 - Handle edge cases
+
+## Memory: surfacing things the user should remember
+When you discover a stable preference, project convention, or constraint that will repeat across future turns (e.g. "they always want SQL migrations to be reversible", "this codebase uses tabs not spaces", "they prefer Pinia over Vuex"), AND the user hasn't already captured it in their rules files, emit ONE short \`<memory_suggestion>\` block at the very end of your response:
+
+\`\`\`
+<memory_suggestion>One sentence rule, written in imperative voice. Max 120 chars.</memory_suggestion>
+\`\`\`
+
+The chat UI shows a one-click "Save to memory" button under that suggestion that appends it to \`.ailancers/instructions.local.md\`. The user gets to decide whether to keep it. Only emit one suggestion per turn — quality over quantity. If the rule is already in the project's existing rules / instructions, do NOT re-suggest it.
 
 You are working on the user's local machine through their VS Code extension.`;
 

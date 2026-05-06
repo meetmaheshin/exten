@@ -13,12 +13,17 @@ export interface AvailableModel {
   category: "code" | "chat" | "reasoning";
 }
 
-/** All known models — Claude listed first as primary provider */
+/** All known models — Claude listed first as primary provider.
+ *  `-1m` suffix variants use Anthropic's 1M context beta (`context-1m-2025-08-07`
+ *  beta header). Higher per-token cost but ~5x the standard 200K context — useful
+ *  for very large repos, full-conversation rewinds, or `/compact` skips. */
 const ALL_MODELS: AvailableModel[] = [
   // Anthropic — PRIMARY provider
-  { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6", provider: "anthropic", category: "code" },
-  { id: "claude-opus-4-6",   name: "Claude Opus 4.6",   provider: "anthropic", category: "code" },
-  { id: "claude-haiku-4-5",  name: "Claude Haiku 4.5",  provider: "anthropic", category: "chat" },
+  { id: "claude-sonnet-4-6",    name: "Claude Sonnet 4.6",          provider: "anthropic", category: "code" },
+  { id: "claude-sonnet-4-6-1m", name: "Claude Sonnet 4.6 (1M ctx)", provider: "anthropic", category: "code" },
+  { id: "claude-opus-4-6",      name: "Claude Opus 4.6",            provider: "anthropic", category: "code" },
+  { id: "claude-opus-4-6-1m",   name: "Claude Opus 4.6 (1M ctx)",   provider: "anthropic", category: "code" },
+  { id: "claude-haiku-4-5",     name: "Claude Haiku 4.5",           provider: "anthropic", category: "chat" },
   // OpenAI — fallback only
   { id: "gpt-4o",            name: "GPT-4o",            provider: "openai",    category: "chat" },
   { id: "gpt-4o-mini",       name: "GPT-4o Mini",       provider: "openai",    category: "chat" },
@@ -116,7 +121,7 @@ export class AIService {
   async runAgentLoop(
     conversationMessages: Anthropic.MessageParam[] | Array<{ role: string; content: string }>,
     callbacks: AgentCallbacks,
-    options?: { model?: string; abortSignal?: AbortSignal; budgetRemainingUsd?: number; agentType?: string; projectRules?: string; planMode?: boolean }
+    options?: { model?: string; abortSignal?: AbortSignal; budgetRemainingUsd?: number; agentType?: string; projectRules?: string; planMode?: boolean; effort?: "low" | "medium" | "high" }
   ): Promise<AgentResult> {
     const empty: AgentResult = {
       fullText: "",

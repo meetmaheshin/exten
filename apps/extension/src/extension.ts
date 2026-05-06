@@ -4,7 +4,8 @@ import { ApiClient } from "./services/ApiClient";
 import { WebSocketClient } from "./services/WebSocketClient";
 import { ChatService } from "./services/ChatService";
 import { ToolExecutor } from "./services/ToolExecutor";
-import { ApprovalService } from "./services/ApprovalService";
+import { SettingsLoader } from "./services/SettingsLoader";
+import { HookRunner } from "./services/HookRunner";
 import { ActivityTracker } from "./services/ActivityTracker";
 import { TelemetryService } from "./services/TelemetryService";
 import { ScreenCaptureService } from "./services/ScreenCaptureService";
@@ -13,9 +14,11 @@ import { SystemIdleService } from "./services/SystemIdleService";
 import { AutoStartService } from "./services/AutoStartService";
 import { ProjectPickerService } from "./services/ProjectPickerService";
 import { WorkspaceContextService } from "./services/WorkspaceContextService";
+import { CommitMessageService } from "./services/CommitMessageService";
 import { ChatViewProvider } from "./providers/ChatViewProvider";
 import { StatusBarProvider } from "./providers/StatusBarProvider";
 import { ActivityDashboardProvider } from "./providers/ActivityDashboardProvider";
+import { AilancersCodeActionProvider } from "./providers/AilancersCodeActionProvider";
 
 export async function activate(context: vscode.ExtensionContext) {
   const outputChannel = vscode.window.createOutputChannel("Ailancers Code");
@@ -39,8 +42,12 @@ export async function activate(context: vscode.ExtensionContext) {
   const apiClient = new ApiClient(authService);
   const wsClient = new WebSocketClient(authService);
   const toolExecutor = new ToolExecutor(outputChannel, apiClient);
-  const approvalService = new ApprovalService();
-  const chatService = new ChatService(apiClient, wsClient, toolExecutor, approvalService);
+  const settingsLoader = new SettingsLoader(outputChannel);
+  context.subscriptions.push(settingsLoader);
+  const hookRunner = new HookRunner(outputChannel);
+  const chatService = new ChatService(apiClient, wsClient, toolExecutor);
+  chatService.setSettingsLoader(settingsLoader);
+  chatService.setHookRunner(hookRunner);
   const workspaceContext = new WorkspaceContextService();
   chatService.setWorkspaceContext(workspaceContext);
   const systemIdleService = new SystemIdleService();
@@ -60,7 +67,8 @@ export async function activate(context: vscode.ExtensionContext) {
   const autoStartService = new AutoStartService(context);
 
   // Register sidebar webview
-  const chatViewProvider = new ChatViewProvider(context.extensionUri, chatService, apiClient, authService);
+  const chatViewProvider = new ChatViewProvider(context.extensionUri, chatService, apiClient, authService, context);
+  chatViewProvider.setSettingsLoader(settingsLoader);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider("ailancers.chatView", chatViewProvider, {
       webviewOptions: { retainContextWhenHidden: true },
@@ -78,6 +86,11 @@ export async function activate(context: vscode.ExtensionContext) {
     hourlyBillingTracker,
   );
   context.subscriptions.push(statusBar, projectPicker);
+
+  // When something needs the user while the chat is hidden, light up the
+  // status-bar attention indicator. Cleared when the chat is brought back.
+  chatViewProvider.onAttention = (state) => statusBar.setAttention(state);
+  chatViewProvider.onStreaming = (streaming) => statusBar.setStreaming(streaming);
 
   // Register commands
   context.subscriptions.push(
@@ -154,6 +167,231 @@ export async function activate(context: vscode.ExtensionContext) {
       } catch (err) {
         vscode.window.showErrorMessage(`Ailancers: ${err instanceof Error ? err.message : err}`);
       }
+    }),
+
+    // ── New keybinding-bound + Cmd-Palette commands (Wave 4) ──
+
+    // Cmd/Ctrl+Esc — focus the chat input from anywhere
+    vscode.commands.registerCommand("ailancers.focusInput", async () => {
+      await chatViewProvider.focusInput();
+    }),
+
+    // Esc while chat focused + streaming — fire cancel via the webview
+    vscode.commands.registerCommand("ailancers.stopGeneration", () => {
+      chatViewProvider.cancelActiveStream();
+    }),
+
+    // Alt+K from the editor — insert `@file#L5-L10` at the chat input cursor
+    vscode.commands.registerCommand("ailancers.insertFileReference", async () => {
+      await chatViewProvider.insertFileReferenceFromActiveEditor();
+    }),
+
+    // editor/context entry — sends current selection to chat with a preset prompt
+    vscode.commands.registerCommand("ailancers.askAilancersAboutSelection", async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        vscode.window.showInformationMessage("Open a file first.");
+        return;
+      }
+      await chatViewProvider.focusInput();
+      const sel = editor.selection;
+      const code = sel.isEmpty ? editor.document.getText() : editor.document.getText(sel);
+      const folders = vscode.workspace.workspaceFolders;
+      const root = folders?.[0]?.uri.fsPath;
+      const relPath = root && editor.document.uri.fsPath.startsWith(root)
+        ? require("node:path").relative(root, editor.document.uri.fsPath).replace(/\\/g, "/")
+        : editor.document.uri.fsPath;
+      const langId = editor.document.languageId;
+      const prompt = `Explain this code from ${relPath}:\n\n\`\`\`${langId}\n${code.slice(0, 8000)}\n\`\`\``;
+      // Tell webview to prefill the input with this prompt — re-uses the
+      // existing edit-and-resend prefill mechanism.
+      chatViewProvider.refresh();
+      // We don't have a direct "prefill" route yet; pipe via insertAtCursor.
+      // The webview's ChatInput interprets it as "set the textarea value".
+      void vscode.commands.executeCommand("ailancers.chatView.focus");
+      await new Promise((r) => setTimeout(r, 100));
+      // Use the insertAtCursor channel; ChatInput appends rather than replaces,
+      // but for an empty input the result is the same.
+      // (A dedicated `prefillInput` could be added later if appending feels wrong.)
+      // postToWebview is private; route through the focusInput method which
+      // already calls show() — then send the message.
+      // Simpler: directly use the chatViewProvider's insert helper.
+      await chatViewProvider.insertText(prompt);
+    }),
+
+    // SCM commit message generation — reads `git diff --cached` via the
+    // built-in Git extension API, asks the backend for a Conventional-Commits
+    // -style message, writes it into the SCM input box. Wired to the SCM
+    // title-bar button via the `scm/title` menu in package.json.
+    vscode.commands.registerCommand("ailancers.generateCommitMessage", async () => {
+      const svc = new CommitMessageService(apiClient);
+      await svc.generate();
+    }),
+
+    // CodeActionProvider quick-fix entry point. Wired by
+    // AilancersCodeActionProvider to every diagnostic; clicking the quick-fix
+    // sends a synthetic chat message asking the agent to fix the problem.
+    vscode.commands.registerCommand("ailancers.fixWithAilancers", async (
+      args: {
+        uri: string;
+        diagnostic: {
+          message: string;
+          severity: number;
+          code?: string;
+          source?: string;
+          range: { start: { line: number; character: number }; end: { line: number; character: number } };
+        };
+      },
+    ) => {
+      try {
+        const docUri = vscode.Uri.parse(args.uri);
+        const doc = await vscode.workspace.openTextDocument(docUri);
+        // Pull a small context window: the diagnostic line + 8 lines before
+        // and after. Caps at 200 lines just in case the diagnostic spans a
+        // huge range.
+        const startLine = Math.max(0, args.diagnostic.range.start.line - 8);
+        const endLine = Math.min(
+          doc.lineCount - 1,
+          args.diagnostic.range.end.line + 8,
+        );
+        const lines: string[] = [];
+        for (let i = startLine; i <= endLine && lines.length < 200; i++) {
+          lines.push(`${i + 1}\t${doc.lineAt(i).text}`);
+        }
+        const folders = vscode.workspace.workspaceFolders;
+        const root = folders?.[0]?.uri.fsPath;
+        const relPath = root && docUri.fsPath.startsWith(root)
+          ? require("node:path").relative(root, docUri.fsPath).replace(/\\/g, "/")
+          : docUri.fsPath;
+        const sevLabel = args.diagnostic.severity === vscode.DiagnosticSeverity.Error ? "error"
+          : args.diagnostic.severity === vscode.DiagnosticSeverity.Warning ? "warning"
+          : args.diagnostic.severity === vscode.DiagnosticSeverity.Information ? "info"
+          : "hint";
+        const codeStr = args.diagnostic.code ? ` [${args.diagnostic.code}]` : "";
+        const sourceStr = args.diagnostic.source ? ` (${args.diagnostic.source})` : "";
+        const prompt =
+          `Fix this ${sevLabel}${sourceStr}${codeStr} in \`${relPath}\` at line ${args.diagnostic.range.start.line + 1}:\n\n` +
+          `> ${args.diagnostic.message.replace(/\n/g, "\n> ")}\n\n` +
+          `Surrounding code:\n\n\`\`\`${doc.languageId}\n${lines.join("\n")}\n\`\`\``;
+        await chatViewProvider.focusInput();
+        await chatViewProvider.insertText(prompt);
+      } catch (err) {
+        vscode.window.showErrorMessage(`Couldn't load diagnostic context: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }),
+
+    // Register the code-action provider for all languages. The provider
+    // surfaces a quick-fix on every diagnostic; picking it dispatches
+    // `ailancers.fixWithAilancers` above.
+    vscode.languages.registerCodeActionsProvider(
+      { scheme: "file" },
+      new AilancersCodeActionProvider(),
+      { providedCodeActionKinds: AilancersCodeActionProvider.providedCodeActionKinds },
+    ),
+
+    // Open the .ailancers/settings.json file (the persisted permissions/hooks
+    // /MCP config). Creates a starter template if missing.
+    vscode.commands.registerCommand("ailancers.openPermissions", async () => {
+      const folders = vscode.workspace.workspaceFolders;
+      if (!folders || folders.length === 0) {
+        vscode.window.showWarningMessage("Open a folder first.");
+        return;
+      }
+      const root = folders[0].uri.fsPath;
+      const dir = require("node:path").join(root, ".ailancers");
+      const file = require("node:path").join(dir, "settings.json");
+      const fsp = require("node:fs/promises");
+      try {
+        await fsp.mkdir(dir, { recursive: true });
+        try {
+          await fsp.access(file);
+        } catch {
+          const starter = JSON.stringify({
+            $schema: "https://ailancers.com/schemas/settings.schema.json",
+            permissions: {
+              allow: [
+                "Bash(npm test)",
+                "Bash(npm run *)",
+                "Read(./src/**)"
+              ],
+              deny: [
+                "Edit(.env*)",
+                "Edit(.git/**)",
+                "Edit(.ailancers/**)"
+              ],
+              ask: []
+            },
+            // hooks: {
+            //   PreToolUse: [
+            //     // Block edits the linter rejects:
+            //     { matcher: "edit_file|write_file", command: "./scripts/format-check.sh", timeout: 60 }
+            //   ],
+            //   PostToolUse: [
+            //     // Scan run_terminal output for leaked secrets:
+            //     { matcher: "run_terminal", command: "./scripts/scan-secrets.sh" }
+            //   ]
+            // }
+          }, null, 2) + "\n";
+          await fsp.writeFile(file, starter, "utf-8");
+        }
+        const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(file));
+        await vscode.window.showTextDocument(doc);
+      } catch (err) {
+        vscode.window.showErrorMessage(`Ailancers: could not open permissions file — ${err instanceof Error ? err.message : err}`);
+      }
+    }),
+
+    // Open the project rules file (.ailancers/instructions.md), creating a
+    // template if it doesn't exist yet.
+    vscode.commands.registerCommand("ailancers.openProjectRules", async () => {
+      const folders = vscode.workspace.workspaceFolders;
+      if (!folders || folders.length === 0) {
+        vscode.window.showWarningMessage("Open a folder first.");
+        return;
+      }
+      const root = folders[0].uri.fsPath;
+      const dir = require("node:path").join(root, ".ailancers");
+      const file = require("node:path").join(dir, "instructions.md");
+      const fsp = require("node:fs/promises");
+      try {
+        await fsp.mkdir(dir, { recursive: true });
+        try {
+          await fsp.access(file);
+        } catch {
+          // Create a starter template
+          const starter = "# Project rules for Ailancers Code\n\n" +
+            "These are the conventions Ailancers follows when working in this repo.\n" +
+            "Anything you write below is auto-injected as `<project_rules>` on every agent turn.\n\n" +
+            "## Conventions\n\n" +
+            "- (write your project's testing, formatting, branching, naming rules here)\n";
+          await fsp.writeFile(file, starter, "utf-8");
+        }
+        const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(file));
+        await vscode.window.showTextDocument(doc);
+      } catch (err) {
+        vscode.window.showErrorMessage(`Ailancers: could not open project rules — ${err instanceof Error ? err.message : err}`);
+      }
+    }),
+
+    // Re-show the welcome walkthrough
+    vscode.commands.registerCommand("ailancers.showWalkthrough", async () => {
+      await vscode.commands.executeCommand(
+        "workbench.action.openWalkthrough",
+        { category: "ailancers.ailancers-code#ailancers-getting-started" },
+        false,
+      );
+    }),
+
+    // Show the output channel — useful when filing bug reports
+    vscode.commands.registerCommand("ailancers.showLogs", () => {
+      outputChannel.show(true);
+    }),
+
+    // Open feedback URL pre-filled with version + platform info
+    vscode.commands.registerCommand("ailancers.sendFeedback", async () => {
+      const ext = require(`${context.extensionPath}/package.json`) as { version: string };
+      const url = `https://feedback.ailancers.com/?ext=${encodeURIComponent(ext.version)}&vscode=${encodeURIComponent(vscode.version)}&platform=${encodeURIComponent(process.platform)}`;
+      await vscode.env.openExternal(vscode.Uri.parse(url));
     })
   );
 

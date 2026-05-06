@@ -162,6 +162,39 @@ export async function buildApp(env: Env, db: Database) {
     defaults: aiService.getDefaultModels(),
   }));
 
+  // Commit-message generation — host posts a staged diff, we ask the model
+  // for a Conventional-Commits-style message and return a single string.
+  // Auth-gated; uses a small one-shot streamChat call so this doesn't pull
+  // in agent loops or tools. Diff is capped client-side to ~16KB.
+  app.post("/api/commit-message", { preHandler: requireAuth(authService) }, async (request, reply) => {
+    const body = request.body as { diff?: unknown };
+    const diff = typeof body?.diff === "string" ? body.diff : "";
+    if (!diff.trim()) {
+      return reply.status(400).send({ error: "diff is required" });
+    }
+    let message = "";
+    await aiService.streamChat(
+      [
+        {
+          role: "user",
+          content:
+            "Write a single Conventional-Commits-style commit message for this staged diff. " +
+            "Output ONLY the message — no preamble, no explanation, no quote marks. " +
+            "Use the form `type(scope): subject` for the first line (max 72 chars), then a blank line, " +
+            "then 1-3 sentences of body explaining the WHY, not the WHAT. Skip the body if the change is trivial.\n\n" +
+            "```diff\n" + diff + "\n```",
+        },
+      ],
+      {
+        onDelta: (text) => { message += text; },
+        onEnd: () => {},
+        onError: () => {},
+      },
+      { model: aiService.getDefaultModels().chatModel },
+    );
+    return reply.send({ message: message.trim() });
+  });
+
   // Version endpoint — clients check this on startup for updates
   app.get("/api/version", async () => ({
     extension: { version: "0.2.4", downloadUrl: "https://apivscode.ailancers.com/dashboard/downloads/" },
@@ -192,7 +225,7 @@ export async function buildApp(env: Env, db: Database) {
 
   // Routes
   authRoutes(app, authService, db);
-  chatRoutes(app, authService, db);
+  chatRoutes(app, authService, db, aiService);
   chatWsRoute(app, authService, aiService, db, billingReporter);
   telemetryRoutes(app, authService, db);
   screenshotRoutes(app, authService, db, env);

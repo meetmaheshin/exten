@@ -1,10 +1,14 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Conversation } from "../types";
 
 interface ConversationListProps {
   conversations: Conversation[];
   activeId: string | null;
   onSelect: (id: string) => void;
+  /** Fired when the user double-clicks a conversation title and submits a
+   *  new value via Enter or blur. Empty/whitespace-only titles are dropped
+   *  by this component before reaching the parent. */
+  onRename?: (id: string, title: string) => void;
 }
 
 function formatDate(iso: string): string {
@@ -21,8 +25,31 @@ function formatDate(iso: string): string {
   return d.toLocaleDateString();
 }
 
-export function ConversationList({ conversations, activeId, onSelect }: ConversationListProps) {
+export function ConversationList({ conversations, activeId, onSelect, onRename }: ConversationListProps) {
   const [search, setSearch] = useState("");
+  /** id of the conversation whose title is currently being edited inline. */
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const editInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Focus + select-all when entering edit mode so the user can immediately
+  // type a new title.
+  useEffect(() => {
+    if (editingId && editInputRef.current) {
+      editInputRef.current.focus();
+      editInputRef.current.select();
+    }
+  }, [editingId]);
+
+  const commitRename = (id: string) => {
+    const next = editValue.trim();
+    setEditingId(null);
+    if (next && onRename) onRename(id, next);
+  };
+  const cancelRename = () => {
+    setEditingId(null);
+    setEditValue("");
+  };
 
   const filtered = useMemo(() => {
     if (!search.trim()) return conversations;
@@ -64,16 +91,42 @@ export function ConversationList({ conversations, activeId, onSelect }: Conversa
           <div className="empty-state-text" style={{ fontSize: 12 }}>No conversations match "{search}"</div>
         </div>
       ) : (
-        filtered.map((conv) => (
-          <button
-            key={conv.id}
-            className={`conv-item ${conv.id === activeId ? "active" : ""}`}
-            onClick={() => onSelect(conv.id)}
-          >
-            <span className="conv-item-title">{conv.title || "Untitled"}</span>
-            <span className="conv-item-date">{formatDate(conv.createdAt)}</span>
-          </button>
-        ))
+        filtered.map((conv) => {
+          const isEditing = editingId === conv.id;
+          return (
+            <div
+              key={conv.id}
+              className={`conv-item ${conv.id === activeId ? "active" : ""}`}
+              onClick={() => { if (!isEditing) onSelect(conv.id); }}
+              onDoubleClick={(e) => {
+                if (!onRename) return;
+                e.stopPropagation();
+                setEditingId(conv.id);
+                setEditValue(conv.title || "");
+              }}
+              role="button"
+              tabIndex={0}
+            >
+              {isEditing ? (
+                <input
+                  ref={editInputRef}
+                  className="conv-item-edit-input"
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") { e.preventDefault(); commitRename(conv.id); }
+                    else if (e.key === "Escape") { e.preventDefault(); cancelRename(); }
+                  }}
+                  onBlur={() => commitRename(conv.id)}
+                />
+              ) : (
+                <span className="conv-item-title" title="Double-click to rename">{conv.title || "Untitled"}</span>
+              )}
+              <span className="conv-item-date">{formatDate(conv.createdAt)}</span>
+            </div>
+          );
+        })
       )}
     </div>
   );

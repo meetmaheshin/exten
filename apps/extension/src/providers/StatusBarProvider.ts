@@ -9,6 +9,14 @@ export class StatusBarProvider implements vscode.Disposable {
   private statusBarItem: vscode.StatusBarItem;
   private projectBarItem: vscode.StatusBarItem;
   private trackerBarItem: vscode.StatusBarItem;
+  private attentionItem: vscode.StatusBarItem;
+  private attentionState: "none" | "pending" | "done" = "none";
+  /** True while an agent stream is actively running. Takes priority over
+   *  attentionState — we surface a `$(sync~spin) running…` spinner so the
+   *  user always knows there's a long-running operation in flight, even if
+   *  they switched away from the chat view. */
+  private streaming = false;
+  private streamingStartedAt = 0;
   private updateInterval: ReturnType<typeof setInterval>;
   private disposables: vscode.Disposable[] = [];
 
@@ -39,6 +47,11 @@ export class StatusBarProvider implements vscode.Disposable {
     this.trackerBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 98);
     this.trackerBarItem.command = "ailancers.openChat";
 
+    // Attention indicator — shown only when the chat is hidden AND something
+    // needs the user (permission pending or stream completed). Click → open chat.
+    this.attentionItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 102);
+    this.attentionItem.command = "ailancers.openChat";
+
     this.refresh();
 
     this.updateInterval = setInterval(() => this.refresh(), 30_000);
@@ -49,6 +62,66 @@ export class StatusBarProvider implements vscode.Disposable {
     );
   }
 
+  /**
+   * Mark the attention state. Called by ChatViewProvider when the chat is
+   * hidden and (a) approval is needed, or (b) a stream just finished. Cleared
+   * to "none" when the chat is brought back into view.
+   */
+  setAttention(state: "none" | "pending" | "done"): void {
+    this.attentionState = state;
+    this.refreshAttention();
+  }
+
+  /** Toggle the streaming spinner. Called by ChatViewProvider when an
+   *  agent run starts / ends. Reuses the same status-bar item so we don't
+   *  pile on slots — streaming wins over attention while it's true. */
+  /** 1s ticker that updates the elapsed counter on the streaming indicator.
+   *  Only active while streaming so we don't burn battery on idle status. */
+  private streamingTicker: NodeJS.Timeout | null = null;
+
+  setStreaming(streaming: boolean): void {
+    this.streaming = streaming;
+    if (streaming) {
+      this.streamingStartedAt = Date.now();
+      if (!this.streamingTicker) {
+        this.streamingTicker = setInterval(() => this.refreshAttention(), 1000);
+      }
+    } else if (this.streamingTicker) {
+      clearInterval(this.streamingTicker);
+      this.streamingTicker = null;
+    }
+    this.refreshAttention();
+  }
+
+  private refreshAttention(): void {
+    if (!this.authService.isAuthenticated) {
+      this.attentionItem.hide();
+      return;
+    }
+    if (this.streaming) {
+      const elapsed = Math.max(0, Math.floor((Date.now() - this.streamingStartedAt) / 1000));
+      this.attentionItem.text = `$(sync~spin) Ailancers running… ${elapsed}s`;
+      this.attentionItem.tooltip = "An agent run is in progress. Click to open the chat.";
+      this.attentionItem.backgroundColor = undefined;
+      this.attentionItem.show();
+      return;
+    }
+    if (this.attentionState === "none") {
+      this.attentionItem.hide();
+      return;
+    }
+    if (this.attentionState === "pending") {
+      this.attentionItem.text = "$(bell) Ailancers needs you";
+      this.attentionItem.tooltip = "Ailancers is waiting on permission. Click to open the chat.";
+      this.attentionItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
+    } else {
+      this.attentionItem.text = "$(check) Ailancers finished";
+      this.attentionItem.tooltip = "Ailancers finished while the chat was hidden. Click to open it.";
+      this.attentionItem.backgroundColor = undefined;
+    }
+    this.attentionItem.show();
+  }
+
   refresh(): void {
     if (!this.authService.isAuthenticated) {
       // Show the yellow Sign in pill, hide everything else
@@ -56,11 +129,13 @@ export class StatusBarProvider implements vscode.Disposable {
       this.statusBarItem.hide();
       this.projectBarItem.hide();
       this.trackerBarItem.hide();
+      this.attentionItem.hide();
       return;
     }
     // Authenticated — hide the Sign in pill, show the regular status items
     this.signInItem.hide();
     this.statusBarItem.show();
+    this.refreshAttention();
 
     const totalSeconds = this.activityTracker.getTotalActiveSeconds();
     const hours = Math.floor(totalSeconds / 3600);
@@ -135,10 +210,12 @@ export class StatusBarProvider implements vscode.Disposable {
 
   dispose(): void {
     clearInterval(this.updateInterval);
+    if (this.streamingTicker) clearInterval(this.streamingTicker);
     this.signInItem.dispose();
     this.statusBarItem.dispose();
     this.projectBarItem.dispose();
     this.trackerBarItem.dispose();
+    this.attentionItem.dispose();
     for (const d of this.disposables) d.dispose();
   }
 }

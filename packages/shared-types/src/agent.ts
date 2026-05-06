@@ -9,7 +9,8 @@ export type ToolName =
   | "run_terminal"
   | "search_files"
   | "list_directory"
-  | "glob_files";
+  | "glob_files"
+  | "get_diagnostics";
 
 export const DESTRUCTIVE_TOOLS: ReadonlySet<ToolName> = new Set([
   "write_file",
@@ -58,6 +59,10 @@ export interface WsAgentMessage {
   projectRules?: string;
   /** Plan mode: agent has read-only tools and proposes a plan before any writes */
   planMode?: boolean;
+  /** Reasoning effort: maps to Anthropic `thinking.budget_tokens` for Claude
+   *  reasoning-capable models, or `reasoning_effort` for OpenAI o-series.
+   *  Omit to use the model's default behaviour. */
+  effort?: "low" | "medium" | "high";
   /** Active editor + selection auto-context, prepended to user message */
   editorContext?: {
     activeFile?: string;     // workspace-relative path

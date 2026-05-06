@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type WebSocket from "ws";
 import type { RawData } from "ws";
-import { eq, asc, sql } from "drizzle-orm";
+import { eq, asc, sql, and } from "drizzle-orm";
 import type { AuthService } from "../services/AuthService.js";
 import type { AIService } from "../services/AIService.js";
 import type { Database } from "../config/database.js";
@@ -463,8 +463,13 @@ export function chatWsRoute(
               contentType: agentHasImages ? "structured" : "text",
             });
 
-          // Load conversation history — for agent mode, we need structured content
-          const history = await db
+          // Load conversation history — for agent mode, we need structured content.
+          // /compact inserts a `role: "system"` summary at a cutoff point. We
+          // honour that boundary: keep the most recent system row + every
+          // message after it; drop everything before. This is how compaction
+          // shrinks the model's effective context without dropping rows
+          // permanently from the DB (so /export still sees the originals).
+          const fullHistory = await db
             .select({
               role: messages.role,
               content: messages.content,
@@ -473,17 +478,35 @@ export function chatWsRoute(
             .from(messages)
             .where(eq(messages.conversationId, msg.conversationId))
             .orderBy(asc(messages.createdAt));
+          let history = fullHistory;
+          let lastSystemIdx = -1;
+          for (let i = fullHistory.length - 1; i >= 0; i--) {
+            if (fullHistory[i].role === "system") { lastSystemIdx = i; break; }
+          }
+          if (lastSystemIdx >= 0) {
+            history = fullHistory.slice(lastSystemIdx);
+          }
 
-          // Build message array — handle structured (JSON) content
+          // Build message array — handle structured (JSON) content. The
+          // Anthropic API only accepts `user` / `assistant` in the messages
+          // array (system goes in the top-level `system` field), so a
+          // `role: "system"` row from /compact is rendered as a `user`
+          // message wrapped in a `<conversation_summary>` block. The agent
+          // treats it as setup context — same effect as the role-system
+          // path but without the API rejection.
           const aiMessages = history.map((m) => {
+            const role = m.role === "system" ? "user" : (m.role as "user" | "assistant");
+            const wrap = (txt: string) => m.role === "system"
+              ? `<conversation_summary>\nThe earlier turns of this conversation have been compacted into the summary below. Treat it as the canonical context for what's already been said and decided.\n\n${txt}\n</conversation_summary>`
+              : txt;
             if (m.contentType === "structured" && m.content.startsWith("[")) {
               try {
-                return { role: m.role as "user" | "assistant", content: JSON.parse(m.content) };
+                return { role, content: JSON.parse(m.content) };
               } catch {
-                return { role: m.role as "user" | "assistant", content: m.content };
+                return { role, content: wrap(m.content) };
               }
             }
-            return { role: m.role as "user" | "assistant", content: m.content };
+            return { role, content: wrap(m.content) };
           });
 
           // If the latest user message has images, build multipart content for Claude vision
@@ -527,6 +550,15 @@ export function chatWsRoute(
               onDelta: (delta) => {
                 send(socket, {
                   type: "stream_delta",
+                  conversationId: msg.conversationId,
+                  delta,
+                });
+              },
+              onThinking: (delta) => {
+                // Extended thinking deltas — surfaced separately so the UI
+                // can render them in a collapsible "Reasoning" block.
+                send(socket, {
+                  type: "stream_thinking",
                   conversationId: msg.conversationId,
                   delta,
                 });
@@ -612,6 +644,58 @@ export function chatWsRoute(
                 });
 
                 abortControllers.delete(msg.conversationId);
+
+                // Auto-title: when the conversation is still on the default
+                // "New Conversation" name and the first user turn is in,
+                // ask Haiku for a 4-7-word title. Best-effort — failures are
+                // silent. Fires async; the WS already sent agent_complete so
+                // the user isn't blocked on this.
+                void (async () => {
+                  try {
+                    const [conv] = await db
+                      .select({ title: conversations.title })
+                      .from(conversations)
+                      .where(eq(conversations.id, msg.conversationId))
+                      .limit(1);
+                    if (!conv || (conv.title && conv.title !== "New Conversation" && conv.title !== "Untitled")) return;
+                    const userMsgs = await db
+                      .select({ content: messages.content })
+                      .from(messages)
+                      .where(and(
+                        eq(messages.conversationId, msg.conversationId),
+                        eq(messages.role, "user"),
+                      ))
+                      .orderBy(asc(messages.createdAt))
+                      .limit(1);
+                    const firstUser = userMsgs[0]?.content ?? "";
+                    if (!firstUser.trim()) return;
+                    const sample = firstUser.length > 1500 ? firstUser.slice(0, 1500) + "…" : firstUser;
+                    let title = "";
+                    await aiService.streamChat(
+                      [{
+                        role: "user",
+                        content:
+                          "Write a 4-7-word title for a chat that started with the message below. " +
+                          "Output ONLY the title — no quotes, no period, no preamble.\n\n" +
+                          sample,
+                      }],
+                      {
+                        onDelta: (text) => { title += text; },
+                        onEnd: () => {},
+                        onError: () => {},
+                      },
+                      { model: "claude-haiku-4-5" },
+                    );
+                    title = title.trim().replace(/^["']|["']$/g, "").slice(0, 80);
+                    if (!title) return;
+                    await db
+                      .update(conversations)
+                      .set({ title, updatedAt: new Date() })
+                      .where(eq(conversations.id, msg.conversationId));
+                  } catch {
+                    // Silent — auto-titling is a polish, not a critical path.
+                  }
+                })();
               },
               onError: (error) => {
                 send(socket, {
@@ -621,7 +705,7 @@ export function chatWsRoute(
                 });
               },
             },
-            { model: msg.model, abortSignal: ac.signal, agentType: msg.agentType, projectRules: msg.projectRules, planMode: msg.planMode }
+            { model: msg.model, abortSignal: ac.signal, agentType: msg.agentType, projectRules: msg.projectRules, planMode: msg.planMode, effort: msg.effort }
           );
 
         } catch (err) {

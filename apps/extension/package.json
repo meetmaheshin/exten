@@ -41,6 +41,9 @@
     "onStartupFinished"
   ],
   "main": "./dist/extension.js",
+  "extensionKind": [
+    "workspace"
+  ],
   "contributes": {
     "viewsContainers": {
       "activitybar": [
@@ -114,6 +117,109 @@
       {
         "command": "ailancers.toggleAutoStart",
         "title": "Ailancers: Toggle Auto-Start on Boot"
+      },
+      {
+        "command": "ailancers.openProjectRules",
+        "title": "Ailancers: Open Project Rules"
+      },
+      {
+        "command": "ailancers.openPermissions",
+        "title": "Ailancers: Open Permission Rules (settings.json)"
+      },
+      {
+        "command": "ailancers.askAilancersAboutSelection",
+        "title": "Ailancers: Ask about this code"
+      },
+      {
+        "command": "ailancers.focusInput",
+        "title": "Ailancers: Focus Chat Input"
+      },
+      {
+        "command": "ailancers.stopGeneration",
+        "title": "Ailancers: Stop Generation"
+      },
+      {
+        "command": "ailancers.insertFileReference",
+        "title": "Ailancers: Insert File Reference at Cursor"
+      },
+      {
+        "command": "ailancers.showWalkthrough",
+        "title": "Ailancers: Show Walkthrough"
+      },
+      {
+        "command": "ailancers.showLogs",
+        "title": "Ailancers: Show Logs"
+      },
+      {
+        "command": "ailancers.sendFeedback",
+        "title": "Ailancers: Send Feedback"
+      },
+      {
+        "command": "ailancers.generateCommitMessage",
+        "title": "Ailancers: Generate Commit Message",
+        "icon": "$(sparkle)"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "ailancers.openChat",
+          "group": "navigation@99",
+          "when": "editorIsOpen"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "ailancers.askAilancersAboutSelection",
+          "group": "1_modification@99",
+          "when": "editorTextFocus"
+        }
+      ],
+      "scm/title": [
+        {
+          "command": "ailancers.generateCommitMessage",
+          "group": "navigation",
+          "when": "scmProvider == git"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "ailancers.openChat",
+        "key": "ctrl+shift+l",
+        "mac": "cmd+shift+l"
+      },
+      {
+        "command": "ailancers.toggleAgentMode",
+        "key": "ctrl+alt+a",
+        "mac": "cmd+alt+a"
+      },
+      {
+        "command": "ailancers.newConversation",
+        "key": "ctrl+n",
+        "mac": "cmd+n",
+        "when": "ailancersChatFocused && config.ailancers.enableNewConversationShortcut"
+      },
+      {
+        "command": "ailancers.stopGeneration",
+        "key": "escape",
+        "when": "ailancersChatFocused && ailancersIsStreaming"
+      },
+      {
+        "command": "ailancers.insertFileReference",
+        "key": "alt+k",
+        "mac": "alt+k",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "ailancers.focusInput",
+        "key": "ctrl+escape",
+        "mac": "cmd+escape"
+      },
+      {
+        "command": "ailancers.focusInput",
+        "key": "ctrl+/",
+        "mac": "cmd+/"
       }
     ],
     "walkthroughs": [
@@ -164,47 +270,139 @@
         "ailancers.serverUrl": {
           "type": "string",
           "default": "https://apivscode.ailancers.com",
-          "description": "Backend server URL"
+          "description": "Backend server URL.",
+          "order": 1
+        },
+        "ailancers.useCtrlEnterToSend": {
+          "type": "boolean",
+          "default": false,
+          "description": "Send messages with Ctrl/Cmd+Enter instead of plain Enter (Enter inserts a newline).",
+          "order": 10
+        },
+        "ailancers.initialPermissionMode": {
+          "type": "string",
+          "enum": [
+            "default",
+            "plan"
+          ],
+          "enumDescriptions": [
+            "Ask before destructive actions (default)",
+            "Plan mode — read-only, propose changes for review"
+          ],
+          "default": "default",
+          "description": "Permission mode used when starting a new conversation.",
+          "order": 11
+        },
+        "ailancers.autosaveBeforeAgent": {
+          "type": "boolean",
+          "default": true,
+          "description": "Save dirty editors before the agent reads or edits files. Prevents stale-file edits.",
+          "order": 12
+        },
+        "ailancers.respectGitIgnore": {
+          "type": "boolean",
+          "default": true,
+          "description": "Skip files matched by .gitignore in glob, search, list, and read tool operations.",
+          "order": 13
+        },
+        "ailancers.enableNewConversationShortcut": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable Cmd/Ctrl+N to start a new conversation when the chat is focused (mirrors Claude Code's opt-in shortcut).",
+          "order": 14
+        },
+        "ailancers.hideOnboarding": {
+          "type": "boolean",
+          "default": false,
+          "description": "Hide the post-sign-in onboarding checklist.",
+          "order": 15
+        },
+        "ailancers.notifications.permissionRequest": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "always",
+            "never"
+          ],
+          "enumDescriptions": [
+            "Show OS notification only when chat panel is hidden (default)",
+            "Always show OS notification when permission is requested",
+            "Never show OS notifications for permission requests"
+          ],
+          "default": "auto",
+          "description": "Notify when the agent needs permission to run a destructive tool.",
+          "order": 20
+        },
+        "ailancers.notifications.toolCompletion": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "always",
+            "never"
+          ],
+          "default": "auto",
+          "description": "Notify when an agent run completes while the chat panel is hidden.",
+          "order": 21
+        },
+        "ailancers.notifications.budgetWarning": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show toast warnings as you approach the monthly budget cap.",
+          "order": 22
         },
         "ailancers.idleTimeoutSeconds": {
           "type": "number",
           "default": 300,
-          "description": "Seconds of inactivity before marking as idle"
+          "description": "Seconds of inactivity before marking as idle.",
+          "order": 50
         },
         "ailancers.telemetryIntervalSeconds": {
           "type": "number",
           "default": 60,
-          "description": "How often to send telemetry batches (seconds)"
+          "description": "How often to send telemetry batches (seconds).",
+          "order": 51
+        },
+        "ailancers.analytics.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Send anonymous product-usage analytics to Ailancers (separate from activity time-tracking — see ailancers.trackingEnabled).",
+          "order": 49
         },
         "ailancers.trackingEnabled": {
           "type": "boolean",
           "default": true,
-          "description": "Enable/disable activity tracking"
+          "description": "Enable activity tracking (the time-tracking feature). Disabling stops the heartbeat — your work won't be recorded.",
+          "order": 52
         },
         "ailancers.screenCaptureEnabled": {
           "type": "boolean",
           "default": true,
-          "description": "Enable periodic screen captures for activity verification"
+          "description": "Enable periodic screen captures for activity verification.",
+          "order": 60
         },
         "ailancers.screenCaptureIntervalSeconds": {
           "type": "number",
           "default": 300,
-          "description": "Interval between automatic screen captures (seconds)"
+          "description": "Interval between automatic screen captures (seconds).",
+          "order": 61
         },
         "ailancers.screenCaptureMaxLocal": {
           "type": "number",
           "default": 50,
-          "description": "Maximum local screenshots to keep before auto-cleanup"
+          "description": "Maximum local screenshots to keep before auto-cleanup.",
+          "order": 62
         },
         "ailancers.screenCaptureBlurSensitive": {
           "type": "boolean",
           "default": false,
-          "description": "Blur potentially sensitive areas in screenshots"
+          "description": "Blur potentially sensitive areas in screenshots.",
+          "order": 63
         },
         "ailancers.autoStartEnabled": {
           "type": "boolean",
           "default": false,
-          "description": "Automatically start VS Code when the computer boots for activity tracking"
+          "description": "Automatically start VS Code when the computer boots for activity tracking.",
+          "order": 70
         }
       }
     }

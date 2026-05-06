@@ -20,6 +20,11 @@ export interface StreamCallbacks {
 export interface AgentCallbacks {
   /** Text chunk from Claude — append to chat UI */
   onDelta: (text: string) => void;
+  /** Extended-thinking chunk (when `effort` is set on a thinking-capable
+   *  model). Surfaced separately so the UI can render thinking in a
+   *  collapsible "Reasoning" block instead of inline. Optional — older
+   *  consumers ignore. */
+  onThinking?: (text: string) => void;
   /** Claude wants to call a tool — extension executes and returns result */
   onToolCall: (toolCallId: string, toolName: string, toolInput: Record<string, unknown>, needsApproval: boolean) => Promise<{ result: string; isError: boolean }>;
   /** New turn started */
@@ -60,15 +65,25 @@ export class ClaudeProxyService {
     callbacks: StreamCallbacks,
     options?: { model?: string; abortSignal?: AbortSignal }
   ) {
-    const model = options?.model || this.defaultModel;
+    let model = options?.model || this.defaultModel;
+    let useOneMillionContext = false;
+    if (model.endsWith("-1m")) {
+      model = model.slice(0, -3);
+      useOneMillionContext = true;
+    }
 
     try {
-      const stream = this.client.messages.stream({
-        model,
-        max_tokens: this.maxTokens,
-        system: CHAT_SYSTEM_PROMPT,
-        messages,
-      });
+      const stream = this.client.messages.stream(
+        {
+          model,
+          max_tokens: this.maxTokens,
+          system: CHAT_SYSTEM_PROMPT,
+          messages,
+        },
+        useOneMillionContext
+          ? { headers: { "anthropic-beta": "context-1m-2025-08-07" } }
+          : undefined,
+      );
 
       let fullText = "";
 
@@ -99,9 +114,31 @@ export class ClaudeProxyService {
   async runAgentLoop(
     conversationMessages: Anthropic.MessageParam[],
     callbacks: AgentCallbacks,
-    options?: { model?: string; abortSignal?: AbortSignal; budgetRemainingUsd?: number; agentType?: string; projectRules?: string; planMode?: boolean }
+    options?: { model?: string; abortSignal?: AbortSignal; budgetRemainingUsd?: number; agentType?: string; projectRules?: string; planMode?: boolean; effort?: "low" | "medium" | "high" }
   ): Promise<AgentResult> {
-    const model = options?.model || this.defaultModel;
+    // `opusplan` hybrid: planning is a reasoning-heavy task — Opus produces
+    // better plans even when the user has Sonnet selected for execution. When
+    // plan mode is on, we override the model to Opus regardless of selection.
+    // Falls back to whatever model the user has if Opus isn't available
+    // (e.g. user is on a tier that doesn't ship Opus).
+    let model = options?.model || this.defaultModel;
+    // 1M context variant detection: strip the `-1m` suffix from the model id
+    // (Anthropic's actual model id has no suffix) and remember to attach the
+    // 1M context beta header on the request below. Higher per-token cost but
+    // lets very large contexts go through without `/compact`-ing.
+    let useOneMillionContext = false;
+    if (model.endsWith("-1m")) {
+      model = model.slice(0, -3);
+      useOneMillionContext = true;
+    }
+    if (options?.planMode && !model.includes("opus")) {
+      // Map a Sonnet/Haiku id to its Opus sibling within the same generation.
+      // E.g. "claude-sonnet-4-6" → "claude-opus-4-6". Pure string-swap; safe
+      // even if the model id format changes (the regex just doesn't match
+      // and we keep the user's choice).
+      const opus = model.replace(/-(sonnet|haiku)-/, "-opus-");
+      if (opus !== model) model = opus;
+    }
     let systemPrompt = options?.agentType === "qa" ? QA_SYSTEM_PROMPT
       : options?.agentType === "design" ? DESIGN_REVIEW_SYSTEM_PROMPT
       : AGENT_SYSTEM_PROMPT;
@@ -119,10 +156,45 @@ export class ClaudeProxyService {
     }
 
     // In plan mode, narrow tool set to read-only ones. Names match agentTools.ts.
-    const READ_ONLY_TOOLS = new Set(["read_file", "search_files", "list_directory", "glob_files", "find_symbol", "figma_read"]);
-    const activeTools = options?.planMode
-      ? AGENT_TOOL_DEFINITIONS.filter((t) => READ_ONLY_TOOLS.has(t.name))
-      : AGENT_TOOL_DEFINITIONS;
+    const READ_ONLY_TOOLS = new Set(["read_file", "search_files", "list_directory", "glob_files", "find_symbol", "figma_read", "get_diagnostics"]);
+    // Per-agent tool restrictions: QA and Design agents are review-only — they
+    // shouldn't be able to write/edit files or run terminal commands. The
+    // Coder and Supervisor agents get the full toolset. This prevents a QA
+    // review from accidentally "fixing" the bug it was supposed to flag.
+    const REVIEW_ONLY_AGENTS = new Set(["qa", "design"]);
+    const isReviewOnlyAgent = options?.agentType
+      ? REVIEW_ONLY_AGENTS.has(options.agentType)
+      : false;
+    const activeToolsRaw =
+      options?.planMode || isReviewOnlyAgent
+        ? AGENT_TOOL_DEFINITIONS.filter((t) => READ_ONLY_TOOLS.has(t.name))
+        : AGENT_TOOL_DEFINITIONS;
+
+    // ── Prompt caching ──────────────────────────────────────────────────
+    // Mark the system prompt + tool list as cacheable. Anthropic caches the
+    // prefix (system + tools); subsequent turns within ~5min hit the cache
+    // and pay 1/10th the input-token rate for everything before the marker.
+    // Net effect on agent flows where the system prompt + tools repeat every
+    // turn: ~50-80% input-token cost reduction. Cost: a single one-time
+    // `cache_creation_input_tokens` write on the first turn.
+    //
+    // We attach `cache_control` to the LAST tool definition because the API
+    // caches everything before AND including the marker; placing it on the
+    // tail captures the full prefix in a single block.
+    const activeTools = activeToolsRaw.map((t, i) =>
+      i === activeToolsRaw.length - 1
+        ? ({ ...t, cache_control: { type: "ephemeral" as const } } as Anthropic.Tool)
+        : t
+    );
+    // System prompt: switch from plain string to a single content block with
+    // `cache_control`. Anthropic accepts both shapes.
+    const systemBlocks: Anthropic.TextBlockParam[] = [
+      {
+        type: "text",
+        text: systemPrompt,
+        cache_control: { type: "ephemeral" },
+      },
+    ];
 
     const msgs: Anthropic.MessageParam[] = [...conversationMessages];
     const usage: AgentUsage = { inputTokens: 0, outputTokens: 0, costUsd: 0, turnCount: 0, toolCallCount: 0 };
@@ -141,22 +213,53 @@ export class ClaudeProxyService {
 
       try {
         // ── Stream Claude's response ──
-        const stream = this.client.messages.stream({
-          model,
-          max_tokens: this.agentMaxTokens,
-          system: systemPrompt,
-          tools: activeTools,
-          messages: msgs,
-        });
+        // The 1M context beta is opt-in via the `context-1m-2025-08-07`
+        // anthropic-beta header. We only set it when the user picked a
+        // `-1m`-suffixed model id (already stripped above).
+        //
+        // Extended thinking: when `effort` is set, attach the `thinking`
+        // block. Budget tokens scaled by effort level — these match
+        // Anthropic's recommended low/medium/high tiers. Only Claude 4.x
+        // family supports it; older models silently ignore the field.
+        const thinkingBlock = options?.effort
+          ? {
+              type: "enabled" as const,
+              budget_tokens:
+                options.effort === "low" ? 4_000
+                : options.effort === "medium" ? 12_000
+                : 32_000,
+            }
+          : undefined;
+        const stream = this.client.messages.stream(
+          {
+            model,
+            max_tokens: this.agentMaxTokens,
+            system: systemBlocks,
+            tools: activeTools,
+            messages: msgs,
+            ...(thinkingBlock ? { thinking: thinkingBlock } : {}),
+          },
+          useOneMillionContext
+            ? { headers: { "anthropic-beta": "context-1m-2025-08-07" } }
+            : undefined,
+        );
 
         let turnText = "";
 
         for await (const event of stream) {
           if (options?.abortSignal?.aborted) { stream.abort(); break; }
 
-          if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-            turnText += event.delta.text;
-            callbacks.onDelta(event.delta.text);
+          if (event.type === "content_block_delta") {
+            const delta = event.delta as { type: string; text?: string; thinking?: string };
+            if (delta.type === "text_delta" && delta.text) {
+              turnText += delta.text;
+              callbacks.onDelta(delta.text);
+            } else if (delta.type === "thinking_delta" && delta.thinking) {
+              // Extended thinking — emit on the thinking channel only. We
+              // don't fold it into `turnText`/`fullText` because the model's
+              // visible answer is the source of truth in the conversation.
+              callbacks.onThinking?.(delta.thinking);
+            }
           }
         }
 
@@ -266,10 +369,16 @@ export class ClaudeProxyService {
     options: { model?: string; abortSignal?: AbortSignal; parentMsgs?: Anthropic.MessageParam[]; parentTurn?: number }
   ): Promise<{ result: string; isError: boolean; inputTokens: number; outputTokens: number; costUsd: number }> {
     const SUB_AGENT_MAX_TURNS = 8;
-    const READ_ONLY_TOOLS = new Set(["read_file", "search_files", "list_directory", "glob_files", "find_symbol", "figma_read"]);
-    const subTools = AGENT_TOOL_DEFINITIONS.filter((t) => READ_ONLY_TOOLS.has(t.name));
+    const READ_ONLY_TOOLS = new Set(["read_file", "search_files", "list_directory", "glob_files", "find_symbol", "figma_read", "get_diagnostics"]);
+    const subToolsRaw = AGENT_TOOL_DEFINITIONS.filter((t) => READ_ONLY_TOOLS.has(t.name));
+    // Cache the tool list — same prefix every sub-agent invocation.
+    const subTools = subToolsRaw.map((t, i) =>
+      i === subToolsRaw.length - 1
+        ? ({ ...t, cache_control: { type: "ephemeral" as const } } as Anthropic.Tool)
+        : t
+    );
 
-    const subSystem = `You are a focused research sub-agent. Your job is to investigate the codebase and answer a single, well-defined question for the parent agent.
+    const subSystemText = `You are a focused research sub-agent. Your job is to investigate the codebase and answer a single, well-defined question for the parent agent.
 
 Rules:
 - You have read-only tools only. You CANNOT write, edit, or run shell commands.
@@ -277,23 +386,38 @@ Rules:
 - Cite file paths with line numbers (file:line) when referring to specific code.
 - If the question is too vague to answer well, say so and ask the parent to refine it.
 - Finish with a clear answer or summary. Do NOT continue exploring once you have enough.`;
+    const subSystem: Anthropic.TextBlockParam[] = [
+      { type: "text", text: subSystemText, cache_control: { type: "ephemeral" } },
+    ];
 
     const subMsgs: Anthropic.MessageParam[] = [{ role: "user", content: task }];
     let subInput = 0;
     let subOutput = 0;
     let subFullText = "";
 
+    let subModel = options.model || this.defaultModel;
+    let subUseOneMillion = false;
+    if (subModel.endsWith("-1m")) {
+      subModel = subModel.slice(0, -3);
+      subUseOneMillion = true;
+    }
+
     for (let turn = 1; turn <= SUB_AGENT_MAX_TURNS; turn++) {
       if (options.abortSignal?.aborted) break;
 
       try {
-        const stream = this.client.messages.stream({
-          model: options.model || this.defaultModel,
-          max_tokens: this.agentMaxTokens,
-          system: subSystem,
-          tools: subTools,
-          messages: subMsgs,
-        });
+        const stream = this.client.messages.stream(
+          {
+            model: subModel,
+            max_tokens: this.agentMaxTokens,
+            system: subSystem,
+            tools: subTools,
+            messages: subMsgs,
+          },
+          subUseOneMillion
+            ? { headers: { "anthropic-beta": "context-1m-2025-08-07" } }
+            : undefined,
+        );
 
         let turnText = "";
         for await (const event of stream) {
@@ -329,7 +453,7 @@ Rules:
           isError: true,
           inputTokens: subInput,
           outputTokens: subOutput,
-          costUsd: this.calculateCost(options.model || this.defaultModel, subInput, subOutput),
+          costUsd: this.calculateCost(subModel, subInput, subOutput),
         };
       }
     }
@@ -346,7 +470,10 @@ Rules:
   // ─── Helpers ─────────────────────────────────────────────────
 
   calculateCost(model: string, inputTokens: number, outputTokens: number): number {
-    const pricing = MODEL_PRICING[model] || MODEL_PRICING["claude-sonnet-4-6"];
+    // Defensive strip — callers should already have removed it, but in case
+    // a `-1m`-suffixed id leaks through here we still want a price lookup.
+    const baseModel = model.endsWith("-1m") ? model.slice(0, -3) : model;
+    const pricing = MODEL_PRICING[baseModel] || MODEL_PRICING["claude-sonnet-4-6"];
     return (inputTokens * pricing.input + outputTokens * pricing.output) / 1_000_000;
   }
 }
