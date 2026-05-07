@@ -42,6 +42,16 @@ const envSchema = z.object({
   AILANCERS_BILLING_HMAC_SECRET: z.string().default(""),
   AILANCERS_BILLING_REPORT_INTERVAL_MS: z.coerce.number().default(180000), // 3 minutes
 
+  // Central wallet user — when set, all `/ai-billing/usage` and
+  // `/ai-billing/status` calls pool to this user id regardless of who is
+  // chatting. The sub_project_id we send still reflects the user's real
+  // active sub-project (so platform reports keep per-project visibility),
+  // but every wallet deduction lands on this single account. Empty string
+  // = no pooling (per-user wallets, original behaviour). Per-user
+  // attribution is preserved in our `messages` table on this side; the
+  // platform just sees the central account.
+  AILANCERS_BILLING_CENTRAL_LANCER_USER_ID: z.string().default(""),
+
   // Figma — for the figma_read agent tool. One team-shared Personal Access Token,
   // generated at https://www.figma.com/settings → Personal access tokens with the
   // "File content" + "File metadata" scopes. If empty, the figma_read tool returns

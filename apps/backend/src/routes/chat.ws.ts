@@ -169,6 +169,20 @@ export function chatWsRoute(
 
     console.log(`[Chat WS] User connected: userId=${userId}, platformUserId=${platformUserId || "none"}`);
 
+    // Central-wallet pooling: when AILANCERS_BILLING_CENTRAL_LANCER_USER_ID
+    // is set, every billing call (status check + usage report) uses that
+    // user id instead of the actual chatter's. The platform deducts from
+    // a single shared wallet for the org. Per-user attribution is still
+    // preserved server-side via the `messages` table — every assistant
+    // message stores inputTokens/outputTokens/costUsd keyed by user, so
+    // the dashboard can build per-user reports without involving the
+    // platform's billing data. Empty string = original per-user pooling.
+    const centralBillingUserId = (process.env.AILANCERS_BILLING_CENTRAL_LANCER_USER_ID ?? "").trim();
+    const billingLancerUserId = centralBillingUserId || platformUserId || userId;
+    if (centralBillingUserId) {
+      console.log(`[Chat WS] Billing pooled to central user ${centralBillingUserId} (real user is ${platformUserId || userId})`);
+    }
+
     const abortControllers = new Map<string, AbortController>();
     // Map of pending tool calls keyed by toolCallId
     const pendingToolCalls = new Map<string, PendingToolCall>();
@@ -228,7 +242,7 @@ export function chatWsRoute(
 
           // Check billing status before allowing AI request
           if (billingReporter && subProjectId) {
-            const billingStatus = await billingReporter.getBillingStatus(subProjectId, platformUserId || userId);
+            const billingStatus = await billingReporter.getBillingStatus(subProjectId, billingLancerUserId);
             if (billingStatus) {
               if (billingStatus.billingStatus === "SUSPENDED") {
                 send(socket, {
@@ -337,11 +351,16 @@ export function chatWsRoute(
                 costUsd: result.costUsd,
               });
 
-              // Report to ailancers billing (batched, async)
+              // Report to ailancers billing (batched, async).
+              // billingLancerUserId is the central-wallet pool when the
+              // env var is set, otherwise the actual user. Real user
+              // is still in our local `messages` row (userId implicit
+              // via conversationId → conversation → userId), so per-user
+              // analytics still work on this side.
               if (billingReporter && subProjectId) {
                 billingReporter.recordUsage(
                   subProjectId,
-                  platformUserId || userId,
+                  billingLancerUserId,
                   msg.model || "claude-sonnet-4-6",
                   result.inputTokens,
                   result.outputTokens,
@@ -403,7 +422,7 @@ export function chatWsRoute(
 
           // Check billing status before allowing AI request
           if (billingReporter && agentSubProjectId) {
-            const billingStatus = await billingReporter.getBillingStatus(agentSubProjectId, platformUserId || userId);
+            const billingStatus = await billingReporter.getBillingStatus(agentSubProjectId, billingLancerUserId);
             if (billingStatus) {
               if (billingStatus.billingStatus === "SUSPENDED") {
                 send(socket, {
@@ -615,11 +634,12 @@ export function chatWsRoute(
                   costUsd: result.usage.costUsd,
                 });
 
-                // Report to ailancers billing (batched, async)
+                // Report to ailancers billing (batched, async).
+                // Central-wallet user when AILANCERS_BILLING_CENTRAL_LANCER_USER_ID is set.
                 if (billingReporter && agentSubProjectId) {
                   billingReporter.recordUsage(
                     agentSubProjectId,
-                    platformUserId || userId,
+                    billingLancerUserId,
                     msg.model || "claude-sonnet-4-6",
                     result.usage.inputTokens,
                     result.usage.outputTokens,
