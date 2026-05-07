@@ -154,6 +154,18 @@ export class AuthService {
       });
 
       if (!response.ok) {
+        // Capture the platform's actual response so the operator can see
+        // whether it's "expired", "invalid signature", or something else.
+        // Without this we can't distinguish a stale token from a config
+        // mismatch (wrong PLATFORM_URL, wrong header format, etc.).
+        let body = "";
+        try { body = await response.text(); } catch { /* ignore */ }
+        const tokenPreview = token.length > 24
+          ? `${token.slice(0, 12)}…${token.slice(-6)} (len=${token.length})`
+          : `len=${token.length}`;
+        console.warn(
+          `[verifyPlatformToken] platform returned ${response.status}: ${body.slice(0, 200)} — token: ${tokenPreview}`,
+        );
         throw new UnauthorizedError("Invalid or expired platform token");
       }
 
@@ -161,6 +173,7 @@ export class AuthService {
       data = JSON.parse(text);
     } catch (err) {
       if (err instanceof UnauthorizedError) throw err;
+      console.warn(`[verifyPlatformToken] network/parse failure: ${err instanceof Error ? err.message : String(err)}`);
       throw new UnauthorizedError("Failed to verify platform token");
     }
 

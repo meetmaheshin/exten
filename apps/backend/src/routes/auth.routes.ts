@@ -358,7 +358,23 @@ function loginGoogle(){
   window.location.href="https://staging-backend.ailancers.com/api/v1/auth/google/login?redirect_uri="+redirect;
 }
 
-// Email/password
+// Email/password.
+// Staging-backend's response shape has varied across releases — try several
+// common fields so a rename on the platform side doesn't silently break
+// device-code-completion. If none yield a non-empty string, surface the
+// raw payload in the error so we can see it in DevTools without redeploying.
+function pickToken(d){
+  if(!d||typeof d!=="object")return "";
+  const candidates=[
+    d.token, d.access_token, d.accessToken, d.platformToken,
+    d.data&&d.data.token, d.data&&d.data.access_token, d.data&&d.data.accessToken,
+    d.user&&d.user.token, d.result&&d.result.token,
+  ];
+  for(const c of candidates){
+    if(typeof c==="string"&&c.length>10)return c;
+  }
+  return "";
+}
 document.getElementById("form").addEventListener("submit",async e=>{
   e.preventDefault();
   const btn=document.getElementById("btn");
@@ -368,8 +384,17 @@ document.getElementById("form").addEventListener("submit",async e=>{
     const r=await fetch("/api/auth/platform-proxy-login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:document.getElementById("email").value,password:document.getElementById("password").value})});
     const d=await r.json();
     if(!r.ok)throw new Error(d.detail||d.message||"Login failed");
-    const r2=await fetch("/api/auth/device-code/complete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code,platformToken:d.token})});
-    if(!r2.ok){const e2=await r2.json();throw new Error(e2.error||"Failed");}
+    const tok=pickToken(d);
+    if(!tok){
+      console.error("[ailancers auth-bridge] login response did not include a recognised token field. Payload:",d);
+      throw new Error("Login succeeded but no token in response. Check DevTools console for the raw payload, then ping support.");
+    }
+    const r2=await fetch("/api/auth/device-code/complete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code,platformToken:tok})});
+    if(!r2.ok){
+      const e2=await r2.json().catch(()=>({}));
+      console.error("[ailancers auth-bridge] device-code/complete failed:",r2.status,e2);
+      throw new Error(e2.error||e2.message||"Failed (HTTP "+r2.status+")");
+    }
     showSuccess();
   }catch(ex){err.textContent=ex.message;}
   finally{btn.disabled=false;btn.textContent="Connect";}
