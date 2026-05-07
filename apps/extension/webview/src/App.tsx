@@ -158,6 +158,7 @@ const initialState: AppState = {
     useCtrlEnterToSend: false,
     initialPermissionMode: "default",
     hideOnboarding: false,
+    restoreLastConversation: true,
   },
   editorSnapshot: null,
   excludeEditorContext: false,
@@ -406,8 +407,57 @@ export function App() {
   }, [atQuery]);
 
   useEffect(() => { vscode.current.postMessage({ type: "getAuthState" }); }, []);
-  useEffect(() => { if (state.authenticated) { vscode.current.postMessage({ type: "loadConversations" }); vscode.current.postMessage({ type: "loadModels" }); vscode.current.postMessage({ type: "loadChecklist" }); } }, [state.authenticated]);
+  useEffect(() => {
+    if (!state.authenticated) return;
+    vscode.current.postMessage({ type: "loadConversations" });
+    vscode.current.postMessage({ type: "loadModels" });
+    vscode.current.postMessage({ type: "loadChecklist" });
+    // Restore the per-workspace last-active conversation. Host responds
+    // with `lastConversationLoaded`; the handler waits for the list to
+    // arrive before selecting (so we don't try to open a deleted convo).
+    if (state.config.restoreLastConversation !== false) {
+      vscode.current.postMessage({ type: "loadLastConversation" });
+    }
+  }, [state.authenticated]);
   useEffect(() => { if (state.currentConversationId && state.authenticated) { vscode.current.postMessage({ type: "loadMessages", conversationId: state.currentConversationId }); } }, [state.currentConversationId, state.authenticated]);
+
+  // Persist the active conversation id per-workspace whenever it changes
+  // so reopening VS Code lands the user back where they left off. `null`
+  // (e.g. user just hit /clear) clears the memory.
+  const lastSavedConvIdRef = useRef<string | null | undefined>(undefined);
+  /** Restore handshake: host posts `lastConversationLoaded` once on auth.
+   *  We can't `SELECT_CONVERSATION` immediately because the conversation
+   *  list might not have arrived yet — and the convo might have been
+   *  deleted. Track the id as state so its arrival re-triggers the
+   *  pairing effect regardless of whether the list landed first. */
+  const [pendingRestoreId, setPendingRestoreId] = useState<string | null>(null);
+  const [conversationsArrived, setConversationsArrived] = useState(false);
+  /** Tries to honour the pending restore id once we know:
+   *    1. the conversation list has arrived
+   *    2. the user hasn't already picked / created a conversation
+   *  If the id is no longer in the list (deleted server-side), drop it
+   *  and stay on the empty state. */
+  useEffect(() => {
+    if (!pendingRestoreId) return;
+    if (!conversationsArrived) return;
+    if (state.currentConversationId) {
+      setPendingRestoreId(null);
+      return;
+    }
+    if (state.conversations.some((c) => c.id === pendingRestoreId)) {
+      dispatch({ type: "SELECT_CONVERSATION", id: pendingRestoreId });
+    }
+    setPendingRestoreId(null);
+  }, [pendingRestoreId, conversationsArrived, state.conversations, state.currentConversationId]);
+  useEffect(() => {
+    if (!state.authenticated) return;
+    if (lastSavedConvIdRef.current === state.currentConversationId) return;
+    lastSavedConvIdRef.current = state.currentConversationId;
+    vscode.current.postMessage({
+      type: "saveLastConversation",
+      conversationId: state.currentConversationId,
+    });
+  }, [state.currentConversationId, state.authenticated]);
 
   // Global "expand/collapse all tool calls" keyboard shortcuts.
   // Mirrors VS Code's fold / unfold style:
@@ -513,7 +563,18 @@ export function App() {
   const handleMessage = useCallback((msg: IncomingMessage) => {
     switch (msg.type) {
       case "authState": dispatch({ type: "SET_AUTH", authenticated: msg.authenticated }); break;
-      case "conversations": dispatch({ type: "SET_CONVERSATIONS", data: msg.data }); break;
+      case "conversations":
+        dispatch({ type: "SET_CONVERSATIONS", data: msg.data });
+        // Mark that the list has landed so the restore-effect can pair it
+        // with any pending `lastConversationLoaded` id.
+        setConversationsArrived(true);
+        break;
+      case "lastConversationLoaded":
+        // Only stash; the actual SELECT happens in the pairing effect
+        // once both the list AND this id are known. Skip when null
+        // (user has nothing saved yet — fresh install or just /clear'd).
+        if (msg.conversationId) setPendingRestoreId(msg.conversationId);
+        break;
       case "conversationCreated": dispatch({ type: "CONVERSATION_CREATED", data: msg.data }); break;
       case "stream_start": dispatch({ type: "STREAM_START" }); break;
       case "stream_delta": dispatch({ type: "STREAM_DELTA", delta: msg.delta }); break;

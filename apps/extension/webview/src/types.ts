@@ -35,6 +35,8 @@ export type OutgoingMessage =
   | { type: "openAuditLog" }
   | { type: "pickMemoryFile" }
   | { type: "setPermissionMode"; mode: "default" | "plan" | "accept-edits" | "bypass" }
+  | { type: "saveLastConversation"; conversationId: string | null }
+  | { type: "loadLastConversation" }
   | { type: "saveMemorySuggestion"; suggestion: string }
   | { type: "loadCustomCommands" }
   | { type: "openCustomCommandsFolder" }
@@ -51,6 +53,11 @@ export interface WebviewConfig {
    *  set, seeds the picker's default for new conversations until the user
    *  explicitly overrides it via the dropdown. */
   defaultModelFromSettings?: string;
+  /** When true (default), the webview restores the last-active conversation
+   *  per-workspace on startup so reopening VS Code lands you back where you
+   *  were. Toggle off in settings if you'd rather always start with a fresh
+   *  chat. Backed by `ailancers.restoreLastConversation`. */
+  restoreLastConversation: boolean;
 }
 
 /** Messages FROM the extension host TO the webview */
@@ -84,6 +91,7 @@ export type IncomingMessage =
   | { type: "fileListResult"; query: string; matches: FileMatch[] }
   | { type: "checklistLoaded"; completed: string[]; dismissed: boolean }
   | { type: "filePreview"; path: string; content: string | null }
+  | { type: "lastConversationLoaded"; conversationId: string | null }
   | { type: "customCommandsLoaded"; commands: CustomSlashCommand[] }
   /** Sent when the user closes the editable proposed-content doc.
    *  `editedContent` is the final saved/closed text — the webview merges

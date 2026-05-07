@@ -74,7 +74,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       initialPermissionMode: mode === "plan" ? "plan" as const : "default" as const,
       hideOnboarding: cfg.get<boolean>("hideOnboarding", false),
       defaultModelFromSettings: this.settingsLoader?.getSettings().model,
+      restoreLastConversation: cfg.get<boolean>("restoreLastConversation", true),
     };
+  }
+
+  /** Key the per-workspace last-conversation memory by the first folder's
+   *  fsPath. No folder open ⇒ a single shared key so the memory still works
+   *  for "no-folder" sessions (uncommon but possible). Stable string —
+   *  fsPath doesn't change for a given folder. */
+  private lastConversationKey(): string {
+    const folders = vscode.workspace.workspaceFolders;
+    const root = folders?.[0]?.uri.fsPath ?? "__no_folder__";
+    return `ailancers.lastConversationId::${root}`;
   }
 
   /** Settings file loader injected by extension.ts after construction. */
@@ -574,6 +585,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
               dismissed: !!msg.dismissed,
             },
           );
+          break;
+        }
+        case "saveLastConversation": {
+          // Per-workspace memory: the active conversation's id is keyed by
+          // workspace folder so jumping between projects restores the right
+          // chat. `null` clears the memory (e.g. user just hit `/clear`).
+          const id = typeof msg.conversationId === "string" ? msg.conversationId : null;
+          await this.extensionContext.globalState.update(this.lastConversationKey(), id);
+          break;
+        }
+        case "loadLastConversation": {
+          const id = this.extensionContext.globalState.get<string | null>(this.lastConversationKey(), null);
+          this.postToWebview({ type: "lastConversationLoaded", conversationId: id });
           break;
         }
       }

@@ -185,8 +185,12 @@ export function screenshotRoutes(
       return reply.status(404).send({ error: "Screenshot not found" });
     }
 
-    // Non-admin users can only view their own screenshots
-    if (record.userId !== request.user.sub && request.user.role !== "admin") {
+    // Non-admin users can only view their own screenshots. Both `admin`
+    // and `super_admin` get cross-user access — matches the pattern in
+    // activity.routes.ts. Without `super_admin` here, super-admins were
+    // hitting 403 on every screenshot thumbnail in the dashboard.
+    const isAdmin = request.user.role === "admin" || request.user.role === "super_admin";
+    if (record.userId !== request.user.sub && !isAdmin) {
       return reply.status(403).send({ error: "Forbidden" });
     }
 

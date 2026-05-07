@@ -317,6 +317,12 @@
           "description": "Hide the post-sign-in onboarding checklist.",
           "order": 15
         },
+        "ailancers.restoreLastConversation": {
+          "type": "boolean",
+          "default": true,
+          "description": "When you reopen VS Code, restore the conversation you were last viewing in this workspace. Turn off to always start with a fresh chat.",
+          "order": 16
+        },
         "ailancers.notifications.permissionRequest": {
           "type": "string",
           "enum": [
