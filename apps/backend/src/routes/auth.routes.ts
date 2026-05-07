@@ -386,6 +386,14 @@ document.getElementById("form").addEventListener("submit",async e=>{
     if(!r.ok)throw new Error(d.detail||d.message||"Login failed");
     const tok=pickToken(d);
     if(!tok){
+      // Platform returns 200 with token="" when the user's email isn't
+      // verified yet. d.message contains the human-readable instruction
+      // (e.g. "Please verify your email address to continue."). Surface
+      // that directly instead of falling through to a generic error or
+      // calling /verify with an empty Bearer header (guaranteed 401).
+      if(typeof d.message==="string"&&d.message.length>0){
+        throw new Error(d.message);
+      }
       console.error("[ailancers auth-bridge] login response did not include a recognised token field. Payload:",d);
       throw new Error("Login succeeded but no token in response. Check DevTools console for the raw payload, then ping support.");
     }
