@@ -516,7 +516,7 @@ export async function activate(context: vscode.ExtensionContext) {
   log("Ailancers Code extension activated");
 }
 
-const CURRENT_VERSION = "0.2.9";
+const CURRENT_VERSION = "0.2.10";
 
 async function checkForUpdates(apiClient: import("./services/ApiClient").ApiClient, log: (msg: string) => void): Promise<void> {
   try {
