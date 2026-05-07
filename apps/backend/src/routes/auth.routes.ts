@@ -86,18 +86,44 @@ export function authRoutes(app: FastifyInstance, authService: AuthService, db: D
     if (!pending || pending.expiresAt < Date.now()) {
       return reply.status(400).send({ error: "Invalid or expired code" });
     }
+    // Diagnostics: log every step of the verify path so a 401 here can
+    // be pinned to a specific cause (token-shape, platform reject, DB
+    // column missing, user-row absent, signing failure). Token is
+    // redacted to len + first/last chars.
+    const tokenPreview = body.platformToken.length > 24
+      ? `${body.platformToken.slice(0, 12)}…${body.platformToken.slice(-6)} (len=${body.platformToken.length})`
+      : `len=${body.platformToken.length}`;
+    console.info(`[device-code/complete] start code=${body.code} token=${tokenPreview}`);
     try {
       const payload = await authService.verifyPlatformToken(body.platformToken);
-      const [user] = await db
-        .select({ id: users.id, email: users.email, fullName: users.fullName, role: users.role, team: users.team })
-        .from(users)
-        .where(eq(users.id, payload.sub))
-        .limit(1);
-      if (!user) return reply.status(404).send({ error: "User not found" });
+      console.info(`[device-code/complete] platform verify ok — local_user_id=${payload.sub}`);
+      let user;
+      try {
+        const rows = await db
+          .select({ id: users.id, email: users.email, fullName: users.fullName, role: users.role, team: users.team })
+          .from(users)
+          .where(eq(users.id, payload.sub))
+          .limit(1);
+        user = rows[0];
+      } catch (dbErr) {
+        // Distinct logging for "DB layer threw" vs "user row not found".
+        // The most common cause of a DB throw here is a pending migration
+        // (column on the model that doesn't exist yet on the table) —
+        // surface that in the log AND in the response so the operator
+        // doesn't see a cryptic 401.
+        const msg = dbErr instanceof Error ? dbErr.message : String(dbErr);
+        console.error(`[device-code/complete] DB SELECT failed: ${msg}`);
+        return reply.status(500).send({ error: "Database error", message: msg });
+      }
+      if (!user) {
+        console.warn(`[device-code/complete] no local user for sub=${payload.sub}`);
+        return reply.status(404).send({ error: "User not found" });
+      }
       const localToken = authService.generateAccessTokenForUser(user);
       pending.token = localToken;
       pending.platformToken = body.platformToken;
       pending.user = user;
+      console.info(`[device-code/complete] success — issued local token for ${user.email}`);
 
       // Set a same-origin session cookie scoped to /auth-bridge so the next
       // device-code login from this browser auto-completes without asking
