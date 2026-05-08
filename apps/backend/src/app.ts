@@ -107,29 +107,41 @@ export async function buildApp(env: Env, db: Database) {
     // Redirect / and /dashboard → /dashboard/
     app.get("/", async (_req, reply) => reply.redirect("/dashboard/"));
     app.get("/dashboard", async (_req, reply) => reply.redirect("/dashboard/"));
-    // Serve all /dashboard/* requests — static files or index.html fallback
+    // Serve all /dashboard/* requests — static files or index.html fallback.
+    // Important: when Next.js exports a page like /login, it produces both
+    // a `login/` directory AND a `login/index.html` inside it. The naive
+    // `existsSync(candidate)` check returned true for the directory, then
+    // readFile() blew up with EISDIR → 500. Skip directories explicitly so
+    // we fall through to the `urlPath/index.html` candidate.
     app.get("/dashboard/*", async (request, reply) => {
-      const { readFile } = await import("fs/promises");
+      const { readFile, stat } = await import("fs/promises");
       const { existsSync: exists } = await import("fs");
-      // Strip /dashboard prefix to get the file path
       const urlPath = (request.url as string).split("?")[0].replace(/^\/dashboard/, "") || "/";
-      // Try exact file first, then index.html in that directory
       const candidates = [
         join(dashboardPath, urlPath),
         join(dashboardPath, urlPath, "index.html"),
         join(dashboardPath, "index.html"),
       ];
       for (const candidate of candidates) {
-        if (exists(candidate) && !candidate.endsWith("/")) {
-          const ext = candidate.split(".").pop() ?? "html";
-          const mimeTypes: Record<string, string> = { html: "text/html", js: "application/javascript", css: "text/css", png: "image/png", svg: "image/svg+xml", json: "application/json", ico: "image/x-icon", txt: "text/plain" };
-          const content = await readFile(candidate);
-          return reply.type(mimeTypes[ext] ?? "application/octet-stream").send(content);
+        if (!exists(candidate) || candidate.endsWith("/")) continue;
+        try {
+          const s = await stat(candidate);
+          if (!s.isFile()) continue; // directory — skip, try next candidate
+        } catch {
+          continue;
         }
+        const ext = candidate.split(".").pop() ?? "html";
+        const mimeTypes: Record<string, string> = { html: "text/html", js: "application/javascript", css: "text/css", png: "image/png", svg: "image/svg+xml", json: "application/json", ico: "image/x-icon", txt: "text/plain" };
+        const content = await readFile(candidate);
+        return reply.type(mimeTypes[ext] ?? "application/octet-stream").send(content);
       }
       // Fallback: serve index.html for client-side routing
-      const content = await readFile(join(dashboardPath, "index.html"));
-      return reply.type("text/html").send(content);
+      try {
+        const content = await readFile(join(dashboardPath, "index.html"));
+        return reply.type("text/html").send(content);
+      } catch {
+        return reply.status(404).send({ error: "Not found" });
+      }
     });
   }
 
