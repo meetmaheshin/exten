@@ -66,6 +66,19 @@ export default function MyScreenshotsPage() {
       .finally(() => setLoadingMore(false));
   };
 
+  const deleteSingle = async (id: string) => {
+    if (!accessToken) return;
+    if (!confirm("Delete this screenshot? 5 minutes will be deducted from your active session time.")) return;
+    try {
+      await apiFetch(`/api/telemetry/screenshots/${id}`, { token: accessToken, method: "DELETE" });
+      setScreenshots((prev) => prev.filter((s) => s.id !== id));
+      setTotal((t) => Math.max(0, t - 1));
+      if (selectedId === id) setSelectedId(null);
+    } catch (e) {
+      alert("Delete failed: " + (e instanceof Error ? e.message : String(e)));
+    }
+  };
+
   const selectedIndex = selectedId ? screenshots.findIndex((s) => s.id === selectedId) : -1;
   const selected = selectedIndex >= 0 ? screenshots[selectedIndex] : undefined;
   const hasPrev = selectedIndex > 0;
@@ -156,7 +169,14 @@ export default function MyScreenshotsPage() {
                 </>
               )}
               <br />
-              <span style={{ fontSize: 11 }}>Use &larr; &rarr; arrow keys, Esc to close</span>
+              <button
+                onClick={(e) => { e.stopPropagation(); deleteSingle(selected.id); }}
+                style={{ marginTop: 8, background: "rgba(239,68,68,0.8)", color: "#fff", border: "none", padding: "6px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13 }}
+              >
+                Delete this screenshot
+              </button>
+              <br />
+              <span style={{ fontSize: 11 }}>Deleting will deduct 5 minutes from your session &middot; Use &larr; &rarr; arrow keys, Esc to close</span>
             </div>
           )}
         </div>
@@ -172,13 +192,30 @@ export default function MyScreenshotsPage() {
         <>
           <div className="screenshots-grid">
             {screenshots.map((s) => (
-              <div key={s.id} className="screenshot-card" onClick={() => setSelectedId(s.id)} style={{ cursor: "pointer" }}>
+              <div key={s.id} className="screenshot-card" style={{ position: "relative" }}>
+                <div
+                  onClick={(e) => { e.stopPropagation(); deleteSingle(s.id); }}
+                  title="Delete (deducts 5 min from session)"
+                  style={{
+                    position: "absolute", top: 6, right: 6, zIndex: 2,
+                    width: 22, height: 22, borderRadius: 4,
+                    background: "rgba(239,68,68,0.8)",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    cursor: "pointer", fontSize: 12, color: "#fff",
+                    opacity: 0.7, transition: "opacity 0.2s",
+                  }}
+                  onMouseOver={(e) => { e.currentTarget.style.opacity = "1"; }}
+                  onMouseOut={(e) => { e.currentTarget.style.opacity = "0.7"; }}
+                >
+                  &#10005;
+                </div>
                 <img
                   src={`${API_BASE}/api/telemetry/screenshots/${s.id}/image?token=${accessToken}`}
                   alt={s.filename}
-                  style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: "8px 8px 0 0", display: "block" }}
+                  onClick={() => setSelectedId(s.id)}
+                  style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: "8px 8px 0 0", display: "block", cursor: "pointer" }}
                 />
-                <div className="screenshot-meta">
+                <div className="screenshot-meta" onClick={() => setSelectedId(s.id)} style={{ cursor: "pointer" }}>
                   <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
                     {formatDateTime(s.capturedAt)} · {Math.round(s.fileSizeBytes / 1024)} KB
                   </div>
