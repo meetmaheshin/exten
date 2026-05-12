@@ -63,8 +63,12 @@ export default function DownloadsPage() {
       <main style={{ maxWidth: 800, margin: "0 auto", padding: "40px 24px" }}>
 
         {/* ═══════════════════════════════════════════════════════════ */}
-        {/* VS CODE EXTENSION */}
+        {/* VS CODE EXTENSION — hidden per product decision. Flip SHOW_VSCODE */}
+        {/* back to true to restore. Section is intentionally kept inline so   */}
+        {/* /api/version + RELEASES_BASE constants and the install steps don't */}
+        {/* bit-rot while it's off.                                            */}
         {/* ═══════════════════════════════════════════════════════════ */}
+        {false && (
         <div style={sectionStyle}>
           <div style={{ display: "flex", gap: 16, alignItems: "center", marginBottom: 8 }}>
             <span style={{ fontSize: 36 }}>💻</span>
@@ -202,6 +206,7 @@ export default function DownloadsPage() {
             </div>
           </div>
         </div>
+        )}
 
         {/* ═══════════════════════════════════════════════════════════ */}
         {/* DESKTOP TRACKER */}
@@ -446,15 +451,14 @@ export default function DownloadsPage() {
           <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20 }}>Frequently Asked Questions</h2>
 
           {[
-            { q: "Which one should I download?", a: "If you use VS Code for coding → get the VS Code Extension. For everyone else (HR, design, management, admin) → get the Desktop Tracker. Both track the same data." },
             { q: "What does it track?", a: "Active time (when you're working), idle time (when you're away), which apps you use, periodic screenshots, and AI usage costs. If you're idle for 10+ minutes, tracking pauses automatically." },
-            { q: "Do I need to start it every day?", a: "No. Once installed and logged in, both apps start automatically when you turn on your computer. You stay logged in for 30 days." },
+            { q: "Do I need to start it every day?", a: "No. Once installed and logged in, the tracker starts automatically when you turn on your computer. You stay logged in for 30 days." },
             { q: "Can my manager see my screenshots?", a: "Yes. Your manager and admin can see your screenshots, active time, and activity in the dashboard. This helps with project tracking and accountability." },
-            { q: "How do I change my project?", a: "VS Code: Click the 📁 icon in the status bar or Ctrl+Shift+P → 'Select Project'. Desktop: Right-click the tray icon → 'Select Project/Task'. You can switch anytime." },
+            { q: "How do I change my project?", a: "Right-click the tray icon → 'Select Project/Task'. You can switch anytime." },
             { q: "What if I forget to select a project?", a: "Your time will still be tracked but won't be attributed to any project. Select a project as soon as you remember — it will apply to future activity." },
             { q: "How do I login?", a: "Click 'Login with Ailancers' — your browser opens the Ailancers login page. Sign in with your regular Ailancers account (email, Google, etc.). The app detects your login automatically. Or type your email and password directly." },
             { q: "Where can I see my data?", a: "Visit the dashboard at https://apivscode.ailancers.com/dashboard/me — you'll see your performance, daily time, screenshots, and more." },
-            { q: "How do I uninstall?", a: "VS Code: Extensions panel → find Ailancers Code → Uninstall. Desktop: Windows Settings → Apps → Ailancers Tracker → Uninstall." },
+            { q: "How do I uninstall?", a: "Windows Settings → Apps → Ailancers Tracker → Uninstall." },
           ].map(({ q, a }) => (
             <div key={q} style={{ marginBottom: 16 }}>
               <h3 style={{ fontSize: 14, fontWeight: 600, color: "#818cf8", marginBottom: 4 }}>{q}</h3>

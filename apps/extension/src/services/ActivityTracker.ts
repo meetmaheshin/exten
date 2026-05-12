@@ -45,8 +45,16 @@ export class ActivityTracker {
     if (!config.get<boolean>("trackingEnabled", true)) return;
 
     const now = Date.now();
-    const elapsed = Math.round((now - this.lastTickTimestamp) / 1000);
+    const rawElapsed = Math.round((now - this.lastTickTimestamp) / 1000);
     this.lastTickTimestamp = now;
+    // Guard against suspended timers — laptop sleep, OS power-saver, debugger
+    // pause, browser/Electron throttle. Tick fires every 1s, so a gap >5s
+    // means the timer was paused. The wall-clock seconds in that gap are NOT
+    // work time (the user wasn't using the computer), so drop the tick rather
+    // than dumping the whole gap into activeSeconds. Without this, an 8h sleep
+    // shows up as 8h of "active" work the moment the laptop wakes.
+    if (rawElapsed > 5) return;
+    const elapsed = rawElapsed;
 
     const idleTimeoutSec = config.get<number>("idleTimeoutSeconds", 600); // default 10 min
     const osIdleSec = this.systemIdleService?.osIdleSeconds ?? 0;

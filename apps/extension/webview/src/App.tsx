@@ -187,8 +187,36 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, messages: action.messages };
 
     // ── Send message → start streaming ──
-    case "ADD_USER_MESSAGE":
-      return { ...state, messages: [...state.messages, { role: "user", content: action.content, images: action.images }], isStreaming: true, stream: [], streamingContent: "", streamingThinking: "", agentToolCalls: [], agentTurnNumber: 0, agentUsage: null, pendingApprovals: [] };
+    case "ADD_USER_MESSAGE": {
+      // Optimistic local title: when the current conversation is still on the
+      // default "New Conversation" / "Untitled" / null, replace it with the
+      // first ~50 chars of the user's prompt RIGHT NOW. The backend's Haiku
+      // auto-title runs after agent_complete and overrides via
+      // `conversation_titled` — but during a long agent run the toolbar
+      // would otherwise stay "New Conversation" with no anchor for what the
+      // user asked.
+      let nextConversations = state.conversations;
+      if (state.currentConversationId && state.messages.every((m) => m.role !== "user")) {
+        const idx = state.conversations.findIndex((c) => c.id === state.currentConversationId);
+        if (idx >= 0) {
+          const t = state.conversations[idx].title;
+          if (!t || t === "New Conversation" || t === "Untitled") {
+            const draft = action.content
+              .replace(/<file_context[\s\S]*?<\/file_context>/g, "")
+              .replace(/<editor_context[\s\S]*?<\/editor_context>/g, "")
+              .replace(/\s+/g, " ")
+              .trim()
+              .slice(0, 50);
+            if (draft) {
+              const updated = { ...state.conversations[idx], title: draft };
+              nextConversations = [...state.conversations];
+              nextConversations[idx] = updated;
+            }
+          }
+        }
+      }
+      return { ...state, conversations: nextConversations, messages: [...state.messages, { role: "user", content: action.content, images: action.images }], isStreaming: true, stream: [], streamingContent: "", streamingThinking: "", agentToolCalls: [], agentTurnNumber: 0, agentUsage: null, pendingApprovals: [] };
+    }
     case "STREAM_START":
       return { ...state, isStreaming: true, stream: [], streamingContent: "", streamingThinking: "" };
     case "STREAM_THINKING":

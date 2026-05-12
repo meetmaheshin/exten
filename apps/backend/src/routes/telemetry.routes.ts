@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { requireAuth } from "../middleware/requireAuth.js";
 import type { AuthService } from "../services/AuthService.js";
 import type { Database } from "../config/database.js";
@@ -82,10 +82,41 @@ export function telemetryRoutes(app: FastifyInstance, authService: AuthService, 
       return reply.status(404).send({ error: "Session not found" });
     }
 
+    // Wall-clock clamp: a heartbeat can never report more active+idle seconds
+    // than the wall time elapsed since the last heartbeat (or session start).
+    // Without this, a buggy/suspended client could claim 8 hours of work in
+    // a 60-second gap. We use the most recent heartbeat event as the anchor
+    // and fall back to session.startedAt for the first heartbeat.
+    const [lastHeartbeat] = await db
+      .select({ at: telemetryEvents.timestamp })
+      .from(telemetryEvents)
+      .where(and(
+        eq(telemetryEvents.sessionId, body.sessionId),
+        eq(telemetryEvents.eventType, "heartbeat"),
+      ))
+      .orderBy(desc(telemetryEvents.timestamp))
+      .limit(1);
+    const anchor = lastHeartbeat?.at ?? session.startedAt;
+    const wallSeconds = Math.max(0, Math.floor((Date.now() - new Date(anchor).getTime()) / 1000));
+    // 30s slack for clock skew + flush-loop jitter on top of the 60s interval
+    const cap = wallSeconds + 30;
+    const clampedActive = Math.min(body.activeSeconds, cap);
+    const clampedIdle = Math.min(body.idleSeconds, Math.max(0, cap - clampedActive));
+    if (clampedActive < body.activeSeconds || clampedIdle < body.idleSeconds) {
+      app.log.warn({
+        sessionId: body.sessionId,
+        userId: request.user.sub,
+        reportedActive: body.activeSeconds,
+        reportedIdle: body.idleSeconds,
+        cap,
+        wallSeconds,
+      }, "Heartbeat exceeded wall-clock cap — clamping");
+    }
+
     // Build update — always accumulate metrics; update project/task if provided
     const updateValues: Record<string, unknown> = {
-      activeSeconds: session.activeSeconds + body.activeSeconds,
-      idleSeconds: session.idleSeconds + body.idleSeconds,
+      activeSeconds: session.activeSeconds + clampedActive,
+      idleSeconds: session.idleSeconds + clampedIdle,
       totalKeystrokes: session.totalKeystrokes + body.keystrokeCount,
       totalFileSaves: session.totalFileSaves + body.fileSaveCount,
       totalFileChanges: session.totalFileChanges + body.fileChangeCount,
