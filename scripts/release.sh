@@ -123,8 +123,12 @@ else
   git commit -m "Bump version to $VERSION"
 fi
 git tag -f "v$VERSION"
-git push origin main 2>&1 | tail -3 || echo "  (push to origin failed; continuing — you can push manually)"
-git push origin "v$VERSION" --force 2>&1 | tail -3 || echo "  (push tag to origin failed; continuing)"
+# Push to GitLab (team source-of-truth) and the dmahaesh release repo.
+# The tag push to GitLab triggers .gitlab-ci.yml which builds the Linux
+# .deb / .tar.gz / .AppImage and uploads them to the GitHub release that
+# step [5/5] is about to create.
+git push gitlab main:dev-mahesh 2>&1 | tail -3 || echo "  (push to gitlab dev-mahesh failed; continuing)"
+git push gitlab "v$VERSION" --force 2>&1 | tail -3 || echo "  (push tag to gitlab failed; continuing — Linux CI won't fire)"
 
 # ── 5. Create the GitHub Release ──
 echo ""

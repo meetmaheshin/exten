@@ -1,0 +1,101 @@
+# GitLab CI — builds the Linux desktop artifacts (.deb / .tar.gz / .AppImage)
+# on tag push and uploads them to the matching GitHub release on
+# dmahaesh/ailancers-code. The .vsix and Windows .exe are built locally on
+# the maintainer's Windows machine by scripts/release.sh; this pipeline only
+# fills in the Linux gap that electron-builder can't produce on Windows.
+#
+# Flow:
+#   1. scripts/release.sh bumps versions, builds .vsix + .exe locally,
+#      pushes tag v$VERSION to GitLab.
+#   2. This pipeline fires on the tag push (rules: tags + v*.*.*).
+#   3. build-linux job: runs in a Node 20 Debian container, installs the
+#      native build deps electron-builder needs, runs the desktop build.
+#   4. upload-github job: renames artifacts to the stable names the
+#      dashboard expects, uploads to the GitHub release using `gh` and
+#      the GH_RELEASE_TOKEN CI variable (a fine-grained PAT with
+#      contents:write on dmahaesh/ailancers-code).
+#
+# One-time setup required:
+#   - GitLab → Settings → CI/CD → Variables: add GH_RELEASE_TOKEN
+#     (masked + protected). Value = a GitHub fine-grained PAT scoped to
+#     dmahaesh/ailancers-code with `Contents: Read and write`.
+#   - GitLab → Settings → Repository → Protected tags: add pattern `v*`.
+#     This keeps GH_RELEASE_TOKEN out of non-release pipelines.
+
+stages:
+  - build
+  - publish
+
+# Build only fires on annotated semver tags. Branch pushes are ignored.
+workflow:
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+
+variables:
+  # Cache pnpm's store across jobs and pipelines so the second run is fast.
+  PNPM_STORE_DIR: "$CI_PROJECT_DIR/.pnpm-store"
+
+build-linux:
+  stage: build
+  image: node:20-bullseye
+  cache:
+    key: pnpm-store-v1
+    paths:
+      - .pnpm-store/
+  before_script:
+    # electron-builder shells out to these to produce .deb / .AppImage.
+    # libnotify-bin is for the runtime "screenshot captured" toast on Linux;
+    # not strictly needed at build time, but included so the .deb's
+    # recommended-deps resolve cleanly during validation.
+    - apt-get update -qq
+    - apt-get install -y --no-install-recommends fakeroot dpkg-dev rpm libnotify-bin
+    - corepack enable
+    - corepack prepare pnpm@10.16.1 --activate
+    - pnpm config set store-dir "$PNPM_STORE_DIR"
+  script:
+    - pnpm install --frozen-lockfile
+    - pnpm --filter @ailancers/desktop build
+    - ls -lh apps/desktop/out/
+  artifacts:
+    name: "linux-$CI_COMMIT_TAG"
+    expire_in: 1 day
+    paths:
+      - apps/desktop/out/ailancers-tracker-*-x64.deb
+      - apps/desktop/out/ailancers-tracker-*-x64.tar.gz
+      - apps/desktop/out/Ailancers*.AppImage
+
+upload-github:
+  stage: publish
+  image: alpine:3.20
+  needs:
+    - job: build-linux
+      artifacts: true
+  before_script:
+    # The release-only PAT lives here. Refuse to run if the protected-tag
+    # rule failed to scope it — otherwise we'd be uploading bogus assets
+    # from a feature branch.
+    - 'if [ -z "${GH_RELEASE_TOKEN:-}" ]; then echo "GH_RELEASE_TOKEN missing — is the tag protected and the variable scoped to protected refs?"; exit 1; fi'
+    - apk add --no-cache curl tar
+    # Pull the gh binary directly — no apt repo dance, no apk package lag.
+    - curl -sSL "https://github.com/cli/cli/releases/download/v2.62.0/gh_2.62.0_linux_amd64.tar.gz" | tar -xz
+    - mv gh_2.62.0_linux_amd64/bin/gh /usr/local/bin/gh
+    - gh --version
+  script:
+    # Rename versioned outputs to the stable names the dashboard's
+    # releases/latest/download/<file> URLs expect. Do this in CI (not in
+    # electron-builder's artifactName) so versioned copies survive as
+    # artifacts for debugging.
+    - cd apps/desktop/out
+    - cp ailancers-tracker-*-x64.deb ailancers-tracker-x64.deb
+    - cp ailancers-tracker-*-x64.tar.gz ailancers-tracker-x64.tar.gz
+    - ls -lh ailancers-tracker-x64.*
+    - cd ../../..
+    # --clobber so re-runs (e.g. after a CI fix) replace the previous upload.
+    # The release itself was created by scripts/release.sh before this
+    # pipeline fired; we're just attaching the Linux files to it.
+    - |
+      GH_TOKEN="$GH_RELEASE_TOKEN" gh release upload "$CI_COMMIT_TAG" \
+        apps/desktop/out/ailancers-tracker-x64.deb \
+        apps/desktop/out/ailancers-tracker-x64.tar.gz \
+        --repo dmahaesh/ailancers-code \
+        --clobber

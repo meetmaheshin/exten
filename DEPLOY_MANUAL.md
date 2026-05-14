@@ -215,3 +215,55 @@ sudo systemctl restart ailancers-backend
 ```
 
 That's the whole flow. The downloads page on the dashboard automatically shows the new version (it reads `/api/version` live) and the download buttons keep working.
+
+---
+
+## Linux desktop artifacts — built by GitLab CI
+
+`electron-builder` on Windows can't produce `.deb` / `.tar.gz` (those need a Linux build host). `.gitlab-ci.yml` fills that gap: every time `scripts/release.sh` pushes a `v*.*.*` tag to GitLab, a Linux runner builds the Linux artifacts and uploads them to the GitHub release that the script just created.
+
+### One-time setup
+
+1. **Generate a GitHub PAT** (fine-grained, dmahaesh account):
+   - URL: https://github.com/settings/personal-access-tokens/new
+   - Resource owner: `dmahaesh`
+   - Repository access: "Only select repositories" → `ailancers-code`
+   - Permissions → Repository permissions → **Contents: Read and write**
+   - Expiration: 1 year (or whatever your policy is)
+   - Generate → copy the `github_pat_…` token immediately
+
+2. **Add it to GitLab as a CI variable**:
+   - URL: https://gitlab.com/rovidevs/ailancers-vscode-ext/-/settings/ci_cd
+   - Expand "Variables" → "Add variable"
+   - Key: `GH_RELEASE_TOKEN`
+   - Value: paste the PAT
+   - Flags: Masked, Protect variable (Protected)
+   - Save
+
+3. **Protect the `v*` tag pattern on GitLab**:
+   - URL: https://gitlab.com/rovidevs/ailancers-vscode-ext/-/settings/repository
+   - Expand "Protected tags" → Tag: `v*` → Allowed to create: Maintainers
+   - This scopes `GH_RELEASE_TOKEN` to release tags only.
+
+After this, no per-release action is needed. The flow becomes:
+
+```
+bash scripts/release.sh 0.2.18
+   │
+   ├─→ builds .vsix + Windows .exe locally
+   ├─→ creates GitHub release on dmahaesh/ailancers-code with those two files
+   └─→ pushes tag v0.2.18 to GitLab
+            │
+            └─→ .gitlab-ci.yml fires
+                  │
+                  ├─→ build-linux job (~3 min): produces .deb / .tar.gz
+                  └─→ upload-github job: gh release upload --clobber
+
+→ ~5 minutes after the script finishes, all four download URLs work.
+```
+
+### Troubleshooting
+
+- **CI didn't fire after release.sh**: did the tag push to GitLab succeed? Check `git ls-remote gitlab refs/tags/v0.2.18`. The release script keeps going even if the GitLab push fails, so re-run `git push gitlab vX.Y.Z` manually.
+- **`GH_RELEASE_TOKEN missing` in upload-github**: the variable isn't scoped to the tag. Confirm "Protect variable" is checked AND the `v*` tag pattern is protected.
+- **`gh release upload` fails with 404**: the release on `dmahaesh/ailancers-code` doesn't exist yet. `release.sh` should have created it before pushing the tag — if it didn't, run `gh release create vX.Y.Z --repo dmahaesh/ailancers-code` manually, then re-run the CI job.
