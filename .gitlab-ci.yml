@@ -63,9 +63,13 @@ build-linux:
     name: "linux-$CI_COMMIT_TAG"
     expire_in: 1 day
     paths:
-      - apps/desktop/out/ailancers-tracker-*-x64.deb
+      # electron-builder uses Debian-style arch names: amd64 for .deb,
+      # x64 for .tar.gz, x86_64 for .AppImage. Don't try to normalise these
+      # at build time (Linux package conventions are deliberate) — match
+      # them as-they-are and rename at upload time.
+      - apps/desktop/out/ailancers-tracker-*-amd64.deb
       - apps/desktop/out/ailancers-tracker-*-x64.tar.gz
-      - apps/desktop/out/Ailancers*.AppImage
+      - apps/desktop/out/ailancers-tracker-*-x86_64.AppImage
 
 upload-github:
   stage: publish
@@ -89,7 +93,11 @@ upload-github:
     # electron-builder's artifactName) so versioned copies survive as
     # artifacts for debugging.
     - cd apps/desktop/out
-    - cp ailancers-tracker-*-x64.deb ailancers-tracker-x64.deb
+    # Rename Debian-style names → the un-versioned, dashboard-friendly names
+    # the /releases/latest/download/<file> URLs expect. The dashboard buttons
+    # ask for `ailancers-tracker-x64.<ext>` regardless of the actual package
+    # arch convention (amd64/x64/x86_64).
+    - cp ailancers-tracker-*-amd64.deb ailancers-tracker-x64.deb
     - cp ailancers-tracker-*-x64.tar.gz ailancers-tracker-x64.tar.gz
     - ls -lh ailancers-tracker-x64.*
     - cd ../../..
