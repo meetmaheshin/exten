@@ -54,7 +54,10 @@ build-linux:
     - pnpm config set store-dir "$PNPM_STORE_DIR"
   script:
     - pnpm install --frozen-lockfile
-    - pnpm --filter @ailancers/desktop build
+    # `package:linux` runs the TS build AND electron-builder --linux, which is
+    # what actually produces .deb / .tar.gz / .AppImage in apps/desktop/out/.
+    # The plain `build` script only compiles TypeScript — no installer.
+    - pnpm --filter @ailancers/desktop package:linux
     - ls -lh apps/desktop/out/
   artifacts:
     name: "linux-$CI_COMMIT_TAG"
