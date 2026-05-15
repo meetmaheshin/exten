@@ -327,7 +327,7 @@ export default function DownloadsPage() {
               <strong>Open a terminal</strong> (<span style={kbdStyle}>Ctrl+Alt+T</span> on Ubuntu) and install with apt:
               <div style={tipStyle}>
                 <code>cd ~/Downloads</code><br />
-                <code>sudo apt install ./ailancers-tracker-0.1.0-x64.deb</code>
+                <code>sudo apt install ./ailancers-tracker-x64.deb</code>
               </div>
               This pulls in any missing dependencies automatically (Electron runtime, GTK libraries, etc.).
             </div>
@@ -363,7 +363,7 @@ export default function DownloadsPage() {
               <strong>Download and extract</strong> the .tar.gz anywhere you like. <span style={kbdStyle}>~/apps</span> is a common choice:
               <div style={tipStyle}>
                 <code>mkdir -p ~/apps && cd ~/apps</code><br />
-                <code>tar xzf ~/Downloads/ailancers-tracker-0.1.0-x64.tar.gz</code>
+                <code>tar xzf ~/Downloads/ailancers-tracker-x64.tar.gz</code>
               </div>
             </div>
           </div>
@@ -386,12 +386,14 @@ export default function DownloadsPage() {
             <div style={stepTextStyle}>
               <strong>Launch:</strong>
               <div style={tipStyle}>
-                <code>cd ~/apps/ailancers-tracker-0.1.0-x64</code><br />
+                <code>cd ~/apps/ailancers-tracker-*-x64</code><br />
                 <code>./ailancers-tracker</code>
               </div>
+              The extracted folder includes the version (e.g. <code>ailancers-tracker-0.1.0-x64</code>) — the shell glob above matches whatever version you downloaded.
+              <br /><br />
               For convenience, create a symlink so you can run it from anywhere:
               <div style={tipStyle}>
-                <code>{"sudo ln -s ~/apps/ailancers-tracker-0.1.0-x64/ailancers-tracker /usr/local/bin/ailancers-tracker"}</code>
+                <code>{"sudo ln -s ~/apps/ailancers-tracker-*-x64/ailancers-tracker /usr/local/bin/ailancers-tracker"}</code>
               </div>
             </div>
           </div>

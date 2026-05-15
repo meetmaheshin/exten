@@ -54,8 +54,18 @@ export class ActivityTracker {
 
   private tick(): void {
     const now = Date.now();
-    const elapsed = Math.round((now - this.lastTickTime) / 1000);
+    const rawElapsed = Math.round((now - this.lastTickTime) / 1000);
     this.lastTickTime = now;
+    // Guard against suspended timers — laptop sleep, OS power-saver, system
+    // hibernate. Tick fires every 1s, so a gap >5s means we weren't actually
+    // running. The wall-clock seconds in that gap are NOT work time (the
+    // user wasn't using the computer), so drop the tick rather than dumping
+    // the whole gap into activeSeconds. Without this, an 8h sleep shows up
+    // as 8h of "active" work the moment the laptop wakes — backend clamp
+    // catches it server-side, but the tray UI would still flash bad numbers
+    // until the next heartbeat.
+    if (rawElapsed > 5) return;
+    const elapsed = rawElapsed;
 
     const idleThreshold = this.configStore.get("idleTimeoutSeconds");
     const osIdle = this.idleService.osIdleSeconds;
