@@ -46,6 +46,11 @@ deb:
   recommends:
     - xdotool
     - xprintidle
+  # Run resources/linux/after-install.sh as root after the package is unpacked,
+  # to chmod chrome-sandbox to 4755 (setuid). Without this, every launch dies
+  # with "FATAL:setuid_sandbox_host.cc(158)" because Chromium refuses to run
+  # without its sandbox helper having the right mode.
+  afterInstall: resources/linux/after-install.sh
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
