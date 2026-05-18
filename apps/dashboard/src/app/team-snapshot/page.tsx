@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { DashboardShell } from "@/components/DashboardShell";
 import { TeamSnapshotTabs } from "@/components/TeamSnapshotTabs";
+import { SummaryReportModal } from "@/components/SummaryReportModal";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 
@@ -118,6 +119,9 @@ export default function TeamSnapshotPage() {
   const [loading, setLoading] = useState(true);
   const [rangeMode, setRangeMode] = useState<RangeMode>("rolling");
   const [days, setDays] = useState(14);
+  // Summary modal — opens from the page-header button. Manager-gated; devs
+  // don't need an aggregate report about themselves.
+  const [summaryOpen, setSummaryOpen] = useState(false);
   const [month, setMonth] = useState<string>(() => monthOptions()[0].value);
   const [managerFilter, setManagerFilter] = useState<string>(""); // "" = all managers
   const [groupMode, setGroupMode] = useState<GroupMode>("manager");
@@ -170,18 +174,10 @@ export default function TeamSnapshotPage() {
     }];
   }, [data, groupMode]);
 
-  if (!isManager) {
-    return (
-      <DashboardShell>
-        <div className="page-header">
-          <div className="page-title">Team Snapshot</div>
-        </div>
-        <div className="card" style={{ padding: 48, textAlign: "center", color: "var(--text-muted)" }}>
-          This page is for managers and admins.
-        </div>
-      </DashboardShell>
-    );
-  }
+  // Page is open to everyone; backend filters the rows by role
+  // (developer → own only, manager → team, admin → all). The Summary
+  // Report button below is still manager-gated since aggregate reports
+  // about one person don't add value.
 
   const subtitle =
     rangeMode === "month"
@@ -192,11 +188,20 @@ export default function TeamSnapshotPage() {
     <DashboardShell>
       <TeamSnapshotTabs />
 
-      <div className="page-header">
+      <div className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
         <div>
           <div className="page-title">Team Snapshot</div>
           <div className="page-subtitle">{subtitle}</div>
         </div>
+        {isManager && (
+          <button
+            className="btn btn-primary"
+            onClick={() => setSummaryOpen(true)}
+            style={{ padding: "8px 16px", fontSize: 13 }}
+          >
+            📊 Summary Report
+          </button>
+        )}
       </div>
 
       {/* Filter row */}
@@ -288,6 +293,8 @@ export default function TeamSnapshotPage() {
           </div>
         </div>
       )}
+
+      <SummaryReportModal open={summaryOpen} onClose={() => setSummaryOpen(false)} />
     </DashboardShell>
   );
 }

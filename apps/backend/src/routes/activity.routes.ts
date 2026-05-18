@@ -1061,6 +1061,9 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
         workingDays,
         avgHoursPerEmployeePerDay: 0,
         distribution: { good: 0, moderate: 0, low: 0, none: 0 },
+        underperformers: [],
+        underutilizedManagers: [],
+        notLogged: [],
       });
     }
 
@@ -1087,9 +1090,14 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
       : [];
     const leaveSet = new Set(leaveRows.map((r) => `${r.userId}|${r.date}`));
 
-    // Walk every (user × working-day) cell and bucket — skip weekends + holidays + leave
+    // Walk every (user × working-day) cell, bucket for distribution AND
+    // accumulate per-user totals so we can derive the underperformer /
+    // underutilized-manager / not-logged lists below. One pass instead of
+    // three keeps this cheap even for 200+ employees.
     const distribution = { good: 0, moderate: 0, low: 0, none: 0 };
+    const perUser = new Map<string, { secondsTotal: number; daysWithData: number }>();
     for (const u of visibleUsers) {
+      const stats = { secondsTotal: 0, daysWithData: 0 };
       for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
         const wd = d.getUTCDay();
         if (wd === 0 || wd === 6) continue;
@@ -1098,12 +1106,73 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
         if (leaveSet.has(`${u.id}|${day}`)) continue;
         const seconds = cellByUserDay.get(`${u.id}|${day}`) || 0;
         const hours = seconds / 3600;
-        if (seconds === 0) distribution.none += 1;
-        else if (hours >= 7) distribution.good += 1;
-        else if (hours >= 4) distribution.moderate += 1;
-        else distribution.low += 1;
+        if (seconds === 0) {
+          distribution.none += 1;
+        } else {
+          stats.secondsTotal += seconds;
+          stats.daysWithData += 1;
+          if (hours >= 7) distribution.good += 1;
+          else if (hours >= 4) distribution.moderate += 1;
+          else distribution.low += 1;
+        }
+      }
+      perUser.set(u.id, stats);
+    }
+
+    // ── Underperformers: avg < 4h/day, computed across days-with-data only ──
+    // Matches Cattr's denominator semantics (fair to people who only worked a
+    // few days). Excludes "not logged" employees — they get their own bucket.
+    type Performer = { name: string; manager: string; hours: number };
+    const underperformers: Performer[] = [];
+    const notLogged: string[] = [];
+    for (const u of visibleUsers) {
+      const stats = perUser.get(u.id) ?? { secondsTotal: 0, daysWithData: 0 };
+      if (stats.daysWithData === 0) {
+        notLogged.push(u.fullName || u.email || "Unknown");
+        continue;
+      }
+      const avgHours = stats.secondsTotal / 3600 / stats.daysWithData;
+      if (avgHours < 4) {
+        underperformers.push({
+          name: u.fullName || u.email || "Unknown",
+          manager: u.team || "Unknown",
+          hours: Math.round(avgHours * 10) / 10,
+        });
       }
     }
+    underperformers.sort((a, b) => a.hours - b.hours); // worst first
+
+    // ── Underutilized Managers: 20%+ of their team is red (avg < 4h) ──
+    // Group by team (= manager's fullName). Unknown / unassigned employees
+    // bucket into "Unassigned" so we don't silently drop them.
+    const managerStats = new Map<string, { total: number; red: number }>();
+    const redByUserId = new Set(
+      underperformers.map((p, i) => visibleUsers.find((u) => (u.fullName || u.email) === p.name)?.id).filter(Boolean),
+    );
+    // Build red-set the cheap way — re-walk visibleUsers using perUser data
+    redByUserId.clear();
+    for (const u of visibleUsers) {
+      const stats = perUser.get(u.id) ?? { secondsTotal: 0, daysWithData: 0 };
+      if (stats.daysWithData === 0) continue; // not logged → not red
+      const avgHours = stats.secondsTotal / 3600 / stats.daysWithData;
+      if (avgHours < 4) redByUserId.add(u.id);
+    }
+    for (const u of visibleUsers) {
+      const key = u.team && u.team.trim() !== "" ? u.team : "Unassigned";
+      const cur = managerStats.get(key) || { total: 0, red: 0 };
+      cur.total += 1;
+      if (redByUserId.has(u.id)) cur.red += 1;
+      managerStats.set(key, cur);
+    }
+    const underutilizedManagers = Array.from(managerStats.entries())
+      .filter(([_, s]) => s.total > 0 && s.red / s.total >= 0.2)
+      .map(([name, s]) => ({
+        name,
+        redCount: s.red,
+        totalCount: s.total,
+        percent: Math.round((s.red / s.total) * 100),
+      }))
+      .sort((a, b) => b.percent - a.percent);
 
     const totalEmployeeDays = visibleUsers.length * workingDays;
     const avgHoursPerEmployeePerDay = totalEmployeeDays > 0
@@ -1115,6 +1184,9 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
       workingDays,
       avgHoursPerEmployeePerDay,
       distribution,
+      underperformers,
+      underutilizedManagers,
+      notLogged,
     });
   });
 
