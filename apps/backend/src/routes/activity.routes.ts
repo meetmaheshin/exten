@@ -27,6 +27,72 @@ async function loadDirectoryEmailSet(db: Database): Promise<Set<string> | null> 
   return new Set(rows.map((r) => (r.email || "").trim().toLowerCase()).filter((e) => e.length > 0));
 }
 
+/**
+ * Compute active-seconds-per-(user, day) from the screenshot table.
+ *
+ * This is the PAYROLL number for every active-time field in the API.
+ *   active_seconds = count(live screenshots in that user's day) × 300
+ *
+ * It replaces sum(activity_sessions.active_seconds) everywhere, because
+ * that sum inflated whenever a heartbeat landed without a matching
+ * screenshot (lock screen, capture failure, network drop). Under the new
+ * model: no screenshot, no pay for that 5-min slot. Simple and honest.
+ *
+ * Capped at 86400 per (user, day) to defend against weird upload backlogs.
+ *
+ * Returns a Map keyed by `${userId}|${YYYY-MM-DD}` → seconds. Lookup is
+ * cheap; missing keys mean "no screenshots that day" → caller should
+ * default to 0.
+ *
+ * If `userIds` is undefined the helper aggregates across every user in
+ * the date range (used by org-wide admin queries).
+ */
+async function loadActiveSecondsByUserDay(
+  db: Database,
+  opts: { userIds?: string[]; from?: Date; to?: Date },
+): Promise<Map<string, number>> {
+  const conditions = [isNull(screenshots.deletedAt)];
+  if (opts.userIds && opts.userIds.length > 0) {
+    conditions.push(inArray(screenshots.userId, opts.userIds));
+  }
+  if (opts.from) conditions.push(gte(screenshots.capturedAt, opts.from));
+  if (opts.to) conditions.push(lte(screenshots.capturedAt, opts.to));
+
+  const rows = await db
+    .select({
+      userId: screenshots.userId,
+      day: sql<string>`to_char(${screenshots.capturedAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`,
+      ssCount: sql<number>`count(*)::int`,
+    })
+    .from(screenshots)
+    .where(and(...conditions))
+    .groupBy(screenshots.userId, sql`to_char(${screenshots.capturedAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`);
+
+  const out = new Map<string, number>();
+  for (const r of rows) {
+    const seconds = Math.min(r.ssCount * BILLABLE_SECONDS_PER_SCREENSHOT, 86400);
+    out.set(`${r.userId}|${r.day}`, seconds);
+  }
+  return out;
+}
+
+/**
+ * Same as loadActiveSecondsByUserDay but pre-summed per user (drops the
+ * per-day grouping). Used by endpoints that only need totals over a range.
+ */
+async function loadActiveSecondsByUser(
+  db: Database,
+  opts: { userIds?: string[]; from?: Date; to?: Date },
+): Promise<Map<string, number>> {
+  const perDay = await loadActiveSecondsByUserDay(db, opts);
+  const out = new Map<string, number>();
+  for (const [key, secs] of perDay) {
+    const userId = key.split("|")[0];
+    out.set(userId, (out.get(userId) ?? 0) + secs);
+  }
+  return out;
+}
+
 const dateRangeSchema = z.object({
   from: z.string().datetime().optional(),
   to: z.string().datetime().optional(),
@@ -86,10 +152,18 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
     if (query.from) conditions.push(gte(activitySessions.startedAt, new Date(query.from)));
     if (query.to) conditions.push(lte(activitySessions.startedAt, new Date(query.to)));
 
-    const [summary] = await db
+    // Active time is screenshot-derived; idle + diagnostic counters still
+    // come from activity_sessions. See loadActiveSecondsByUserDay for why.
+    const activeByUser = await loadActiveSecondsByUser(db, {
+      userIds: [request.user.sub],
+      from: query.from ? new Date(query.from) : undefined,
+      to: query.to ? new Date(query.to) : undefined,
+    });
+    const totalActiveSeconds = activeByUser.get(request.user.sub) ?? 0;
+
+    const [other] = await db
       .select({
         totalSessions: sql<number>`count(*)::int`,
-        totalActiveSeconds: sql<number>`coalesce(sum(least(${activitySessions.activeSeconds}, 86400)), 0)::int`,
         totalIdleSeconds: sql<number>`coalesce(sum(least(${activitySessions.idleSeconds}, 86400)), 0)::int`,
         totalKeystrokes: sql<number>`coalesce(sum(${activitySessions.totalKeystrokes}), 0)::int`,
         totalFileSaves: sql<number>`coalesce(sum(${activitySessions.totalFileSaves}), 0)::int`,
@@ -98,22 +172,7 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
       .from(activitySessions)
       .where(and(...conditions));
 
-    // billable_seconds — the payroll number. Defined as count(live screenshots
-    // in range) * 300. Deleting a screenshot subtracts 5 min automatically;
-    // missing screenshots (network/lock/capture failure) automatically yield
-    // less pay. active_seconds is kept above for diagnostics only — DO NOT
-    // use it for payroll.
-    const ssConditions = [eq(screenshots.userId, request.user.sub), isNull(screenshots.deletedAt)];
-    if (query.from) ssConditions.push(gte(screenshots.capturedAt, new Date(query.from)));
-    if (query.to) ssConditions.push(lte(screenshots.capturedAt, new Date(query.to)));
-    const [{ ssCount }] = await db
-      .select({ ssCount: sql<number>`count(*)::int` })
-      .from(screenshots)
-      .where(and(...ssConditions));
-
-    return reply.send({
-      data: { ...summary, billableSeconds: ssCount * BILLABLE_SECONDS_PER_SCREENSHOT },
-    });
+    return reply.send({ data: { ...other, totalActiveSeconds } });
   });
 
   // Get my daily activity breakdown
@@ -124,10 +183,12 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
     if (query.from) conditions.push(gte(activitySessions.startedAt, new Date(query.from)));
     if (query.to) conditions.push(lte(activitySessions.startedAt, new Date(query.to)));
 
+    // Idle + diagnostic stats per day, sourced from activity_sessions.
+    // Active seconds are NOT pulled here — they come from the screenshot
+    // count below and override whatever sum(active_seconds) would produce.
     const daily = await db
       .select({
         date: sql<string>`date(${activitySessions.startedAt})`,
-        totalActiveSeconds: sql<number>`coalesce(sum(least(${activitySessions.activeSeconds}, 86400)), 0)::int`,
         totalIdleSeconds: sql<number>`coalesce(sum(least(${activitySessions.idleSeconds}, 86400)), 0)::int`,
         totalKeystrokes: sql<number>`coalesce(sum(${activitySessions.totalKeystrokes}), 0)::int`,
         totalFileSaves: sql<number>`coalesce(sum(${activitySessions.totalFileSaves}), 0)::int`,
@@ -139,30 +200,39 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
       .orderBy(asc(sql`date(${activitySessions.startedAt})`))
       .limit(query.limit);
 
-    // billable_seconds per day — count(live screenshots) * 300 grouped by
-    // captured_at::date. Joined into the daily array below.
-    const ssConditions = [eq(screenshots.userId, request.user.sub), isNull(screenshots.deletedAt)];
-    if (query.from) ssConditions.push(gte(screenshots.capturedAt, new Date(query.from)));
-    if (query.to) ssConditions.push(lte(screenshots.capturedAt, new Date(query.to)));
-    const billableRows = await db
-      .select({
-        date: sql<string>`date(${screenshots.capturedAt})`,
-        ssCount: sql<number>`count(*)::int`,
-      })
-      .from(screenshots)
-      .where(and(...ssConditions))
-      .groupBy(sql`date(${screenshots.capturedAt})`);
-    const billableByDate = new Map<string, number>();
-    for (const r of billableRows) {
-      billableByDate.set(r.date, r.ssCount * BILLABLE_SECONDS_PER_SCREENSHOT);
+    // totalActiveSeconds per day — screenshot-derived via the shared helper.
+    // Sessions with no screenshots that day contribute 0 (no proof = no pay).
+    // Days that have screenshots but no session row get a synthetic row.
+    const activeByUserDay = await loadActiveSecondsByUserDay(db, {
+      userIds: [request.user.sub],
+      from: query.from ? new Date(query.from) : undefined,
+      to: query.to ? new Date(query.to) : undefined,
+    });
+    const activeByDate = new Map<string, number>();
+    for (const [key, secs] of activeByUserDay) {
+      activeByDate.set(key.split("|")[1], secs);
     }
 
-    const dailyWithBillable = daily.map((d) => ({
+    const merged = daily.map((d) => ({
       ...d,
-      billableSeconds: billableByDate.get(d.date) ?? 0,
+      totalActiveSeconds: activeByDate.get(d.date) ?? 0,
     }));
+    const seenDates = new Set(daily.map((d) => d.date));
+    for (const [date, activeSeconds] of activeByDate) {
+      if (!seenDates.has(date)) {
+        merged.push({
+          date,
+          totalIdleSeconds: 0,
+          totalKeystrokes: 0,
+          totalFileSaves: 0,
+          sessionCount: 0,
+          totalActiveSeconds: activeSeconds,
+        });
+      }
+    }
+    merged.sort((a, b) => a.date.localeCompare(b.date));
 
-    return reply.send({ data: dailyWithBillable });
+    return reply.send({ data: merged });
   });
 
   // ─── Admin: Team-wide activity ───
@@ -177,13 +247,14 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-    const overview = await db
+    // Idle + diagnostic counters from activity_sessions; sort + slice in JS
+    // after we've merged in the screenshot-derived active seconds.
+    const sessionRows = await db
       .select({
         userId: activitySessions.userId,
         email: users.email,
         fullName: users.fullName,
         team: users.team,
-        totalActiveSeconds: sql<number>`coalesce(sum(least(${activitySessions.activeSeconds}, 86400)), 0)::int`,
         totalIdleSeconds: sql<number>`coalesce(sum(least(${activitySessions.idleSeconds}, 86400)), 0)::int`,
         totalKeystrokes: sql<number>`coalesce(sum(${activitySessions.totalKeystrokes}), 0)::int`,
         totalFileSaves: sql<number>`coalesce(sum(${activitySessions.totalFileSaves}), 0)::int`,
@@ -193,10 +264,17 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
       .from(activitySessions)
       .innerJoin(users, eq(activitySessions.userId, users.id))
       .where(whereClause)
-      .groupBy(activitySessions.userId, users.email, users.fullName, users.team)
-      .orderBy(desc(sql`sum(least(${activitySessions.activeSeconds}, 86400))`))
-      .limit(query.limit)
-      .offset(query.offset);
+      .groupBy(activitySessions.userId, users.email, users.fullName, users.team);
+
+    const activeByUser = await loadActiveSecondsByUser(db, {
+      from: query.from ? new Date(query.from) : undefined,
+      to: query.to ? new Date(query.to) : undefined,
+    });
+
+    const overview = sessionRows
+      .map((r) => ({ ...r, totalActiveSeconds: activeByUser.get(r.userId) ?? 0 }))
+      .sort((a, b) => b.totalActiveSeconds - a.totalActiveSeconds)
+      .slice(query.offset, query.offset + query.limit);
 
     return reply.send({ data: overview });
   });
@@ -231,16 +309,22 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
       .limit(query.limit)
       .offset(query.offset);
 
-    // Also get summary
-    const [summary] = await db
+    // Also get summary — active from screenshots, idle/saves/sessionCount
+    // from activity_sessions.
+    const [summaryRaw] = await db
       .select({
-        totalActiveSeconds: sql<number>`coalesce(sum(least(${activitySessions.activeSeconds}, 86400)), 0)::int`,
         totalIdleSeconds: sql<number>`coalesce(sum(least(${activitySessions.idleSeconds}, 86400)), 0)::int`,
         totalFileSaves: sql<number>`coalesce(sum(${activitySessions.totalFileSaves}), 0)::int`,
         sessionCount: sql<number>`count(*)::int`,
       })
       .from(activitySessions)
       .where(and(...conditions));
+    const activeForUser = await loadActiveSecondsByUser(db, {
+      userIds: [userId],
+      from: query.from ? new Date(query.from) : undefined,
+      to: query.to ? new Date(query.to) : undefined,
+    });
+    const summary = { ...summaryRaw, totalActiveSeconds: activeForUser.get(userId) ?? 0 };
 
     // Aggregate app usage across all sessions in range (for "Top Apps" chart)
     const appUsageRows = await db
@@ -296,7 +380,6 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
     const daily = await db
       .select({
         date: sql<string>`date(${activitySessions.startedAt})`,
-        totalActiveSeconds: sql<number>`coalesce(sum(least(${activitySessions.activeSeconds}, 86400)), 0)::int`,
         totalIdleSeconds: sql<number>`coalesce(sum(least(${activitySessions.idleSeconds}, 86400)), 0)::int`,
         totalFileSaves: sql<number>`coalesce(sum(${activitySessions.totalFileSaves}), 0)::int`,
         activeDevelopers: sql<number>`count(distinct ${activitySessions.userId})::int`,
@@ -308,7 +391,22 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
       .orderBy(asc(sql`date(${activitySessions.startedAt})`))
       .limit(query.limit);
 
-    return reply.send({ data: daily });
+    // Sum org-wide active seconds per day from screenshots, then merge.
+    const activeByUserDay = await loadActiveSecondsByUserDay(db, {
+      from: query.from ? new Date(query.from) : undefined,
+      to: query.to ? new Date(query.to) : undefined,
+    });
+    const activeByDate = new Map<string, number>();
+    for (const [key, secs] of activeByUserDay) {
+      const day = key.split("|")[1];
+      activeByDate.set(day, (activeByDate.get(day) ?? 0) + secs);
+    }
+    const dailyWithActive = daily.map((d) => ({
+      ...d,
+      totalActiveSeconds: activeByDate.get(d.date) ?? 0,
+    }));
+
+    return reply.send({ data: dailyWithActive });
   });
 
   // AI usage breakdown by date (for the AI Usage & Cost page)
@@ -394,7 +492,18 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
       .where(eq(users.team, me.fullName))
       .orderBy(users.fullName);
 
-    // For each team member, get activity stats
+    // Pre-load screenshot-derived active seconds for ALL team members in
+    // one query instead of N+1. Idle/diagnostic counters still come per-user
+    // from activity_sessions inside the map below.
+    const memberIds = teamMembers.map((m) => m.userId);
+    const activeByUser = memberIds.length > 0
+      ? await loadActiveSecondsByUser(db, {
+          userIds: memberIds,
+          from: query.from ? new Date(query.from) : undefined,
+          to: query.to ? new Date(query.to) : undefined,
+        })
+      : new Map<string, number>();
+
     const enriched = await Promise.all(
       teamMembers.map(async (member) => {
         const memberConditions = [eq(activitySessions.userId, member.userId)];
@@ -403,7 +512,6 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
 
         const [stats] = await db
           .select({
-            totalActiveSeconds: sql<number>`coalesce(sum(least(${activitySessions.activeSeconds}, 86400)), 0)::int`,
             totalIdleSeconds: sql<number>`coalesce(sum(least(${activitySessions.idleSeconds}, 86400)), 0)::int`,
             totalKeystrokes: sql<number>`coalesce(sum(${activitySessions.totalKeystrokes}), 0)::int`,
             sessionCount: sql<number>`count(*)::int`,
@@ -412,7 +520,11 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
           .from(activitySessions)
           .where(and(...memberConditions));
 
-        return { ...member, ...stats };
+        return {
+          ...member,
+          ...stats,
+          totalActiveSeconds: activeByUser.get(member.userId) ?? 0,
+        };
       })
     );
 
@@ -854,28 +966,15 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
     if (visibleUsers.length === 0) return reply.send({ workingDays, rows: [] });
 
     const visibleIds = visibleUsers.map((u) => u.id);
-    const fromTs = `${query.from}T00:00:00Z`;
-    const toTs = `${query.to}T23:59:59Z`;
 
-    const userIdList = sql.join(
-      visibleIds.map((id) => sql`${id}::uuid`),
-      sql`, `,
-    );
-
-    // Same per-session 24h cap as the main snapshot query — see note above.
-    const totals = await db.execute<{ userId: string; activeSeconds: number }>(sql`
-      SELECT s.user_id::text AS "userId",
-             COALESCE(SUM(LEAST(s.active_seconds, 86400)), 0)::int AS "activeSeconds"
-      FROM activity_sessions s
-      WHERE s.user_id IN (${userIdList})
-        AND s.started_at >= ${fromTs}::timestamptz
-        AND s.started_at <= ${toTs}::timestamptz
-      GROUP BY s.user_id
-    `);
-    const totalsByUser = new Map<string, number>();
-    for (const r of totals as unknown as Array<{ userId: string; activeSeconds: number }>) {
-      totalsByUser.set(r.userId, r.activeSeconds);
-    }
+    // Active seconds = screenshot-count × 300 per user, via shared helper.
+    // Defines the bandwidth report's actual-hours number — anything HR pays
+    // out comes from here.
+    const totalsByUser = await loadActiveSecondsByUser(db, {
+      userIds: visibleIds,
+      from: new Date(`${query.from}T00:00:00Z`),
+      to: new Date(`${query.to}T23:59:59Z`),
+    });
 
     // Bucket by team and aggregate
     const byTeam = new Map<string, { teamSize: number; activeSeconds: number }>();
@@ -960,33 +1059,14 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
       });
     }
 
-    const fromTs = `${query.from}T00:00:00Z`;
-    const toTs = `${query.to}T23:59:59Z`;
-
-    const userIdList = sql.join(
-      visibleIds.map((id) => sql`${id}::uuid`),
-      sql`, `,
-    );
-
-    // Per-(user, day) totals so we can bucket each working day for each employee.
-    // Same per-session 24h cap as the main snapshot query — see note above.
-    const perDay = await db.execute<{ userId: string; day: string; activeSeconds: number }>(sql`
-      SELECT s.user_id::text AS "userId",
-             to_char(s.started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS "day",
-             COALESCE(SUM(LEAST(s.active_seconds, 86400)), 0)::int AS "activeSeconds"
-      FROM activity_sessions s
-      WHERE s.user_id IN (${userIdList})
-        AND s.started_at >= ${fromTs}::timestamptz
-        AND s.started_at <= ${toTs}::timestamptz
-      GROUP BY s.user_id, day
-    `);
-
-    const cellByUserDay = new Map<string, number>();
+    // Per-(user, day) active seconds from screenshots, via shared helper.
+    const cellByUserDay = await loadActiveSecondsByUserDay(db, {
+      userIds: visibleIds,
+      from: new Date(`${query.from}T00:00:00Z`),
+      to: new Date(`${query.to}T23:59:59Z`),
+    });
     let totalActiveSeconds = 0;
-    for (const r of perDay as unknown as Array<{ userId: string; day: string; activeSeconds: number }>) {
-      cellByUserDay.set(`${r.userId}|${r.day}`, r.activeSeconds);
-      totalActiveSeconds += r.activeSeconds;
-    }
+    for (const v of cellByUserDay.values()) totalActiveSeconds += v;
 
     // Load leaves for the visible users so we can skip those cells from the
     // distribution (a person on PTO shouldn't count as "Low <4h").
