@@ -169,6 +169,88 @@ export function externalProjectsRoutes(
     return reply.send({ data: employees });
   });
 
+  // Admin: edit a single employee.
+  // After updating the directory, if `managerName` changed we also need to
+  // refresh the matching users.team field so Team Snapshot's manager grouping
+  // sees the new value without waiting for the next auto-link run.
+  app.patch("/api/admin/employees/:externalUserId", { preHandler: admin }, async (request, reply) => {
+    const { externalUserId } = z.object({
+      externalUserId: z.coerce.number().int().positive(),
+    }).parse(request.params);
+
+    // Every field is optional — caller can update just what changed.
+    const body = z.object({
+      employeeName: z.string().min(1).max(255).optional(),
+      email: z.string().email().max(255).optional(),
+      department: z.string().max(100).nullable().optional(),
+      jobPosition: z.string().max(255).nullable().optional(),
+      managerName: z.string().max(255).nullable().optional(),
+      company: z.string().max(255).nullable().optional(),
+      active: z.boolean().optional(),
+    }).parse(request.body);
+
+    // Pull the existing row so we know what manager (if any) changed.
+    const [existing] = await db
+      .select()
+      .from(employeeDirectory)
+      .where(eq(employeeDirectory.externalUserId, externalUserId))
+      .limit(1);
+    if (!existing) {
+      return reply.status(404).send({ error: "Employee not found" });
+    }
+
+    const updates: Record<string, unknown> = { updatedAt: new Date() };
+    for (const [k, v] of Object.entries(body)) {
+      if (v !== undefined) updates[k] = v;
+    }
+
+    await db
+      .update(employeeDirectory)
+      .set(updates)
+      .where(eq(employeeDirectory.externalUserId, externalUserId));
+
+    // Cascade managerName change → users.team so /team-snapshot regrouping
+    // doesn't need an explicit auto-link button click. Match by email since
+    // that's the stable link between directory and users.
+    if (body.managerName !== undefined && body.managerName !== existing.managerName) {
+      const targetEmail = (body.email ?? existing.email).trim().toLowerCase();
+      if (targetEmail) {
+        await db
+          .update(users)
+          .set({ team: body.managerName ?? null })
+          .where(sql`lower(${users.email}) = ${targetEmail}`);
+      }
+    }
+
+    const [fresh] = await db
+      .select()
+      .from(employeeDirectory)
+      .where(eq(employeeDirectory.externalUserId, externalUserId))
+      .limit(1);
+    return reply.send({ data: fresh });
+  });
+
+  // Admin: remove an employee from the directory.
+  // The directory row goes away; we deliberately do NOT touch the corresponding
+  // users row (their historical screenshots / sessions stay attributed to them).
+  // After this delete, the user's data simply stops appearing in payroll-style
+  // views that filter to directory members.
+  app.delete("/api/admin/employees/:externalUserId", { preHandler: admin }, async (request, reply) => {
+    const { externalUserId } = z.object({
+      externalUserId: z.coerce.number().int().positive(),
+    }).parse(request.params);
+
+    const result = await db
+      .delete(employeeDirectory)
+      .where(eq(employeeDirectory.externalUserId, externalUserId))
+      .returning({ externalUserId: employeeDirectory.externalUserId });
+
+    if (result.length === 0) {
+      return reply.status(404).send({ error: "Employee not found" });
+    }
+    return reply.send({ ok: true, deleted: result[0].externalUserId });
+  });
+
   // Admin: list all external projects with task counts
   app.get("/api/admin/external-projects", { preHandler: admin }, async (request, reply) => {
     const query = z.object({

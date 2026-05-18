@@ -48,6 +48,12 @@ export default function EmployeesPage() {
   const [formCompany, setFormCompany] = useState("");
   const [formSaving, setFormSaving] = useState(false);
 
+  // Edit modal state — null when closed. Same field set as the add form
+  // (minus externalUserId, which is the PK and not editable).
+  const [editing, setEditing] = useState<Employee | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+
   const fetchData = async () => {
     if (!accessToken) return;
     setLoading(true);
@@ -141,6 +147,55 @@ export default function EmployeesPage() {
     } finally {
       setImporting(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const handleSaveEdit = async () => {
+    if (!accessToken || !editing) return;
+    setEditSaving(true);
+    try {
+      // Only send fields that are non-empty strings, except active which is
+      // always a boolean. Nulls explicitly clear the column.
+      await apiFetch(`/api/admin/employees/${editing.externalUserId}`, {
+        token: accessToken,
+        method: "PATCH",
+        body: JSON.stringify({
+          employeeName: editing.employeeName,
+          email: editing.email,
+          department: editing.department || null,
+          jobPosition: editing.jobPosition || null,
+          managerName: editing.managerName || null,
+          company: editing.company || null,
+          active: editing.active,
+        }),
+      });
+      setEditing(null);
+      await fetchData();
+    } catch (err) {
+      alert("Failed to save: " + (err instanceof Error ? err.message : err));
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const handleDelete = async (emp: Employee) => {
+    if (!accessToken) return;
+    const mapping = getMappingForEmployee(emp.externalUserId);
+    const warning = mapping
+      ? `\n\nThis employee is linked to an Ailancers user (${mapping.email ?? mapping.fullName}). Their historical screenshots/time logs stay attributed to them, but they will no longer appear in payroll views.`
+      : "";
+    if (!confirm(`Remove ${emp.employeeName} from the employee directory?${warning}\n\nThis cannot be undone.`)) return;
+    setDeletingId(emp.externalUserId);
+    try {
+      await apiFetch(`/api/admin/employees/${emp.externalUserId}`, {
+        token: accessToken,
+        method: "DELETE",
+      });
+      await fetchData();
+    } catch (err) {
+      alert("Failed to delete: " + (err instanceof Error ? err.message : err));
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -281,6 +336,7 @@ export default function EmployeesPage() {
                 <th>Company</th>
                 <th>Ailancers Mapping</th>
                 <th>Status</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -337,12 +393,32 @@ export default function EmployeesPage() {
                         {emp.active ? "Active" : "Inactive"}
                       </span>
                     </td>
+                    <td>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button
+                          className="btn btn-secondary"
+                          style={{ padding: "4px 10px", fontSize: 12 }}
+                          onClick={() => setEditing({ ...emp })}
+                          disabled={deletingId === emp.externalUserId}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          style={{ padding: "4px 10px", fontSize: 12, background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 4, color: "#f87171", cursor: "pointer" }}
+                          onClick={() => handleDelete(emp)}
+                          disabled={deletingId === emp.externalUserId}
+                          title="Remove from directory. User's historical data stays in the database."
+                        >
+                          {deletingId === emp.externalUserId ? "..." : "Remove"}
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 );
               })}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: "center", color: "var(--text-muted)", padding: 32 }}>
+                  <td colSpan={8} style={{ textAlign: "center", color: "var(--text-muted)", padding: 32 }}>
                     {employees.length === 0
                       ? "No employees imported yet. Import a CSV or add employees manually."
                       : "No employees match your search"}
@@ -351,6 +427,67 @@ export default function EmployeesPage() {
               )}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Edit modal — same field set as the add form, minus the externalUserId
+          (which is the PK and not editable). Click outside or Cancel to close.
+          Saving PATCHes the row and refreshes the table. */}
+      {editing && (
+        <div
+          onClick={() => !editSaving && setEditing(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 24 }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: "var(--bg-card)", borderRadius: 10, padding: 24, width: "100%", maxWidth: 720, maxHeight: "90vh", overflow: "auto", border: "1px solid var(--border)" }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div>
+                <div style={{ fontSize: 18, fontWeight: 600 }}>Edit Employee</div>
+                <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>Platform User ID: {editing.externalUserId}</div>
+              </div>
+              <button onClick={() => !editSaving && setEditing(null)} style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 20, cursor: "pointer", padding: 4 }}>✕</button>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div>
+                <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>Full Name *</label>
+                <input className="form-input" value={editing.employeeName} onChange={(e) => setEditing({ ...editing, employeeName: e.target.value })} style={{ width: "100%" }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>Work Email *</label>
+                <input className="form-input" value={editing.email} onChange={(e) => setEditing({ ...editing, email: e.target.value })} style={{ width: "100%" }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>Department</label>
+                <input className="form-input" value={editing.department || ""} onChange={(e) => setEditing({ ...editing, department: e.target.value })} style={{ width: "100%" }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>Job Position</label>
+                <input className="form-input" value={editing.jobPosition || ""} onChange={(e) => setEditing({ ...editing, jobPosition: e.target.value })} style={{ width: "100%" }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>Manager</label>
+                <input className="form-input" value={editing.managerName || ""} onChange={(e) => setEditing({ ...editing, managerName: e.target.value })} style={{ width: "100%" }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>Company</label>
+                <input className="form-input" value={editing.company || ""} onChange={(e) => setEditing({ ...editing, company: e.target.value })} style={{ width: "100%" }} />
+              </div>
+              <div style={{ gridColumn: "1 / -1" }}>
+                <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                  <input type="checkbox" checked={editing.active} onChange={(e) => setEditing({ ...editing, active: e.target.checked })} />
+                  Active (uncheck to mark as inactive without removing)
+                </label>
+              </div>
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
+              <button className="btn btn-secondary" onClick={() => setEditing(null)} disabled={editSaving}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleSaveEdit} disabled={editSaving || !editing.employeeName || !editing.email}>
+                {editSaving ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </DashboardShell>
