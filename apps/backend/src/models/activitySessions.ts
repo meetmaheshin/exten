@@ -30,6 +30,9 @@ export const activitySessions = pgTable(
     // External platform project/task being worked on during this session
     externalProjectId: integer("external_project_id").references(() => externalProjects.id, { onDelete: "set null" }),
     externalTaskId: integer("external_task_id").references(() => externalTasks.id, { onDelete: "set null" }),
+    // Wall-clock anchor for the heartbeat clamp — replaces a query against
+    // telemetry_events. Updated on every heartbeat.
+    lastHeartbeatAt: timestamp("last_heartbeat_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

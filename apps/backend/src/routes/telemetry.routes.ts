@@ -1,10 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { eq, and, desc } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { requireAuth } from "../middleware/requireAuth.js";
 import type { AuthService } from "../services/AuthService.js";
 import type { Database } from "../config/database.js";
-import { activitySessions, telemetryEvents, projects } from "../models/index.js";
+import { activitySessions, projects } from "../models/index.js";
 
 const sessionStartSchema = z.object({
   projectSlug: z.string(),
@@ -68,7 +68,11 @@ export function telemetryRoutes(app: FastifyInstance, authService: AuthService, 
     return reply.status(201).send({ sessionId: session.id });
   });
 
-  app.post("/api/telemetry/session/heartbeat", { preHandler: auth }, async (request, reply) => {
+  // logLevel: "warn" silences Fastify's per-request access log for this
+  // route — heartbeats fire every 60s per user, and "POST /heartbeat 200"
+  // floods backend logs to the point where real errors get lost. The
+  // server's normal error logger still works (warnings + errors still log).
+  app.post("/api/telemetry/session/heartbeat", { preHandler: auth, logLevel: "warn" }, async (request, reply) => {
     const body = heartbeatSchema.parse(request.body);
 
     // Accumulate into the activity session
@@ -84,19 +88,11 @@ export function telemetryRoutes(app: FastifyInstance, authService: AuthService, 
 
     // Wall-clock clamp: a heartbeat can never report more active+idle seconds
     // than the wall time elapsed since the last heartbeat (or session start).
-    // Without this, a buggy/suspended client could claim 8 hours of work in
-    // a 60-second gap. We use the most recent heartbeat event as the anchor
-    // and fall back to session.startedAt for the first heartbeat.
-    const [lastHeartbeat] = await db
-      .select({ at: telemetryEvents.timestamp })
-      .from(telemetryEvents)
-      .where(and(
-        eq(telemetryEvents.sessionId, body.sessionId),
-        eq(telemetryEvents.eventType, "heartbeat"),
-      ))
-      .orderBy(desc(telemetryEvents.timestamp))
-      .limit(1);
-    const anchor = lastHeartbeat?.at ?? session.startedAt;
+    // Anchor comes from activity_sessions.last_heartbeat_at — previously we
+    // queried telemetry_events for this, which forced an INSERT per heartbeat
+    // for read-side support. The new column gives us the same answer with
+    // zero extra rows.
+    const anchor = session.lastHeartbeatAt ?? session.startedAt;
     const wallSeconds = Math.max(0, Math.floor((Date.now() - new Date(anchor).getTime()) / 1000));
     // 30s slack for clock skew + flush-loop jitter on top of the 60s interval
     const cap = wallSeconds + 30;
@@ -113,13 +109,16 @@ export function telemetryRoutes(app: FastifyInstance, authService: AuthService, 
       }, "Heartbeat exceeded wall-clock cap — clamping");
     }
 
-    // Build update — always accumulate metrics; update project/task if provided
+    // Build update — always accumulate metrics; update project/task if provided.
+    // lastHeartbeatAt also gets updated here so the next heartbeat's clamp
+    // anchor moves forward without a separate query/insert.
     const updateValues: Record<string, unknown> = {
       activeSeconds: session.activeSeconds + clampedActive,
       idleSeconds: session.idleSeconds + clampedIdle,
       totalKeystrokes: session.totalKeystrokes + body.keystrokeCount,
       totalFileSaves: session.totalFileSaves + body.fileSaveCount,
       totalFileChanges: session.totalFileChanges + body.fileChangeCount,
+      lastHeartbeatAt: new Date(),
     };
     // The DB column is an integer FK to the legacy external_projects table.
     // The new v2 platform sends UUID strings — those don't fit, so skip them
@@ -155,24 +154,13 @@ export function telemetryRoutes(app: FastifyInstance, authService: AuthService, 
       .set(updateValues)
       .where(eq(activitySessions.id, body.sessionId));
 
-    // Insert heartbeat telemetry event
-    await db.insert(telemetryEvents).values({
-      userId: request.user.sub,
-      sessionId: body.sessionId,
-      projectId: session.projectId,
-      eventType: "heartbeat",
-      eventData: {
-        activeSeconds: body.activeSeconds,
-        idleSeconds: body.idleSeconds,
-        keystrokeCount: body.keystrokeCount,
-        fileSaveCount: body.fileSaveCount,
-        languageSeconds: body.languageSeconds,
-        isCurrentlyIdle: body.isCurrentlyIdle,
-        appUsage: body.appUsage ?? {},
-        externalProjectId: body.externalProjectId ?? null,
-        externalTaskId: body.externalTaskId ?? null,
-      },
-    });
+    // Previously inserted one row into telemetry_events per heartbeat to keep
+    // a "history" of heartbeats — nothing in the codebase ever READ those
+    // rows except the wall-clock clamp lookup above, which now uses
+    // session.last_heartbeat_at instead. Dropping the INSERT cuts
+    // ~24,000 rows/day (50 users × 60 hb/h × 8h) and the noisy
+    // POST/heartbeat 200 access log line. See migration 0013 for cleanup
+    // of historical heartbeat events that already accumulated.
 
     return reply.send({ ok: true });
   });
