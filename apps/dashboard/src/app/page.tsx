@@ -111,6 +111,30 @@ export default function TeamOverviewPage() {
         <StatCard value={String(members.length)} label="Total developers" color="purple" />
       </div>
 
+      {/* Flagged-row counters — quick scan before the manager dives into the table */}
+      {!loading && members.length > 0 && (() => {
+        const fishyCount = members.filter((m) => m.totalActiveSeconds >= 4 * 3600 && m.totalIdleSeconds === 0).length;
+        const staleCount = members.filter((m) => {
+          const d = Math.floor((Date.now() - new Date(m.lastActive).getTime()) / 86_400_000);
+          return d >= 7;
+        }).length;
+        if (fishyCount === 0 && staleCount === 0) return null;
+        return (
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 8, fontSize: 13 }}>
+            {fishyCount > 0 && (
+              <div style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 6, padding: "8px 12px", color: "#f87171" }}>
+                <strong>{fishyCount}</strong> developer{fishyCount === 1 ? "" : "s"} with 4h+ active but 0 idle reported — check client setup.
+              </div>
+            )}
+            {staleCount > 0 && (
+              <div style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)", borderRadius: 6, padding: "8px 12px", color: "#facc15" }}>
+                <strong>{staleCount}</strong> developer{staleCount === 1 ? "" : "s"} inactive for 7+ days — verify employment status before payroll cycle.
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       <div className="card">
         <div className="card-header">Developer Activity</div>
         {loading ? (
@@ -131,7 +155,24 @@ export default function TeamOverviewPage() {
                 </tr>
               </thead>
               <tbody>
-                {members.map((m) => (
+                {members.map((m) => {
+                  // Fishy pattern: lots of active time but ZERO idle reported.
+                  // A real day involves at least short away-from-desk moments
+                  // (>10 min triggers OS-idle). 4h+ active with 0 idle means
+                  // either (a) anti-cheat tooling is jiggling the mouse,
+                  // (b) the client hasn't updated to a build that reports idle,
+                  // or (c) OS-idle detection is broken on their machine.
+                  // Either way, a manager wants to see this row flagged.
+                  const isFishyZeroIdle = m.totalActiveSeconds >= 4 * 3600 && m.totalIdleSeconds === 0;
+                  // Stale: no heartbeat for a long time. Could be leaving the
+                  // company, broken extension install, or extended leave —
+                  // payroll cycle needs to know either way.
+                  const msSinceActive = Date.now() - new Date(m.lastActive).getTime();
+                  const daysSinceActive = Math.floor(msSinceActive / 86_400_000);
+                  const isVeryStale = daysSinceActive >= 30;
+                  const isStale = daysSinceActive >= 7 && !isVeryStale;
+
+                  return (
                   <tr key={m.userId}>
                     <td>
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -143,7 +184,24 @@ export default function TeamOverviewPage() {
                             .slice(0, 2)}
                         </div>
                         <div>
-                          <div style={{ fontWeight: 500 }}>{m.fullName}</div>
+                          <div style={{ fontWeight: 500, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                            {m.fullName}
+                            {isFishyZeroIdle && (
+                              <span title="Active for 4h+ but reported 0 idle time. Worth checking the client install / anti-cheat tooling." style={{ fontSize: 10, fontWeight: 600, background: "rgba(239,68,68,0.15)", color: "#f87171", padding: "1px 6px", borderRadius: 3, letterSpacing: 0.3 }}>
+                                ⚠ 0 IDLE
+                              </span>
+                            )}
+                            {isVeryStale && (
+                              <span title={`No activity for ${daysSinceActive} days. Verify employment status.`} style={{ fontSize: 10, fontWeight: 600, background: "rgba(239,68,68,0.15)", color: "#f87171", padding: "1px 6px", borderRadius: 3, letterSpacing: 0.3 }}>
+                                ⚠ INACTIVE {daysSinceActive}d
+                              </span>
+                            )}
+                            {isStale && (
+                              <span title={`No activity for ${daysSinceActive} days. Possibly on leave or extension broken.`} style={{ fontSize: 10, fontWeight: 600, background: "rgba(251,191,36,0.15)", color: "#facc15", padding: "1px 6px", borderRadius: 3, letterSpacing: 0.3 }}>
+                                STALE {daysSinceActive}d
+                              </span>
+                            )}
+                          </div>
                           <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{m.email}</div>
                         </div>
                       </div>
@@ -164,7 +222,7 @@ export default function TeamOverviewPage() {
                       </Link>
                     </td>
                   </tr>
-                ))}
+                );})}
                 {members.length === 0 && (
                   <tr>
                     <td colSpan={8} style={{ textAlign: "center", color: "var(--text-muted)", padding: 32 }}>
