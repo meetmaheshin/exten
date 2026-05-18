@@ -1,5 +1,15 @@
 appId: com.ailancers.desktop-tracker
 productName: Ailancers Tracker
+# productFilename controls the install directory + binary filename, separate
+# from the human-readable productName above. We need this to be space-free
+# because Chromium's zygote / sandbox machinery splits on whitespace and
+# truncates paths at the first space — leading to:
+#   "LaunchProcess: failed to execvp: /opt/Ailancers"
+#   "FATAL:zygote_host_impl_linux.cc(201) Check failed"
+# on every launch. With this set, the .deb installs to /opt/ailancers-tracker/
+# instead of /opt/Ailancers Tracker/ — but window titles, menus, and the
+# .desktop entry's Name= still show "Ailancers Tracker" from productName.
+productFilename: ailancers-tracker
 directories:
   output: out
   buildResources: resources

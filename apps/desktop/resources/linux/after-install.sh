@@ -16,13 +16,21 @@
 #   - https://github.com/electron/electron/issues/17972
 set -e
 
-# The install directory uses the productName from electron-builder.yml,
-# which contains a space ("Ailancers Tracker") — quote everything carefully.
-SANDBOX="/opt/Ailancers Tracker/chrome-sandbox"
-
-if [ -f "$SANDBOX" ]; then
-  chown root:root "$SANDBOX"
-  chmod 4755 "$SANDBOX"
-fi
+# The install directory comes from electron-builder.yml's productFilename
+# (NOT productName, which still includes a space). After fixing the
+# zygote-truncates-at-space bug, the directory is /opt/ailancers-tracker/.
+#
+# Belt-and-suspenders: also try the old spaced path, in case someone is
+# upgrading from a v0.2.18-or-earlier install where dpkg's upgrade logic
+# left the spaced directory behind (shouldn't happen, but harmless if it
+# does).
+for SANDBOX in \
+  "/opt/ailancers-tracker/chrome-sandbox" \
+  "/opt/Ailancers Tracker/chrome-sandbox"; do
+  if [ -f "$SANDBOX" ]; then
+    chown root:root "$SANDBOX"
+    chmod 4755 "$SANDBOX"
+  fi
+done
 
 exit 0
