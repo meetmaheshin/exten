@@ -108,6 +108,26 @@ export default function MyPerformancePage() {
             </div>
           )}
 
+          {/* Self-check banners — surface the same fishy/stale flags managers
+              and admins see, but framed as a heads-up to the user about their
+              own tracking setup. Managers will be asking about these anyway,
+              so it's better for the dev to spot and fix first. */}
+          {summary && summary.totalActiveSeconds >= 4 * 3600 && summary.totalIdleSeconds === 0 && (
+            <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 6, color: "#f87171", fontSize: 13 }}>
+              <strong>Heads up:</strong> your tracker reported {formatDuration(summary.totalActiveSeconds)} of active time but zero idle time in this range. That usually means the client isn't detecting idle periods correctly (anti-cheat mouse jiggler, broken OS-idle hook, or an old client build). Worth a sanity check — your manager will see this flag too.
+            </div>
+          )}
+          {daily.length > 0 && (() => {
+            const mostRecent = [...daily].sort((a, b) => b.date.localeCompare(a.date))[0];
+            const days = Math.floor((Date.now() - new Date(mostRecent.date + "T00:00:00Z").getTime()) / 86_400_000);
+            if (days < 7) return null;
+            return (
+              <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)", borderRadius: 6, color: "#facc15", fontSize: 13 }}>
+                <strong>Heads up:</strong> no activity recorded for {days} days. If you've been working, your extension may have stopped tracking — restart VS Code or check the Ailancers status bar.
+              </div>
+            );
+          })()}
+
           <div className="stats-grid">
             <StatCard value={formatDuration(summary?.totalActiveSeconds ?? 0)} label={`Active Time ${rangeLabel}`} color="blue" />
             <StatCard value={formatDuration(summary?.totalIdleSeconds ?? 0)} label={`Idle Time ${rangeLabel}`} color="yellow" />
