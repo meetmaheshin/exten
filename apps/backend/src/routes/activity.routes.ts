@@ -599,7 +599,7 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
 
   // ─── Team Snapshot (pivoted timesheet grid) ───
   // See TEAM_SNAPSHOT_SPEC.md for the design behind this endpoint.
-  app.get("/api/team-snapshot", { preHandler: requireManager(authService) }, async (request, reply) => {
+  app.get("/api/team-snapshot", { preHandler: auth }, async (request, reply) => {
     const query = z.object({
       from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -608,6 +608,7 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
     }).parse(request.query);
 
     const isAdmin = request.user.role === "admin" || request.user.role === "super_admin";
+    const isManager = isAdmin || request.user.role === "manager";
 
     // Resolve current user's fullName so managers can be filtered to their own team
     const [me] = await db
@@ -674,12 +675,16 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
       ? userRows.filter((u) => dirEmails.has((u.email || "").trim().toLowerCase()) || u.id === me.id)
       : userRows;
 
-    // For managers: only show users whose team matches their fullName.
-    // Admins see everyone. We always include the viewer themselves so the grid
-    // is never empty.
+    // Visibility tiers:
+    //   - super_admin / admin → everyone
+    //   - manager → people on their team + themselves
+    //   - everyone else (developer / employee) → themselves only
+    // We always include the viewer themselves so the grid is never empty.
     const visibleUsers = isAdmin
       ? dirFiltered
-      : dirFiltered.filter((u) => u.team === me.fullName || u.id === me.id);
+      : isManager
+        ? dirFiltered.filter((u) => u.team === me.fullName || u.id === me.id)
+        : dirFiltered.filter((u) => u.id === me.id);
 
     if (visibleUsers.length === 0) return reply.send({ dates, groups: [] });
 

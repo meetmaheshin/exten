@@ -34,7 +34,7 @@ const navGroups: NavGroup[] = [
     title: "My team",
     items: [
       { href: "/my-team",         label: "Team members",    icon: "👥", visibility: "manager" },
-      { href: "/team-snapshot",   label: "Team snapshot",   icon: "🗓️", visibility: "manager" },
+      { href: "/team-snapshot",   label: "Team snapshot",   icon: "🗓️", visibility: "everyone" },
     ],
   },
   {
