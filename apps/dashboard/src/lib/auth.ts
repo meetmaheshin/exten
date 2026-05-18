@@ -19,6 +19,7 @@ export interface AuthState {
   logout: () => void;
   isAdmin: boolean;
   isManager: boolean;
+  isSuperAdmin: boolean;
 }
 
 export const AuthContext = createContext<AuthState>({
@@ -30,6 +31,7 @@ export const AuthContext = createContext<AuthState>({
   logout: () => {},
   isAdmin: false,
   isManager: false,
+  isSuperAdmin: false,
 });
 
 export function useAuth() {

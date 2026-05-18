@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { eq, and, gte, lte, desc, sql, asc, isNull } from "drizzle-orm";
-import { requireAuth, requireAdmin, requireManager } from "../middleware/requireAuth.js";
+import { requireAuth, requireAdmin, requireManager, requireSuperAdmin } from "../middleware/requireAuth.js";
 import type { AuthService } from "../services/AuthService.js";
 import type { Database } from "../config/database.js";
 import { activitySessions, users, aiUsageDaily, screenshots, holidays, leaveDays, employeeDirectory } from "../models/index.js";
@@ -1262,5 +1262,158 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     await db.delete(leaveDays).where(eq(leaveDays.id, id));
     return reply.send({ ok: true });
+  });
+
+  // ─── Payroll CSV export (super-admin only) ──────────────────────────────
+  // HR's monthly hand-off. Streams a CSV laid out like the Team Snapshot
+  // grid: one row per employee, one column per day, cells = decimal hours
+  // OR labels (Sun / Sat / Holiday / Leave / Half day) for non-working days.
+  //
+  // Active time is the screenshot-derived payroll number (same as every
+  // other endpoint in this file). Idle/keystrokes are NOT included — HR's
+  // CSV is purely hours-by-day. If they want diagnostic stats they can
+  // open the dashboard.
+  //
+  // Filter: employee_directory only. Seed/test users in `users` that were
+  // never imported via HR's CSV are skipped — same rule as Team Snapshot.
+  app.get("/api/admin/payroll/csv", { preHandler: requireSuperAdmin(authService) }, async (request, reply) => {
+    // Default: current calendar month, in UTC (matches how active_seconds /
+    // screenshots get bucketed everywhere else in this file).
+    const now = new Date();
+    const defaultFrom = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-01`;
+    const defaultTo = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0))
+      .toISOString().slice(0, 10);
+
+    const query = z.object({
+      from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).default(defaultFrom),
+      to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).default(defaultTo),
+    }).parse(request.query);
+
+    // Build the date column list — inclusive, oldest → newest (HR reads
+    // left to right). Cap at 62 days so a fat-fingered range doesn't OOM
+    // the response.
+    const start = new Date(`${query.from}T00:00:00Z`);
+    const end = new Date(`${query.to}T00:00:00Z`);
+    if (end < start) return reply.status(400).send({ error: "to is before from" });
+    const dates: string[] = [];
+    for (let d = new Date(start); d <= end && dates.length < 62; d.setUTCDate(d.getUTCDate() + 1)) {
+      dates.push(d.toISOString().slice(0, 10));
+    }
+    if (dates.length === 0) return reply.status(400).send({ error: "empty range" });
+
+    // Employees from the HR directory — left-join users so we get the
+    // canonical user_id even if the directory row lists only an email.
+    // Users without a directory row are excluded; users in the directory
+    // who never logged in show up with no hours (intentional — HR sees
+    // they were employed but didn't track).
+    const employees = await db
+      .select({
+        userId: users.id,
+        email: employeeDirectory.email,
+        fullName: users.fullName,
+        team: users.team,
+        employmentStatus: users.employmentStatus,
+      })
+      .from(employeeDirectory)
+      .leftJoin(users, eq(sql`lower(${users.email})`, sql`lower(${employeeDirectory.email})`));
+
+    // Holidays + leaves in the date range, indexed for cell rendering.
+    const holidayRows = await db
+      .select({ date: holidays.date, name: holidays.name })
+      .from(holidays)
+      .where(and(gte(holidays.date, query.from), lte(holidays.date, query.to)));
+    const holidayByDate = new Map<string, string>();
+    for (const h of holidayRows) holidayByDate.set(h.date as unknown as string, h.name);
+
+    const userIds = employees.map((e) => e.userId).filter((id): id is string => !!id);
+    const leaveRows = userIds.length > 0
+      ? await db
+          .select({ userId: leaveDays.userId, date: leaveDays.date, leaveType: leaveDays.leaveType })
+          .from(leaveDays)
+          .where(and(
+            inArray(leaveDays.userId, userIds),
+            gte(leaveDays.date, query.from),
+            lte(leaveDays.date, query.to),
+          ))
+      : [];
+    const leaveByUserDate = new Map<string, string>(); // key: userId|date → label
+    const LEAVE_LABEL: Record<string, string> = {
+      full: "Leave", half: "Half day", sick: "Sick leave",
+      paid: "Paid leave", unpaid: "Unpaid leave",
+    };
+    for (const r of leaveRows) {
+      leaveByUserDate.set(`${r.userId}|${r.date}`, LEAVE_LABEL[r.leaveType] ?? r.leaveType);
+    }
+
+    // Active seconds per (user, day) from screenshots — same source of
+    // truth as every other payroll-impacting endpoint here.
+    const activeByUserDay = userIds.length > 0
+      ? await loadActiveSecondsByUserDay(db, {
+          userIds,
+          from: new Date(`${query.from}T00:00:00Z`),
+          to: new Date(`${query.to}T23:59:59Z`),
+        })
+      : new Map<string, number>();
+
+    // ── Render the CSV ──
+    // Decimal hours, 2dp. Special labels for non-working / non-work days
+    // override the number so HR sees WHY a cell is blank instead of just "0".
+    const formatCell = (userId: string | null, date: string): string => {
+      const wd = new Date(`${date}T00:00:00Z`).getUTCDay();
+      if (wd === 0) return "Sun";
+      if (wd === 6) return "Sat";
+      if (holidayByDate.has(date)) return holidayByDate.get(date)!;
+      if (userId && leaveByUserDate.has(`${userId}|${date}`)) {
+        return leaveByUserDate.get(`${userId}|${date}`)!;
+      }
+      if (!userId) return ""; // employee never logged in — empty cell
+      const seconds = activeByUserDay.get(`${userId}|${date}`) ?? 0;
+      return (seconds / 3600).toFixed(2);
+    };
+
+    // CSV escape: wrap in quotes and double any embedded quotes. Numbers
+    // and clean labels pass through; only names/labels with commas need it.
+    const csvEscape = (s: string): string => {
+      if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+      return s;
+    };
+
+    const header = [
+      "Employee Email",
+      "Employee Name",
+      "Team",
+      "Status",
+      ...dates,
+      "Total Hours",
+    ].map(csvEscape).join(",");
+
+    const rows = employees.map((emp) => {
+      let totalSeconds = 0;
+      const cells = dates.map((d) => {
+        const cell = formatCell(emp.userId, d);
+        // Only numeric cells contribute to the total
+        if (/^\d+\.\d{2}$/.test(cell)) {
+          totalSeconds += parseFloat(cell) * 3600;
+        }
+        return csvEscape(cell);
+      });
+      const totalHours = (totalSeconds / 3600).toFixed(2);
+      return [
+        csvEscape(emp.email ?? ""),
+        csvEscape(emp.fullName ?? ""),
+        csvEscape(emp.team ?? ""),
+        csvEscape(emp.employmentStatus ?? "unknown"),
+        ...cells,
+        totalHours,
+      ].join(",");
+    });
+
+    const body = [header, ...rows].join("\n") + "\n";
+
+    const filename = `ailancers-payroll-${query.from}-to-${query.to}.csv`;
+    return reply
+      .type("text/csv; charset=utf-8")
+      .header("Content-Disposition", `attachment; filename="${filename}"`)
+      .send(body);
   });
 }

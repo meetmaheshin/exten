@@ -83,11 +83,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearSession();
   }, []);
 
-  const isAdmin = user?.role === "admin" || user?.role === "super_admin";
+  const isSuperAdmin = user?.role === "super_admin";
+  const isAdmin = isSuperAdmin || user?.role === "admin";
   const isManager = isAdmin || user?.role === "manager";
 
   return (
-    <AuthContext.Provider value={{ user, accessToken, loading, login, loginWithToken, logout, isAdmin, isManager }}>
+    <AuthContext.Provider value={{ user, accessToken, loading, login, loginWithToken, logout, isAdmin, isManager, isSuperAdmin }}>
       {children}
     </AuthContext.Provider>
   );

@@ -4,7 +4,7 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth";
 
-type Visibility = "everyone" | "manager" | "admin";
+type Visibility = "everyone" | "manager" | "admin" | "super_admin";
 
 interface NavItem {
   href: string;
@@ -53,6 +53,7 @@ const navGroups: NavGroup[] = [
       { href: "/employees",       label: "Employees",       icon: "🏢", visibility: "admin" },
       { href: "/holidays",        label: "Holidays",        icon: "🏖️", visibility: "admin" },
       { href: "/leaves",          label: "Leaves",          icon: "🌴", visibility: "manager" },
+      { href: "/payroll",         label: "Payroll export",  icon: "💰", visibility: "super_admin" },
     ],
   },
   {
@@ -74,12 +75,13 @@ const ROLE_BADGE: Record<string, { label: string; color: string }> = {
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { user, logout, isAdmin, isManager } = useAuth();
+  const { user, logout, isAdmin, isManager, isSuperAdmin } = useAuth();
 
   const isVisible = (item: NavItem): boolean => {
     if (item.visibility === "everyone") return true;
     if (item.visibility === "manager") return isManager;
     if (item.visibility === "admin") return isAdmin;
+    if (item.visibility === "super_admin") return isSuperAdmin;
     return false;
   };
 
