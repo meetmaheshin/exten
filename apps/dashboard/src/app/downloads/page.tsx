@@ -384,6 +384,18 @@ export default function DownloadsPage() {
           <div style={stepRowStyle}>
             <span style={stepNumStyle}>3</span>
             <div style={stepTextStyle}>
+              <strong>Fix the chrome-sandbox permissions</strong> (required, one-time). Without this the app crashes with a "SUID sandbox" error on launch:
+              <div style={tipStyle}>
+                <code>{"sudo chown root:root ~/apps/ailancers-tracker-*-x64/chrome-sandbox"}</code><br />
+                <code>{"sudo chmod 4755 ~/apps/ailancers-tracker-*-x64/chrome-sandbox"}</code>
+              </div>
+              Chromium (which the tracker embeds) refuses to launch unless this helper is setuid-root. The .deb installer does this automatically, but for raw tar.gz extracts you have to do it once by hand.
+            </div>
+          </div>
+
+          <div style={stepRowStyle}>
+            <span style={stepNumStyle}>4</span>
+            <div style={stepTextStyle}>
               <strong>Launch:</strong>
               <div style={tipStyle}>
                 <code>cd ~/apps/ailancers-tracker-*-x64</code><br />
@@ -399,7 +411,7 @@ export default function DownloadsPage() {
           </div>
 
           <div style={stepRowStyle}>
-            <span style={stepNumStyle}>4</span>
+            <span style={stepNumStyle}>5</span>
             <div style={stepTextStyle}>
               <strong>Auto-start on login (optional):</strong> create a desktop entry that runs the tracker on boot:
               <div style={tipStyle}>
@@ -416,7 +428,7 @@ export default function DownloadsPage() {
           </div>
 
           <div style={stepRowStyle}>
-            <span style={stepNumStyle}>5</span>
+            <span style={stepNumStyle}>6</span>
             <div style={stepTextStyle}>
               <strong>After launch, the rest is the same as Windows:</strong> login window appears → "Login with Ailancers" → pick project → done. View your stats at <strong>https://apivscode.ailancers.com/dashboard/me</strong>.
             </div>
