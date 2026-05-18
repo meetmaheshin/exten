@@ -22,6 +22,11 @@ export const screenshots = pgTable(
     metadata: jsonb("metadata").default({}),
     capturedAt: timestamp("captured_at", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    // Soft-delete columns. Live rows have deleted_at IS NULL; payroll queries
+    // MUST filter on this. Kept (not hard-deleted) so HR has an audit trail.
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    deletedBy: uuid("deleted_by").references(() => users.id, { onDelete: "set null" }),
+    deletedReason: varchar("deleted_reason", { length: 500 }),
   },
   (table) => [
     index("idx_screenshots_user").on(table.userId),

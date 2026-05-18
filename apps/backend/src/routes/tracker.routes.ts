@@ -95,13 +95,18 @@ export function trackerRoutes(
     }
 
     const [record] = await db
-      .select({ imageData: screenshots.imageData })
+      .select({ imageData: screenshots.imageData, deletedAt: screenshots.deletedAt })
       .from(screenshots)
       .where(eq(screenshots.id, id))
       .limit(1);
 
     if (!record || !record.imageData) {
       return reply.status(404).send({ error: "Screenshot not found" });
+    }
+    // Soft-deleted: 410 Gone so the chat-ui hourly dashboard shows broken
+    // image instead of leaking content that was removed for payroll reasons.
+    if (record.deletedAt) {
+      return reply.status(410).send({ error: "Screenshot deleted" });
     }
 
     return reply

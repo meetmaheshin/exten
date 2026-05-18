@@ -1,11 +1,17 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { eq, and, gte, lte, desc, sql, asc } from "drizzle-orm";
+import { eq, and, gte, lte, desc, sql, asc, isNull } from "drizzle-orm";
 import { requireAuth, requireAdmin, requireManager } from "../middleware/requireAuth.js";
 import type { AuthService } from "../services/AuthService.js";
 import type { Database } from "../config/database.js";
 import { activitySessions, users, aiUsageDaily, screenshots, holidays, leaveDays, employeeDirectory } from "../models/index.js";
 import { inArray } from "drizzle-orm";
+
+// Payroll source of truth: each live (non-deleted) screenshot is worth this
+// many seconds of billable time. Mirrors the capture interval that
+// ScreenCaptureService runs at on the client. Changing this changes how much
+// pay a single screenshot represents — coordinate with HR before touching it.
+const BILLABLE_SECONDS_PER_SCREENSHOT = 300;
 
 /**
  * Return the lowercased emails of every employee in the directory. When the
@@ -92,7 +98,22 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
       .from(activitySessions)
       .where(and(...conditions));
 
-    return reply.send({ data: summary });
+    // billable_seconds — the payroll number. Defined as count(live screenshots
+    // in range) * 300. Deleting a screenshot subtracts 5 min automatically;
+    // missing screenshots (network/lock/capture failure) automatically yield
+    // less pay. active_seconds is kept above for diagnostics only — DO NOT
+    // use it for payroll.
+    const ssConditions = [eq(screenshots.userId, request.user.sub), isNull(screenshots.deletedAt)];
+    if (query.from) ssConditions.push(gte(screenshots.capturedAt, new Date(query.from)));
+    if (query.to) ssConditions.push(lte(screenshots.capturedAt, new Date(query.to)));
+    const [{ ssCount }] = await db
+      .select({ ssCount: sql<number>`count(*)::int` })
+      .from(screenshots)
+      .where(and(...ssConditions));
+
+    return reply.send({
+      data: { ...summary, billableSeconds: ssCount * BILLABLE_SECONDS_PER_SCREENSHOT },
+    });
   });
 
   // Get my daily activity breakdown
@@ -118,7 +139,30 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
       .orderBy(asc(sql`date(${activitySessions.startedAt})`))
       .limit(query.limit);
 
-    return reply.send({ data: daily });
+    // billable_seconds per day — count(live screenshots) * 300 grouped by
+    // captured_at::date. Joined into the daily array below.
+    const ssConditions = [eq(screenshots.userId, request.user.sub), isNull(screenshots.deletedAt)];
+    if (query.from) ssConditions.push(gte(screenshots.capturedAt, new Date(query.from)));
+    if (query.to) ssConditions.push(lte(screenshots.capturedAt, new Date(query.to)));
+    const billableRows = await db
+      .select({
+        date: sql<string>`date(${screenshots.capturedAt})`,
+        ssCount: sql<number>`count(*)::int`,
+      })
+      .from(screenshots)
+      .where(and(...ssConditions))
+      .groupBy(sql`date(${screenshots.capturedAt})`);
+    const billableByDate = new Map<string, number>();
+    for (const r of billableRows) {
+      billableByDate.set(r.date, r.ssCount * BILLABLE_SECONDS_PER_SCREENSHOT);
+    }
+
+    const dailyWithBillable = daily.map((d) => ({
+      ...d,
+      billableSeconds: billableByDate.get(d.date) ?? 0,
+    }));
+
+    return reply.send({ data: dailyWithBillable });
   });
 
   // ─── Admin: Team-wide activity ───
@@ -572,17 +616,19 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
       sql`, `,
     );
 
-    // LEAST(active_seconds, 86400) caps any single session to 24h before
-    // summing. Historical rows from before the heartbeat clamp shipped (v0.2.17)
-    // can have active_seconds > 86400, which makes Team Snapshot show 60h+ days.
-    // The wall-clock clamp in /api/telemetry/session/heartbeat stops new rows
-    // from going bad; this LEAST() stops old bad rows from poisoning reports.
-    // A proper backfill of the data is still TODO — see DATA_BACKFILL_NOTES.md.
-    const agg = await db.execute<AggRow>(sql`
+    // PAYROLL: Team Snapshot's "activeSeconds" displayed in each cell is the
+    // BILLABLE number — count(live screenshots in that day) * 300 — NOT the
+    // raw active_seconds from activity_sessions. This is what HR pays from.
+    //
+    // We still pull activity_sessions for autoCount/manualCount per day
+    // (used to mark "all-manual" rows in the grid), but the seconds value
+    // shown to the user comes purely from screenshot count. Deleting a
+    // screenshot subtracts 5 min automatically next time the page loads;
+    // missing screenshots automatically reduce pay with no extra logic.
+    const sessAgg = await db.execute<{ userId: string; day: string; autoCount: number; manualCount: number }>(sql`
       SELECT
         s.user_id::text AS "userId",
         to_char(s.started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS "day",
-        COALESCE(SUM(LEAST(s.active_seconds, 86400)), 0)::int AS "activeSeconds",
         COUNT(*) FILTER (WHERE s.editor_version IS DISTINCT FROM 'manual-entry')::int AS "autoCount",
         COUNT(*) FILTER (WHERE s.editor_version = 'manual-entry')::int AS "manualCount"
       FROM activity_sessions s
@@ -592,18 +638,60 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
       GROUP BY s.user_id, day
     `);
 
-    // Index aggregate rows by userId then day
+    const ssAgg = await db.execute<{ userId: string; day: string; ssCount: number }>(sql`
+      SELECT
+        ss.user_id::text AS "userId",
+        to_char(ss.captured_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS "day",
+        COUNT(*)::int AS "ssCount"
+      FROM screenshots ss
+      WHERE ss.user_id IN (${userIdList})
+        AND ss.deleted_at IS NULL
+        AND ss.captured_at >= ${fromTs}::timestamptz
+        AND ss.captured_at <= ${toTs}::timestamptz
+      GROUP BY ss.user_id, day
+    `);
+
+    // Merge the two aggregates by (userId, day). The cell value in the grid
+    // (activeSeconds field, kept for response-shape compatibility) is
+    // ssCount * 300 = billable seconds. autoCount/manualCount survive from
+    // the sessions query to support the all-manual flag below.
     const byUser = new Map<string, Map<string, AggRow>>();
     const userTotals = new Map<string, { active: number; auto: number; manual: number }>();
-    for (const row of agg as unknown as AggRow[]) {
-      let perDay = byUser.get(row.userId);
-      if (!perDay) { perDay = new Map(); byUser.set(row.userId, perDay); }
-      perDay.set(row.day, row);
-      const totals = userTotals.get(row.userId) || { active: 0, auto: 0, manual: 0 };
-      totals.active += row.activeSeconds;
-      totals.auto += row.autoCount;
-      totals.manual += row.manualCount;
-      userTotals.set(row.userId, totals);
+
+    const upsert = (userId: string, day: string): AggRow => {
+      let perDay = byUser.get(userId);
+      if (!perDay) { perDay = new Map(); byUser.set(userId, perDay); }
+      let row = perDay.get(day);
+      if (!row) {
+        row = { userId, day, activeSeconds: 0, autoCount: 0, manualCount: 0 };
+        perDay.set(day, row);
+      }
+      return row;
+    };
+
+    for (const r of sessAgg as unknown as Array<{ userId: string; day: string; autoCount: number; manualCount: number }>) {
+      const row = upsert(r.userId, r.day);
+      row.autoCount = r.autoCount;
+      row.manualCount = r.manualCount;
+    }
+    for (const r of ssAgg as unknown as Array<{ userId: string; day: string; ssCount: number }>) {
+      const row = upsert(r.userId, r.day);
+      // Cap at 24h per day per user just in case the screenshot count is
+      // wildly off (e.g. someone uploaded a backlog of 1000 shots). Real
+      // legit days won't hit this — a user can only physically take 288
+      // shots in a 24h day at the 5min cadence (≈ 86400s).
+      row.activeSeconds = Math.min(r.ssCount * BILLABLE_SECONDS_PER_SCREENSHOT, 86400);
+    }
+
+    // Compute per-user totals from the merged rows
+    for (const [userId, perDay] of byUser.entries()) {
+      const totals = { active: 0, auto: 0, manual: 0 };
+      for (const row of perDay.values()) {
+        totals.active += row.activeSeconds;
+        totals.auto += row.autoCount;
+        totals.manual += row.manualCount;
+      }
+      userTotals.set(userId, totals);
     }
 
     // Bucket users into manager groups. Manager identity = users.team value.

@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { eq, desc, and, gte, lte, inArray, sql } from "drizzle-orm";
+import { eq, desc, and, gte, lte, inArray, sql, isNull } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../middleware/requireAuth.js";
 import type { AuthService } from "../services/AuthService.js";
 import type { Database } from "../config/database.js";
@@ -98,7 +98,10 @@ export function screenshotRoutes(
   app.get("/api/telemetry/screenshots/me", { preHandler: auth }, async (request, reply) => {
     const query = querySchema.parse(request.query);
 
-    const conditions = [eq(screenshots.userId, request.user.sub)];
+    // isNull(deletedAt) — hide soft-deleted shots from user-facing listings.
+    // Payroll-impacting reads must do the same; deleted rows are kept only for
+    // audit trail, not for display.
+    const conditions = [eq(screenshots.userId, request.user.sub), isNull(screenshots.deletedAt)];
     if (query.from) conditions.push(gte(screenshots.capturedAt, new Date(query.from)));
     if (query.to) conditions.push(lte(screenshots.capturedAt, new Date(query.to)));
     if (query.sessionId) conditions.push(eq(screenshots.sessionId, query.sessionId));
@@ -130,13 +133,16 @@ export function screenshotRoutes(
   app.get("/api/admin/screenshots", { preHandler: admin }, async (request, reply) => {
     const query = querySchema.parse(request.query);
 
-    const conditions = [];
+    // Admins also see only live screenshots by default. If we ever want a
+    // dedicated "audit deleted" view we can add ?includeDeleted=true; for now
+    // every payroll-impacting read filters identically.
+    const conditions = [isNull(screenshots.deletedAt)];
     if (query.userId) conditions.push(eq(screenshots.userId, query.userId));
     if (query.from) conditions.push(gte(screenshots.capturedAt, new Date(query.from)));
     if (query.to) conditions.push(lte(screenshots.capturedAt, new Date(query.to)));
     if (query.sessionId) conditions.push(eq(screenshots.sessionId, query.sessionId));
 
-    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+    const whereClause = and(...conditions);
 
     const results = await db
       .select({
@@ -176,6 +182,7 @@ export function screenshotRoutes(
         userId: screenshots.userId,
         imageData: screenshots.imageData,
         storagePath: screenshots.storagePath,
+        deletedAt: screenshots.deletedAt,
       })
       .from(screenshots)
       .where(eq(screenshots.id, id))
@@ -183,6 +190,12 @@ export function screenshotRoutes(
 
     if (!record) {
       return reply.status(404).send({ error: "Screenshot not found" });
+    }
+    // Soft-deleted: return 410 Gone so callers can distinguish from
+    // never-existed (404). Cached <img> tags in old dashboards will see
+    // a clean broken-image instead of mistakenly displaying the photo.
+    if (record.deletedAt) {
+      return reply.status(410).send({ error: "Screenshot deleted" });
     }
 
     // Non-admin users can only view their own screenshots. Both `admin`
@@ -205,49 +218,42 @@ export function screenshotRoutes(
     return reply.status(404).send({ error: "Screenshot image not found" });
   });
 
-  // Helper: deduct screenshot interval time from the associated session
-  const SCREENSHOT_INTERVAL_SECONDS = 300; // 5 minutes
-  async function deductTimeForScreenshot(screenshotId: string): Promise<void> {
-    try {
-      const [ss] = await db
-        .select({ sessionId: screenshots.sessionId })
-        .from(screenshots)
-        .where(eq(screenshots.id, screenshotId))
-        .limit(1);
+  // ─── Soft-delete ────────────────────────────────────────────────────────
+  // We no longer hard-delete or call deductTimeForScreenshot. Payroll reads
+  // billable seconds as `count(live screenshots) * 300`, so removing a row
+  // (by setting deletedAt) automatically subtracts 5 min from that user's
+  // hours. The old `active_seconds` math has been retired — see migration
+  // 0011_screenshots_soft_delete.sql.
+  const SCREENSHOT_INTERVAL_SECONDS = 300; // 5 minutes — kept for the response payload only
 
-      if (ss?.sessionId) {
-        await db.execute(
-          sql`UPDATE activity_sessions
-              SET active_seconds = GREATEST(active_seconds - ${SCREENSHOT_INTERVAL_SECONDS}, 0)
-              WHERE id = ${ss.sessionId}`
-        );
-        console.log(`[Screenshots] Deducted ${SCREENSHOT_INTERVAL_SECONDS}s from session ${ss.sessionId}`);
-      }
-    } catch (err) {
-      console.error("[Screenshots] Failed to deduct time:", err);
-    }
-  }
-
-  // User: delete own screenshot (deducts time from session)
+  // User: soft-delete own screenshot.
+  // Effect on payroll: removes 5 min from the user's billable hours.
+  // Audit: deleted_at + deleted_by are set so HR can trace it back.
   app.delete("/api/telemetry/screenshots/:id", { preHandler: auth }, async (request, reply) => {
     try {
       const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+      const body = (request.body as { reason?: string } | undefined) ?? {};
 
-      // Verify ownership
       const [ss] = await db
-        .select({ userId: screenshots.userId })
+        .select({ userId: screenshots.userId, deletedAt: screenshots.deletedAt })
         .from(screenshots)
         .where(eq(screenshots.id, id))
         .limit(1);
 
       if (!ss) return reply.status(404).send({ error: "Screenshot not found" });
       if (ss.userId !== request.user.sub) return reply.status(403).send({ error: "Not your screenshot" });
+      // Idempotent: deleting an already-deleted row succeeds without double-counting.
+      if (ss.deletedAt) return reply.send({ ok: true, alreadyDeleted: true });
 
-      // Deduct time from session
-      await deductTimeForScreenshot(id);
+      await db
+        .update(screenshots)
+        .set({
+          deletedAt: new Date(),
+          deletedBy: request.user.sub,
+          deletedReason: body.reason ?? null,
+        })
+        .where(eq(screenshots.id, id));
 
-      // Delete
-      await db.delete(screenshots).where(eq(screenshots.id, id));
       return reply.send({ ok: true, timeDeducted: SCREENSHOT_INTERVAL_SECONDS });
     } catch (err) {
       console.error("[Screenshots] User delete failed:", err);
@@ -255,12 +261,26 @@ export function screenshotRoutes(
     }
   });
 
-  // Admin: delete a single screenshot (also deducts time)
+  // Admin: soft-delete a single screenshot.
   app.delete("/api/admin/screenshots/:id", { preHandler: admin }, async (request, reply) => {
     try {
       const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
-      await deductTimeForScreenshot(id);
-      await db.delete(screenshots).where(eq(screenshots.id, id));
+      const body = (request.body as { reason?: string } | undefined) ?? {};
+      const [ss] = await db
+        .select({ deletedAt: screenshots.deletedAt })
+        .from(screenshots)
+        .where(eq(screenshots.id, id))
+        .limit(1);
+      if (!ss) return reply.status(404).send({ error: "Screenshot not found" });
+      if (ss.deletedAt) return reply.send({ ok: true, alreadyDeleted: true });
+      await db
+        .update(screenshots)
+        .set({
+          deletedAt: new Date(),
+          deletedBy: request.user.sub,
+          deletedReason: body.reason ?? null,
+        })
+        .where(eq(screenshots.id, id));
       return reply.send({ ok: true, timeDeducted: SCREENSHOT_INTERVAL_SECONDS });
     } catch (err) {
       console.error("[Screenshots] Delete failed:", err);
@@ -268,26 +288,51 @@ export function screenshotRoutes(
     }
   });
 
-  // Admin: bulk delete screenshots
+  // Admin: bulk soft-delete screenshots.
   app.post("/api/admin/screenshots/bulk-delete", { preHandler: admin }, async (request, reply) => {
     try {
       const body = z.object({
         ids: z.array(z.string().uuid()).min(1).max(500),
+        reason: z.string().max(500).optional(),
       }).parse(request.body);
-      await db.delete(screenshots).where(inArray(screenshots.id, body.ids));
-      return reply.send({ ok: true });
+      await db
+        .update(screenshots)
+        .set({
+          deletedAt: new Date(),
+          deletedBy: request.user.sub,
+          deletedReason: body.reason ?? null,
+        })
+        .where(and(inArray(screenshots.id, body.ids), isNull(screenshots.deletedAt)));
+      return reply.send({ ok: true, deleted: body.ids.length });
     } catch (err) {
       console.error("[Screenshots] Bulk delete failed:", err);
       return reply.status(500).send({ error: "Bulk delete failed", message: String(err) });
     }
   });
 
-  // Admin: delete all screenshots for a user
+  // Admin: soft-delete all screenshots for a user.
+  // High-blast-radius operation — requires explicit confirmation in the
+  // request body so a stray DELETE can't wipe someone's whole month.
   app.delete("/api/admin/screenshots/user/:userId", { preHandler: admin }, async (request, reply) => {
     try {
       const { userId } = z.object({ userId: z.string().uuid() }).parse(request.params);
-      await db.delete(screenshots).where(eq(screenshots.userId, userId));
-      return reply.send({ ok: true });
+      const body = (request.body as { reason?: string; confirmAll?: boolean } | undefined) ?? {};
+      if (!body.confirmAll) {
+        return reply.status(400).send({
+          error: "Confirmation required",
+          message: "Pass confirmAll:true in the body to soft-delete every screenshot for this user.",
+        });
+      }
+      const result = await db
+        .update(screenshots)
+        .set({
+          deletedAt: new Date(),
+          deletedBy: request.user.sub,
+          deletedReason: body.reason ?? "Admin bulk delete (all for user)",
+        })
+        .where(and(eq(screenshots.userId, userId), isNull(screenshots.deletedAt)))
+        .returning({ id: screenshots.id });
+      return reply.send({ ok: true, deleted: result.length });
     } catch (err) {
       console.error("[Screenshots] User delete failed:", err);
       return reply.status(500).send({ error: "Delete failed", message: String(err) });
