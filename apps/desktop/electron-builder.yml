@@ -1,15 +1,15 @@
 appId: com.ailancers.desktop-tracker
-productName: Ailancers Tracker
-# productFilename controls the install directory + binary filename, separate
-# from the human-readable productName above. We need this to be space-free
-# because Chromium's zygote / sandbox machinery splits on whitespace and
-# truncates paths at the first space — leading to:
+# productName drives BOTH the install directory and the display name.
+# Spaces in productName break Chromium's zygote on Linux because the
+# launcher passes the chrome-sandbox path through argv and gets truncated
+# at the first whitespace, producing:
 #   "LaunchProcess: failed to execvp: /opt/Ailancers"
 #   "FATAL:zygote_host_impl_linux.cc(201) Check failed"
-# on every launch. With this set, the .deb installs to /opt/ailancers-tracker/
-# instead of /opt/Ailancers Tracker/ — but window titles, menus, and the
-# .desktop entry's Name= still show "Ailancers Tracker" from productName.
-productFilename: ailancers-tracker
+# Hyphen instead of space — matches what Slack, Visual-Studio-Code,
+# and similar Electron apps ship on Linux. The display name "Ailancers
+# Tracker" still appears in window titles and menus because we override
+# it with linux.desktop.Name below.
+productName: Ailancers-Tracker
 directories:
   output: out
   buildResources: resources
@@ -48,6 +48,9 @@ linux:
   executableName: ailancers-tracker
   maintainer: Ailancers <support@ailancers.com>
   desktop:
+    # Override the .desktop entry so the menu shows the friendly name
+    # despite productName being hyphenated for sandbox-compat reasons.
+    Name: Ailancers Tracker
     StartupNotify: "true"
     Encoding: "UTF-8"
 deb:
