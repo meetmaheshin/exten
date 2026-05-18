@@ -147,9 +147,38 @@ export class ScreenCaptureService implements vscode.Disposable {
       if (this.activityTracker?.isIdle) {
         return null;
       }
+      // Don't capture the lock screen. Screenshots of LogonUI / Mac lock
+      // sheet / Linux screensaver are useless for productivity tracking
+      // and feel creepy to users who left their laptop on the desk.
+      if (this.activityTracker?.isScreenLocked) {
+        return null;
+      }
 
       const filePath = await this.takeScreenshot();
       if (!filePath) return null;
+
+      // Drop blank / mostly-solid-color captures (sleep-wake artifact, lock
+      // screen leak, broken display driver, screen-off-but-process-alive).
+      // PNG's DEFLATE compresses solid colors to almost nothing — a
+      // legitimate screenshot of a typical 1080p desktop is 200KB-2MB+,
+      // while a blank/black PNG of the same dimensions is usually under
+      // 20KB. The threshold below is conservative — real screenshots that
+      // happen to be very simple (full-screen black terminal) won't trip
+      // it. If they do, the user just loses 5 min of that interval, not
+      // catastrophic — and the screenshot we kept would have been useless
+      // for HR review anyway.
+      const BLANK_SIZE_THRESHOLD = 20 * 1024;
+      try {
+        const stat = await fs.promises.stat(filePath);
+        if (stat.size < BLANK_SIZE_THRESHOLD) {
+          // Don't upload, don't count this interval. Delete the local file
+          // so it doesn't bloat the screenshots directory.
+          await fs.promises.unlink(filePath).catch(() => {});
+          return null;
+        }
+      } catch {
+        // Can't stat → trust the takeScreenshot path which already validated existence
+      }
 
       const capturedAt = new Date().toISOString();
       const metadata = {

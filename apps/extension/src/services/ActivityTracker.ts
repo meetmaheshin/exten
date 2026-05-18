@@ -35,6 +35,11 @@ export class ActivityTracker {
     return this._isIdle;
   }
 
+  /** True when the screen is locked (LogonUI / Mac lock / Linux screensaver) */
+  get isScreenLocked(): boolean {
+    return this.systemIdleService?.isScreenLocked ?? false;
+  }
+
   /** Current foreground app name */
   get activeAppName(): string {
     return this.systemIdleService?.activeWindow.appName ?? "unknown";
@@ -54,6 +59,10 @@ export class ActivityTracker {
     // than dumping the whole gap into activeSeconds. Without this, an 8h sleep
     // shows up as 8h of "active" work the moment the laptop wakes.
     if (rawElapsed > 5) return;
+    // Drop ticks while the screen is locked — locked time isn't work time,
+    // and OS-idle detection can't see this on its own (waking the lock
+    // counts as "input" so idle resets to 0 even though the user is gone).
+    if (this.systemIdleService?.isScreenLocked) return;
     const elapsed = rawElapsed;
 
     const idleTimeoutSec = config.get<number>("idleTimeoutSeconds", 600); // default 10 min

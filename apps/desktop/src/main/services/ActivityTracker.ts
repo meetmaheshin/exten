@@ -37,6 +37,11 @@ export class ActivityTracker {
     return this._isIdle;
   }
 
+  /** True when the screen is locked. Updated every 5s via SystemIdleService. */
+  get isScreenLocked(): boolean {
+    return this.idleService.isScreenLocked;
+  }
+
   /** Harvest metrics and reset counters. Called by TelemetryService before each flush. */
   harvestMetrics(): DesktopActivitySnapshot {
     const snapshot: DesktopActivitySnapshot = {
@@ -65,6 +70,9 @@ export class ActivityTracker {
     // catches it server-side, but the tray UI would still flash bad numbers
     // until the next heartbeat.
     if (rawElapsed > 5) return;
+    // Drop ticks while the screen is locked — locked time isn't work time.
+    // OS-idle can't see this; unlocking counts as input so idle resets to 0.
+    if (this.idleService.isScreenLocked) return;
     const elapsed = rawElapsed;
 
     const idleThreshold = this.configStore.get("idleTimeoutSeconds");

@@ -13,6 +13,7 @@ export class SystemIdleService {
   private pollInterval: ReturnType<typeof setInterval> | null = null;
   private _osIdleSeconds = 0;
   private _activeWindow: ActiveWindowInfo = { appName: "unknown", title: "" };
+  private _isScreenLocked = false;
   private appUsage = new Map<string, number>(); // appName → seconds
   private lastPollTime = Date.now();
 
@@ -39,6 +40,21 @@ export class SystemIdleService {
     return this._activeWindow;
   }
 
+  /**
+   * True when the OS reports the screen is locked (Windows lock screen,
+   * Mac screen lock, Linux screensaver active). Updated on each 5-second
+   * poll, so this can lag the actual lock event by up to 5s — fine for the
+   * "don't take a screenshot of the lock screen" use case but don't rely
+   * on it for instantaneous decisions.
+   *
+   * Conservative on platforms where detection isn't implemented: returns
+   * `false` (assume unlocked) so we don't accidentally stop counting
+   * legitimate work on unsupported platforms.
+   */
+  get isScreenLocked(): boolean {
+    return this._isScreenLocked;
+  }
+
   /** Harvest app usage map and reset. Returns { appName: seconds } */
   harvestAppUsage(): Record<string, number> {
     const result = Object.fromEntries(this.appUsage);
@@ -52,22 +68,82 @@ export class SystemIdleService {
     this.lastPollTime = now;
 
     try {
-      const [idleMs, windowInfo] = await Promise.all([
+      const [idleMs, windowInfo, locked] = await Promise.all([
         this.getOsIdleTime(),
         this.getActiveWindow(),
+        this.getIsScreenLocked(),
       ]);
 
       this._osIdleSeconds = Math.round(idleMs / 1000);
+      this._isScreenLocked = locked;
       if (windowInfo) {
         this._activeWindow = windowInfo;
-        // Accumulate app usage only when not idle (< 60s OS idle)
-        if (this._osIdleSeconds < 60) {
+        // Accumulate app usage only when not idle (< 60s OS idle) AND not
+        // locked (no point bucketing seconds to LogonUI / lock-screen apps).
+        if (this._osIdleSeconds < 60 && !locked) {
           const prev = this.appUsage.get(windowInfo.appName) || 0;
           this.appUsage.set(windowInfo.appName, prev + elapsedSec);
         }
       }
     } catch {
       // Non-critical — silently ignore
+    }
+  }
+
+  /**
+   * Detect screen-locked state. Conservative on platforms where detection
+   * isn't reliable — returns false (assume unlocked) rather than
+   * accidentally pausing tracking on a working machine.
+   *
+   * Windows: LogonUI.exe is the foreground process when the lock screen
+   * is showing. Fast — just one Get-Process call, no API gymnastics.
+   *
+   * Mac: ioreg's IOConsoleUsers entry has a "CGSSessionScreenIsLocked"
+   * key when the screen is locked. Already use ioreg for idle time so
+   * the binary is hot in the cache.
+   *
+   * Linux: relies on the GNOME / freedesktop ScreenSaver D-Bus interface.
+   * Many desktop environments (KDE, XFCE) implement this too. If the
+   * call fails (no D-Bus, headless, weird WM), fall through to false.
+   */
+  private async getIsScreenLocked(): Promise<boolean> {
+    const platform = os.platform();
+    try {
+      if (platform === "win32") {
+        // Get-Process is cheap; LogonUI only exists when the secure desktop
+        // is showing (lock screen, UAC prompt, Ctrl-Alt-Del). UAC prompts are
+        // brief — false positives last a few seconds at most.
+        const { stdout } = await execFileAsync(
+          "powershell.exe",
+          ["-NoProfile", "-NonInteractive", "-Command",
+            "if (Get-Process LogonUI -ErrorAction SilentlyContinue) { 'locked' } else { 'unlocked' }"],
+          { timeout: 5000 },
+        );
+        return stdout.trim() === "locked";
+      } else if (platform === "darwin") {
+        const { stdout } = await execFileAsync(
+          "ioreg",
+          ["-n", "Root", "-d1", "-a"],
+          { timeout: 5000 },
+        );
+        // The plist contains "CGSSessionScreenIsLocked" = 1 when locked.
+        // Cheap substring check is good enough — full plist parsing is overkill.
+        return /CGSSessionScreenIsLocked[^<]*<true|CGSSessionScreenIsLocked["']?\s*=\s*1/.test(stdout);
+      } else {
+        // Linux — query gnome-screensaver / freedesktop ScreenSaver via dbus.
+        // Returns "true" / "false" string on success. Fails silently on
+        // headless or non-Gnome/KDE environments.
+        const { stdout } = await execFileAsync(
+          "dbus-send",
+          ["--session", "--print-reply", "--dest=org.gnome.ScreenSaver",
+           "/org/gnome/ScreenSaver", "org.gnome.ScreenSaver.GetActive"],
+          { timeout: 5000 },
+        );
+        return /boolean\s+true/.test(stdout);
+      }
+    } catch {
+      // Detection failure → conservative default (don't pause tracking)
+      return false;
     }
   }
 

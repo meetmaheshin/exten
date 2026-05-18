@@ -33,6 +33,8 @@ export class ScreenCaptureService {
   private async capture(): Promise<void> {
     if (!this.configStore.get("screenCaptureEnabled")) return;
     if (this.activityTracker.isIdle) return;
+    // Don't capture the lock screen — useless for HR review and creepy.
+    if (this.activityTracker.isScreenLocked) return;
 
     const sessionId = this.telemetryService.sessionId;
     if (!sessionId) return;
@@ -51,6 +53,17 @@ export class ScreenCaptureService {
       const primaryScreen = sources[0];
       const image = primaryScreen.thumbnail;
       const pngBuffer = image.toPNG();
+
+      // Blank-image filter: PNG's DEFLATE compresses solid colors to almost
+      // nothing. A legitimate 1080p screenshot is 200KB-2MB+; a blank/black
+      // PNG is usually under 20KB. Drop tiny captures — payroll won't credit
+      // the interval and the user isn't owed pay for an empty screen.
+      const BLANK_SIZE_THRESHOLD = 20 * 1024;
+      if (pngBuffer.length < BLANK_SIZE_THRESHOLD) {
+        log.warn(`[ScreenCapture] Dropping suspected blank capture (${pngBuffer.length} bytes)`);
+        return;
+      }
+
       const imageBase64 = pngBuffer.toString("base64");
       const filename = `desktop-${Date.now()}.png`;
 

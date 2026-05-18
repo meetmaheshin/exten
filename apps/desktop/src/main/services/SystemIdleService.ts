@@ -13,6 +13,7 @@ export class SystemIdleService {
   private pollInterval: ReturnType<typeof setInterval> | null = null;
   private _osIdleSeconds = 0;
   private _activeWindow: ActiveWindowInfo = { appName: "unknown", title: "" };
+  private _isScreenLocked = false;
   private appUsage = new Map<string, number>();
   private lastPollTime = Date.now();
   private useElectronIdle: (() => number) | null = null;
@@ -47,6 +48,13 @@ export class SystemIdleService {
     return this._activeWindow;
   }
 
+  /** True when the OS reports the screen is locked. See extension's
+   *  SystemIdleService.isScreenLocked for design notes — this is the
+   *  desktop-tracker mirror of the same logic. */
+  get isScreenLocked(): boolean {
+    return this._isScreenLocked;
+  }
+
   harvestAppUsage(): Record<string, number> {
     const result = Object.fromEntries(this.appUsage);
     this.appUsage.clear();
@@ -65,17 +73,54 @@ export class SystemIdleService {
         : Math.round((await this.getOsIdleTime()) / 1000);
 
       this._osIdleSeconds = idleSeconds;
+      this._isScreenLocked = await this.getIsScreenLocked();
 
       const windowInfo = await this.getActiveWindow();
       if (windowInfo) {
         this._activeWindow = windowInfo;
-        if (this._osIdleSeconds < 60) {
+        // App-usage attribution suspended while locked: locked time isn't
+        // work time, so we don't bucket seconds to LogonUI / the lock app.
+        if (this._osIdleSeconds < 60 && !this._isScreenLocked) {
           const prev = this.appUsage.get(windowInfo.appName) || 0;
           this.appUsage.set(windowInfo.appName, prev + elapsedSec);
         }
       }
     } catch {
       // Non-critical
+    }
+  }
+
+  /** See extension's SystemIdleService.getIsScreenLocked for design notes.
+   *  Same detection logic across both apps. */
+  private async getIsScreenLocked(): Promise<boolean> {
+    const platform = os.platform();
+    try {
+      if (platform === "win32") {
+        const { stdout } = await execFileAsync(
+          "powershell.exe",
+          ["-NoProfile", "-NonInteractive", "-Command",
+            "if (Get-Process LogonUI -ErrorAction SilentlyContinue) { 'locked' } else { 'unlocked' }"],
+          { timeout: 5000 },
+        );
+        return stdout.trim() === "locked";
+      } else if (platform === "darwin") {
+        const { stdout } = await execFileAsync(
+          "ioreg",
+          ["-n", "Root", "-d1", "-a"],
+          { timeout: 5000 },
+        );
+        return /CGSSessionScreenIsLocked[^<]*<true|CGSSessionScreenIsLocked["']?\s*=\s*1/.test(stdout);
+      } else {
+        const { stdout } = await execFileAsync(
+          "dbus-send",
+          ["--session", "--print-reply", "--dest=org.gnome.ScreenSaver",
+           "/org/gnome/ScreenSaver", "org.gnome.ScreenSaver.GetActive"],
+          { timeout: 5000 },
+        );
+        return /boolean\s+true/.test(stdout);
+      }
+    } catch {
+      return false;
     }
   }
 
