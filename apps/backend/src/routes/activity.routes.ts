@@ -813,9 +813,30 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
 
     // Bucket users into manager groups. Manager identity = users.team value.
     // Anyone whose team is null/empty goes into "Unassigned".
+    //
+    // Special case (Cattr parity): if a user is THEMSELVES a manager — i.e.
+    // someone else's team field matches their fullName — they get placed at
+    // the top of their own team's bucket instead of falling through to
+    // "Unassigned". This lets a manager who also tracks time see their own
+    // hours alongside their reports.
+    const managerNames = new Set(
+      visibleUsers
+        .map((u) => (u.team || "").trim())
+        .filter((t) => t.length > 0)
+    );
     const groupBuckets = new Map<string, typeof visibleUsers>();
     for (const u of visibleUsers) {
-      const key = u.team && u.team.trim() !== "" ? u.team : "Unassigned";
+      const team = (u.team || "").trim();
+      let key: string;
+      if (team) {
+        key = team;
+      } else if (u.fullName && managerNames.has(u.fullName)) {
+        // User is referenced as a manager by at least one report → bucket
+        // them into their own team rather than "Unassigned".
+        key = u.fullName;
+      } else {
+        key = "Unassigned";
+      }
       // Admin-only filter: skip groups that don't match the requested manager
       if (isAdmin && query.managerName && key !== query.managerName) continue;
       const bucket = groupBuckets.get(key) || [];
@@ -868,18 +889,28 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
         // ATD denominator excludes this user's leave days (half = 0.5)
         const userWorkingDays = Math.max(0, workingDays - userLeaveDayUnits);
         const atdSeconds = userWorkingDays > 0 ? Math.round(totals.active / userWorkingDays) : 0;
+        // True when this employee's fullName matches their own group's
+        // managerName — i.e. the user is being shown inside their own team.
+        // Frontend uses this to render a "(Manager)" label next to the name.
+        const isOwnManager = u.fullName === managerName;
         return {
           userId: u.id,
           fullName: u.fullName,
           email: u.email,
           atdSeconds,
           isAllManual,
+          isOwnManager,
           employmentStatus: u.employmentStatus,
           perDate,
         };
       })
-      // ATD desc; tiebreak alphabetical so two 0-ATD reports come out stable
-      .sort((a, b) => (b.atdSeconds - a.atdSeconds) || (a.fullName ?? "").localeCompare(b.fullName ?? ""));
+      // Manager-themselves first (pinned to top of their own team).
+      // Then ATD desc; tiebreak alphabetical for stable 0-ATD ordering.
+      .sort((a, b) => {
+        if (a.isOwnManager && !b.isOwnManager) return -1;
+        if (!a.isOwnManager && b.isOwnManager) return 1;
+        return (b.atdSeconds - a.atdSeconds) || (a.fullName ?? "").localeCompare(b.fullName ?? "");
+      });
 
       // Group-level aggregates: average across employees per date
       // Only "active" employees count toward team aggregates / TB%. Resigned,

@@ -19,6 +19,9 @@ interface SnapshotEmployee {
   email: string;
   atdSeconds: number;
   isAllManual: boolean;
+  // True when this row is the manager-themselves shown inside their own
+  // team's bucket. Frontend tags the name with "(Manager)".
+  isOwnManager?: boolean;
   employmentStatus?: string;
   perDate: Record<string, DateCell>;
 }
@@ -119,7 +122,10 @@ export default function TeamSnapshotPage() {
   const { accessToken, isManager, isAdmin } = useAuth();
   const [data, setData] = useState<SnapshotResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [rangeMode, setRangeMode] = useState<RangeMode>("rolling");
+  // Default range = current month-to-date (Cattr parity). Was rolling 14d;
+  // month-to-date is what most managers ask for at the start of each month.
+  // Users can still switch to a rolling N-day view via the toggle.
+  const [rangeMode, setRangeMode] = useState<RangeMode>("month");
   const [days, setDays] = useState(14);
   // Summary modal — opens from the page-header button. Manager-gated; devs
   // don't need an aggregate report about themselves.
@@ -132,6 +138,51 @@ export default function TeamSnapshotPage() {
     if (rangeMode === "month") return rangeForMonth(month);
     return { from: dateNDaysAgo(days), to: dateNDaysAgo(1) };
   }, [rangeMode, days, month]);
+
+  // CSV export of the visible grid — one row per employee, one column per
+  // date in the response, plus Manager / Name / Email / ATD as fixed columns.
+  // Cell values mirror what we render: HH:MM for data, label text for
+  // weekend/holiday/leave/no-data. Cattr only ships CSV for the Bandwidth
+  // modal; adding it here is a small win for HR doing manual exports.
+  function downloadCsv() {
+    if (!data) return;
+    const dateCols = data.dates;
+    const csvEscape = (s: string): string => /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    const header = ["Manager", "Name", "Email", "ATD", ...dateCols.map((d) => {
+      const date = new Date(`${d}T00:00:00Z`);
+      return date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+    })];
+    const lines = [header.map(csvEscape).join(",")];
+    for (const group of data.groups) {
+      for (const emp of group.employees) {
+        const cells = dateCols.map((d) => {
+          const cell = emp.perDate[d];
+          if (!cell) return "";
+          const wd = new Date(`${d}T00:00:00Z`).getUTCDay();
+          if (cell.kind === "weekend") return wd === 0 ? "Sun" : "Sat";
+          if (cell.kind === "holiday") return cell.activeSeconds > 0 ? fmtHHMM(cell.activeSeconds) : (cell.label ?? "Holiday");
+          if (cell.kind === "leave") return cell.activeSeconds > 0 ? fmtHHMM(cell.activeSeconds) : (cell.label ?? "Leave");
+          if (cell.kind === "no-data") return "Not Logged";
+          return fmtHHMM(cell.activeSeconds);
+        });
+        const nameLabel = emp.isOwnManager ? `${emp.fullName} (Manager)` : emp.fullName;
+        lines.push([
+          csvEscape(group.managerName),
+          csvEscape(nameLabel || emp.email),
+          csvEscape(emp.email),
+          fmtHHMM(emp.atdSeconds),
+          ...cells.map(csvEscape),
+        ].join(","));
+      }
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `team-snapshot-${range.from}-to-${range.to}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   useEffect(() => {
     if (!accessToken) return;
@@ -195,15 +246,29 @@ export default function TeamSnapshotPage() {
           <div className="page-title">Team Snapshot</div>
           <div className="page-subtitle">{subtitle}</div>
         </div>
-        {isManager && (
+        <div style={{ display: "flex", gap: 8 }}>
+          {/* Download CSV is available to everyone who can see the grid —
+              even a developer's single-row view can be useful as a personal
+              record. Disabled until the data loads. */}
           <button
-            className="btn btn-primary"
-            onClick={() => setSummaryOpen(true)}
+            className="btn btn-secondary"
+            onClick={downloadCsv}
+            disabled={!data || data.groups.length === 0}
             style={{ padding: "8px 16px", fontSize: 13 }}
+            title="Export the current grid as CSV"
           >
-            📊 Summary Report
+            📥 Download CSV
           </button>
-        )}
+          {isManager && (
+            <button
+              className="btn btn-primary"
+              onClick={() => setSummaryOpen(true)}
+              style={{ padding: "8px 16px", fontSize: 13 }}
+            >
+              📊 Summary Report
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Filter row */}
@@ -417,6 +482,20 @@ function ManagerBlock({ group, dates }: { group: SnapshotGroup; dates: string[] 
           <td style={tdStyle}>
             <div style={{ paddingLeft: 18 }}>
               <span style={{ fontWeight: 500 }}>{emp.fullName || emp.email}</span>
+              {emp.isOwnManager && (
+                <span
+                  title="This person is the manager of this team"
+                  style={{
+                    marginLeft: 6,
+                    fontSize: 10,
+                    fontWeight: 600,
+                    color: "#6366f1",
+                    letterSpacing: 0.3,
+                  }}
+                >
+                  (Manager)
+                </span>
+              )}
               {emp.isAllManual && (
                 <span
                   title="All sessions in this range were entered manually by an admin"
