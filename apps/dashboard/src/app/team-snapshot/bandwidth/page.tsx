@@ -43,10 +43,13 @@ function yesterdayISO(): string {
   return dateNDaysAgo(1);
 }
 
+// Matches Cattr's bandwidth report thresholds (strict 80/60). A team
+// averaging only 60% of the 8h × team × days expectation goes amber;
+// anything below 60% is red. Tighter than the old 50/30 thresholds.
 function pctColor(pct: number): string {
-  if (pct < 30) return "#ef5350";
-  if (pct < 50) return "#ff9800";
-  return "#4caf50";
+  if (pct >= 80) return "#4caf50";
+  if (pct >= 60) return "#ff9800";
+  return "#ef5350";
 }
 
 export default function BandwidthPage() {
@@ -102,7 +105,10 @@ export default function BandwidthPage() {
     if (!data) return;
     const header = ["Manager", "Team", "Working Days", "Expected Hours", "Actual Hours", "Occupied %", "Free %"];
     const lines = [header.join(",")];
-    for (const r of data.rows) {
+    // Sort to match the on-screen order (occupancy desc), so the CSV row
+    // ordering doesn't surprise the reader after the in-place sort above.
+    const sortedRows = [...data.rows].sort((a, b) => b.occupiedPct - a.occupiedPct);
+    for (const r of sortedRows) {
       lines.push([
         `"${r.managerName.replace(/"/g, '""')}"`,
         r.teamSize,
@@ -113,6 +119,23 @@ export default function BandwidthPage() {
         r.freePct,
       ].join(","));
     }
+    // Append a TOTAL row — sum team sizes / expected / actual across all
+    // managers in the period. Occupied% is recomputed from totals (NOT the
+    // mean of per-manager %, which would be wrong for unequal team sizes).
+    const totalTeam = sortedRows.reduce((s, r) => s + r.teamSize, 0);
+    const totalExpected = sortedRows.reduce((s, r) => s + r.expectedHours, 0);
+    const totalActual = Math.round(sortedRows.reduce((s, r) => s + r.actualHours, 0) * 10) / 10;
+    const totalOccupied = totalExpected > 0 ? Math.round((totalActual / totalExpected) * 1000) / 10 : 0;
+    const totalFree = Math.max(0, Math.round((100 - totalOccupied) * 10) / 10);
+    lines.push([
+      "TOTAL",
+      totalTeam,
+      sortedRows[0]?.workingDays ?? 0,
+      totalExpected,
+      totalActual,
+      totalOccupied,
+      totalFree,
+    ].join(","));
     const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -192,7 +215,9 @@ export default function BandwidthPage() {
                 </tr>
               </thead>
               <tbody>
-                {data.rows.map((r) => {
+                {/* Sort occupancy desc — fully-utilized teams at the top,
+                    under-utilized at the bottom. Matches Cattr. */}
+                {[...data.rows].sort((a, b) => b.occupiedPct - a.occupiedPct).map((r) => {
                   const barColor = pctColor(r.occupiedPct);
                   const width = Math.min(100, Math.max(0, r.occupiedPct));
                   return (
