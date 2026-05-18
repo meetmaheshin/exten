@@ -83,8 +83,8 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
     const [summary] = await db
       .select({
         totalSessions: sql<number>`count(*)::int`,
-        totalActiveSeconds: sql<number>`coalesce(sum(${activitySessions.activeSeconds}), 0)::int`,
-        totalIdleSeconds: sql<number>`coalesce(sum(${activitySessions.idleSeconds}), 0)::int`,
+        totalActiveSeconds: sql<number>`coalesce(sum(least(${activitySessions.activeSeconds}, 86400)), 0)::int`,
+        totalIdleSeconds: sql<number>`coalesce(sum(least(${activitySessions.idleSeconds}, 86400)), 0)::int`,
         totalKeystrokes: sql<number>`coalesce(sum(${activitySessions.totalKeystrokes}), 0)::int`,
         totalFileSaves: sql<number>`coalesce(sum(${activitySessions.totalFileSaves}), 0)::int`,
         totalFileChanges: sql<number>`coalesce(sum(${activitySessions.totalFileChanges}), 0)::int`,
@@ -106,8 +106,8 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
     const daily = await db
       .select({
         date: sql<string>`date(${activitySessions.startedAt})`,
-        totalActiveSeconds: sql<number>`coalesce(sum(${activitySessions.activeSeconds}), 0)::int`,
-        totalIdleSeconds: sql<number>`coalesce(sum(${activitySessions.idleSeconds}), 0)::int`,
+        totalActiveSeconds: sql<number>`coalesce(sum(least(${activitySessions.activeSeconds}, 86400)), 0)::int`,
+        totalIdleSeconds: sql<number>`coalesce(sum(least(${activitySessions.idleSeconds}, 86400)), 0)::int`,
         totalKeystrokes: sql<number>`coalesce(sum(${activitySessions.totalKeystrokes}), 0)::int`,
         totalFileSaves: sql<number>`coalesce(sum(${activitySessions.totalFileSaves}), 0)::int`,
         sessionCount: sql<number>`count(*)::int`,
@@ -139,8 +139,8 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
         email: users.email,
         fullName: users.fullName,
         team: users.team,
-        totalActiveSeconds: sql<number>`coalesce(sum(${activitySessions.activeSeconds}), 0)::int`,
-        totalIdleSeconds: sql<number>`coalesce(sum(${activitySessions.idleSeconds}), 0)::int`,
+        totalActiveSeconds: sql<number>`coalesce(sum(least(${activitySessions.activeSeconds}, 86400)), 0)::int`,
+        totalIdleSeconds: sql<number>`coalesce(sum(least(${activitySessions.idleSeconds}, 86400)), 0)::int`,
         totalKeystrokes: sql<number>`coalesce(sum(${activitySessions.totalKeystrokes}), 0)::int`,
         totalFileSaves: sql<number>`coalesce(sum(${activitySessions.totalFileSaves}), 0)::int`,
         sessionCount: sql<number>`count(*)::int`,
@@ -150,7 +150,7 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
       .innerJoin(users, eq(activitySessions.userId, users.id))
       .where(whereClause)
       .groupBy(activitySessions.userId, users.email, users.fullName, users.team)
-      .orderBy(desc(sql`sum(${activitySessions.activeSeconds})`))
+      .orderBy(desc(sql`sum(least(${activitySessions.activeSeconds}, 86400))`))
       .limit(query.limit)
       .offset(query.offset);
 
@@ -190,8 +190,8 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
     // Also get summary
     const [summary] = await db
       .select({
-        totalActiveSeconds: sql<number>`coalesce(sum(${activitySessions.activeSeconds}), 0)::int`,
-        totalIdleSeconds: sql<number>`coalesce(sum(${activitySessions.idleSeconds}), 0)::int`,
+        totalActiveSeconds: sql<number>`coalesce(sum(least(${activitySessions.activeSeconds}, 86400)), 0)::int`,
+        totalIdleSeconds: sql<number>`coalesce(sum(least(${activitySessions.idleSeconds}, 86400)), 0)::int`,
         totalFileSaves: sql<number>`coalesce(sum(${activitySessions.totalFileSaves}), 0)::int`,
         sessionCount: sql<number>`count(*)::int`,
       })
@@ -252,8 +252,8 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
     const daily = await db
       .select({
         date: sql<string>`date(${activitySessions.startedAt})`,
-        totalActiveSeconds: sql<number>`coalesce(sum(${activitySessions.activeSeconds}), 0)::int`,
-        totalIdleSeconds: sql<number>`coalesce(sum(${activitySessions.idleSeconds}), 0)::int`,
+        totalActiveSeconds: sql<number>`coalesce(sum(least(${activitySessions.activeSeconds}, 86400)), 0)::int`,
+        totalIdleSeconds: sql<number>`coalesce(sum(least(${activitySessions.idleSeconds}, 86400)), 0)::int`,
         totalFileSaves: sql<number>`coalesce(sum(${activitySessions.totalFileSaves}), 0)::int`,
         activeDevelopers: sql<number>`count(distinct ${activitySessions.userId})::int`,
         sessionCount: sql<number>`count(*)::int`,
@@ -359,8 +359,8 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
 
         const [stats] = await db
           .select({
-            totalActiveSeconds: sql<number>`coalesce(sum(${activitySessions.activeSeconds}), 0)::int`,
-            totalIdleSeconds: sql<number>`coalesce(sum(${activitySessions.idleSeconds}), 0)::int`,
+            totalActiveSeconds: sql<number>`coalesce(sum(least(${activitySessions.activeSeconds}, 86400)), 0)::int`,
+            totalIdleSeconds: sql<number>`coalesce(sum(least(${activitySessions.idleSeconds}, 86400)), 0)::int`,
             totalKeystrokes: sql<number>`coalesce(sum(${activitySessions.totalKeystrokes}), 0)::int`,
             sessionCount: sql<number>`count(*)::int`,
             lastActive: sql<string>`max(${activitySessions.startedAt})`,
@@ -572,11 +572,17 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
       sql`, `,
     );
 
+    // LEAST(active_seconds, 86400) caps any single session to 24h before
+    // summing. Historical rows from before the heartbeat clamp shipped (v0.2.17)
+    // can have active_seconds > 86400, which makes Team Snapshot show 60h+ days.
+    // The wall-clock clamp in /api/telemetry/session/heartbeat stops new rows
+    // from going bad; this LEAST() stops old bad rows from poisoning reports.
+    // A proper backfill of the data is still TODO — see DATA_BACKFILL_NOTES.md.
     const agg = await db.execute<AggRow>(sql`
       SELECT
         s.user_id::text AS "userId",
         to_char(s.started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS "day",
-        COALESCE(SUM(s.active_seconds), 0)::int AS "activeSeconds",
+        COALESCE(SUM(LEAST(s.active_seconds, 86400)), 0)::int AS "activeSeconds",
         COUNT(*) FILTER (WHERE s.editor_version IS DISTINCT FROM 'manual-entry')::int AS "autoCount",
         COUNT(*) FILTER (WHERE s.editor_version = 'manual-entry')::int AS "manualCount"
       FROM activity_sessions s
@@ -768,9 +774,10 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
       sql`, `,
     );
 
+    // Same per-session 24h cap as the main snapshot query — see note above.
     const totals = await db.execute<{ userId: string; activeSeconds: number }>(sql`
       SELECT s.user_id::text AS "userId",
-             COALESCE(SUM(s.active_seconds), 0)::int AS "activeSeconds"
+             COALESCE(SUM(LEAST(s.active_seconds, 86400)), 0)::int AS "activeSeconds"
       FROM activity_sessions s
       WHERE s.user_id IN (${userIdList})
         AND s.started_at >= ${fromTs}::timestamptz
@@ -873,11 +880,12 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
       sql`, `,
     );
 
-    // Per-(user, day) totals so we can bucket each working day for each employee
+    // Per-(user, day) totals so we can bucket each working day for each employee.
+    // Same per-session 24h cap as the main snapshot query — see note above.
     const perDay = await db.execute<{ userId: string; day: string; activeSeconds: number }>(sql`
       SELECT s.user_id::text AS "userId",
              to_char(s.started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS "day",
-             COALESCE(SUM(s.active_seconds), 0)::int AS "activeSeconds"
+             COALESCE(SUM(LEAST(s.active_seconds, 86400)), 0)::int AS "activeSeconds"
       FROM activity_sessions s
       WHERE s.user_id IN (${userIdList})
         AND s.started_at >= ${fromTs}::timestamptz
