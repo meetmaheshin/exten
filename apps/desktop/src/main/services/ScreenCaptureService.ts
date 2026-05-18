@@ -83,6 +83,9 @@ export class ScreenCaptureService {
 
   private showCapturedNotification(screenshotId: string): void {
     if (!Notification.isSupported()) return;
+    // User can turn this off via the tray menu — useful for people who find
+    // the per-5-min toast distracting. Delete via /my-screenshots still works.
+    if (!this.configStore.get("screenshotNotificationsEnabled")) return;
 
     const notification = new Notification({
       title: "Screenshot captured",

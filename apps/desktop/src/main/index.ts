@@ -48,7 +48,7 @@ app.whenReady().then(async () => {
   registerIpcHandlers(authService, projectService, configStore);
 
   // ─── Create tray ───
-  const trayManager = new TrayManager(authService, projectService, activityTracker, telemetryService);
+  const trayManager = new TrayManager(authService, projectService, activityTracker, telemetryService, configStore);
 
   // ─── Update tray timer on each heartbeat flush ───
   telemetryService.onFlush((result) => {

@@ -9,6 +9,10 @@ export interface DesktopConfig {
   telemetryIntervalSeconds: number;
   screenCaptureEnabled: boolean;
   screenCaptureIntervalSeconds: number;
+  // When false, suppress the "Screenshot captured" toast that fires after
+  // every successful capture (~every 5 min). The delete-confirmation toast
+  // and first-launch hints still appear — those are user-driven, not noisy.
+  screenshotNotificationsEnabled: boolean;
   autoStartEnabled: boolean;
 }
 
@@ -19,6 +23,7 @@ const DEFAULTS: DesktopConfig = {
   telemetryIntervalSeconds: 60,
   screenCaptureEnabled: true,
   screenCaptureIntervalSeconds: 300,
+  screenshotNotificationsEnabled: true,
   autoStartEnabled: false,
 };
 

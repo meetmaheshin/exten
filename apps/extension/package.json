@@ -404,6 +404,12 @@
           "description": "Blur potentially sensitive areas in screenshots.",
           "order": 63
         },
+        "ailancers.screenshotNotificationsEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a notification every time a screenshot is captured (~every 5 minutes). Turn off to silence the toast; delete still works via My Screenshots on the dashboard.",
+          "order": 64
+        },
         "ailancers.autoStartEnabled": {
           "type": "boolean",
           "default": false,

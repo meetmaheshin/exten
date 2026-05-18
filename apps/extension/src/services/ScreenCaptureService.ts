@@ -191,8 +191,16 @@ export class ScreenCaptureService implements vscode.Disposable {
       // 3. Try the upload. On failure, push to retry queue instead of dropping.
       const screenshotId = await this.tryUpload({ filePath, capturedAt, metadata, attempts: 1 });
 
-      // 4. Show notification with delete option (only on successful upload)
-      if (screenshotId) {
+      // 4. Show notification with delete option (only on successful upload).
+      // User can silence this per-capture toast via the
+      // `ailancers.screenshotNotificationsEnabled` setting — useful for
+      // people who find the every-5-min popup distracting. The delete-from-
+      // dashboard flow still works (My Screenshots → trash icon) so they
+      // don't lose the ability to remove a shot.
+      const notificationsEnabled = vscode.workspace
+        .getConfiguration("ailancers")
+        .get<boolean>("screenshotNotificationsEnabled", true);
+      if (screenshotId && notificationsEnabled) {
         const action = await vscode.window.showInformationMessage(
           "Screenshot captured",
           { detail: "A screenshot was taken and uploaded.", modal: false },

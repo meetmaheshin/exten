@@ -6,6 +6,7 @@ import type { AuthService } from "./services/AuthService";
 import type { ProjectService } from "./services/ProjectService";
 import type { ActivityTracker } from "./services/ActivityTracker";
 import type { TelemetryService } from "./services/TelemetryService";
+import type { ConfigStore } from "./services/ConfigStore";
 
 function formatTime(seconds: number): string {
   const h = Math.floor(seconds / 3600);
@@ -24,7 +25,8 @@ export class TrayManager {
     private authService: AuthService,
     private projectService: ProjectService,
     private activityTracker: ActivityTracker,
-    private telemetryService: TelemetryService
+    private telemetryService: TelemetryService,
+    private configStore: ConfigStore
   ) {
     // Create tray icon
     let icon: Electron.NativeImage;
@@ -72,6 +74,19 @@ export class TrayManager {
         { type: "separator" },
         { label: "Select Project/Task...", click: () => this.showPickerWindow() },
         { label: "Open Dashboard", click: () => shell.openExternal("https://apivscode.ailancers.com/dashboard/") },
+        { type: "separator" },
+        // Per-user toggle for the every-5-min "Screenshot captured" toast.
+        // The delete-confirmation toast and first-launch hints aren't gated
+        // — those are user-driven and not noisy.
+        {
+          label: "Show screenshot notifications",
+          type: "checkbox",
+          checked: this.configStore.get("screenshotNotificationsEnabled"),
+          click: (item) => {
+            this.configStore.set("screenshotNotificationsEnabled", item.checked);
+            this.rebuildMenu();
+          },
+        },
         { type: "separator" },
         { label: "Logout", click: () => this.handleLogout() }
       );
