@@ -823,7 +823,10 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
       groupBuckets.set(key, bucket);
     }
 
-    // Build the response groups
+    // Build the response groups. Inside each group we sort employees by ATD
+    // descending so the best-performing reports float to the top of their
+    // manager's section — matches Cattr's Time Report convention. Falls back
+    // to fullName for stable ordering when two people share ATD (e.g. both 0).
     const groups = Array.from(groupBuckets.entries()).map(([managerName, members]) => {
       const employees = members.map((u) => {
         const perDayRows = byUser.get(u.id);
@@ -874,7 +877,9 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
           employmentStatus: u.employmentStatus,
           perDate,
         };
-      });
+      })
+      // ATD desc; tiebreak alphabetical so two 0-ATD reports come out stable
+      .sort((a, b) => (b.atdSeconds - a.atdSeconds) || (a.fullName ?? "").localeCompare(b.fullName ?? ""));
 
       // Group-level aggregates: average across employees per date
       // Only "active" employees count toward team aggregates / TB%. Resigned,

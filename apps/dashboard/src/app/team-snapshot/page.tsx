@@ -70,7 +70,9 @@ function cellStyle(cell: DateCell): React.CSSProperties {
     return { background: "#fff3e0", color: "#bf360c", fontStyle: "italic" };
   }
   if (cell.kind === "no-data") {
-    return { background: "#e0e0e0", color: "#666" };
+    // "Not Logged" is longer than the H:MM format; shrink the type so the
+    // column doesn't widen when one user didn't track on a given day.
+    return { background: "#e0e0e0", color: "#666", fontSize: 10, fontStyle: "italic" as const };
   }
   // "data" — color by hours
   const hours = cell.activeSeconds / 3600;
@@ -364,6 +366,27 @@ function ManagerBlock({ group, dates }: { group: SnapshotGroup; dates: string[] 
           >
             TB: {group.teamBandwidthPct.toFixed(1)}%
           </span>
+          {/* Underutilized — when the team's bandwidth is below 70%, flag the
+              manager loudly. Matches Cattr's "UNDERUTILIZED" badge. The TB
+              badge above already changes color, but a separate text badge is
+              easier to scan when there are many teams. */}
+          {group.teamBandwidthPct < 70 && (
+            <span
+              title="Team bandwidth below 70% — investigate why this team is under-occupied"
+              style={{
+                marginLeft: 6,
+                padding: "2px 8px",
+                borderRadius: 4,
+                fontSize: 10,
+                fontWeight: 700,
+                color: "#fff",
+                background: "#ef5350",
+                letterSpacing: 0.3,
+              }}
+            >
+              UNDERUTILIZED
+            </span>
+          )}
         </td>
         <td style={{ ...tdStyle, textAlign: "center", fontWeight: 700 }}>
           {fmtHHMM(group.headerAtdSeconds)}
@@ -449,7 +472,7 @@ function ManagerBlock({ group, dates }: { group: SnapshotGroup; dates: string[] 
                     : cell.kind === "leave"
                       ? (cell.activeSeconds > 0 ? fmtHHMM(cell.activeSeconds) : (cell.label ?? "Leave"))
                       : cell.kind === "no-data"
-                        ? "—"
+                        ? "Not Logged"
                         : fmtHHMM(cell.activeSeconds)}
               </td>
             );
