@@ -7,6 +7,7 @@ import type { ProjectService } from "./services/ProjectService";
 import type { ActivityTracker } from "./services/ActivityTracker";
 import type { TelemetryService } from "./services/TelemetryService";
 import type { ConfigStore } from "./services/ConfigStore";
+import type { UpdateCheckService } from "./services/UpdateCheckService";
 
 function formatTime(seconds: number): string {
   const h = Math.floor(seconds / 3600);
@@ -26,7 +27,8 @@ export class TrayManager {
     private projectService: ProjectService,
     private activityTracker: ActivityTracker,
     private telemetryService: TelemetryService,
-    private configStore: ConfigStore
+    private configStore: ConfigStore,
+    private updateCheck: UpdateCheckService
   ) {
     // Create tray icon
     let icon: Electron.NativeImage;
@@ -61,8 +63,26 @@ export class TrayManager {
       ? `${selection.projectName}${selection.subProjectName ? ` > ${selection.subProjectName}` : ""}`
       : "No project selected";
 
+    // Version + update prompt — passive. The tray tooltip also reflects the
+    // "outdated" hint so users notice without opening the menu.
+    const updateState = this.updateCheck.getState();
+    const versionItem: Electron.MenuItemConstructorOptions = updateState.isOutdated && updateState.latest
+      ? {
+          label: `⬆ v${updateState.current} → v${updateState.latest} available`,
+          click: () => {
+            if (updateState.downloadUrl) shell.openExternal(updateState.downloadUrl);
+          },
+        }
+      : { label: `v${updateState.current}`, type: "normal", enabled: false };
+    this.tray.setToolTip(
+      updateState.isOutdated && updateState.latest
+        ? `Ailancers Tracker — update available (v${updateState.latest})`
+        : "Ailancers Tracker"
+    );
+
     const template: Electron.MenuItemConstructorOptions[] = [
       { label: "Ailancers Tracker", type: "normal", enabled: false },
+      versionItem,
       { type: "separator" },
     ];
 

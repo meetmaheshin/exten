@@ -207,10 +207,13 @@ export async function buildApp(env: Env, db: Database) {
     return reply.send({ message: message.trim() });
   });
 
-  // Version endpoint — clients check this on startup for updates
+  // Version endpoint — clients check this on startup for updates.
+  // Desktop and extension share one version number now (release.sh bumps
+  // both); the tracker compares its installed app.getVersion() to the
+  // desktop field and surfaces "Update available" in its tray menu.
   app.get("/api/version", async () => ({
     extension: { version: "0.2.19", downloadUrl: "https://apivscode.ailancers.com/dashboard/downloads/" },
-    desktop: { version: "0.1.0", downloadUrl: "https://apivscode.ailancers.com/dashboard/downloads/" },
+    desktop: { version: "0.2.19", downloadUrl: "https://apivscode.ailancers.com/dashboard/downloads/" },
   }));
 
   // Check if user has an active session from a specific source (for duplicate detection)

@@ -8,6 +8,7 @@ import { ActivityTracker } from "./services/ActivityTracker";
 import { TelemetryService } from "./services/TelemetryService";
 import { ScreenCaptureService } from "./services/ScreenCaptureService";
 import { ProjectService } from "./services/ProjectService";
+import { UpdateCheckService } from "./services/UpdateCheckService";
 import { TrayManager } from "./tray";
 import { registerIpcHandlers } from "./ipc/handlers";
 import { log } from "./logger";
@@ -47,8 +48,16 @@ app.whenReady().then(async () => {
   // ─── Register IPC handlers for renderer windows ───
   registerIpcHandlers(authService, projectService, configStore);
 
+  // ─── Update check (polls /api/version, surfaces "Update available" in tray) ───
+  const updateCheck = new UpdateCheckService(apiClient);
+
   // ─── Create tray ───
-  const trayManager = new TrayManager(authService, projectService, activityTracker, telemetryService, configStore);
+  const trayManager = new TrayManager(authService, projectService, activityTracker, telemetryService, configStore, updateCheck);
+
+  // Trigger the first version check + 6h poll. Tray listens for state changes
+  // via the onChange hook below.
+  updateCheck.onChange(() => trayManager.rebuildMenu());
+  updateCheck.start();
 
   // ─── Update tray timer on each heartbeat flush ───
   telemetryService.onFlush((result) => {

@@ -62,13 +62,27 @@ node -e "
   console.log('  apps/extension/src/extension.ts CURRENT_VERSION → $VERSION');
 "
 
-# apps/backend/src/app.ts (/api/version response — extension only;
-# desktop tracker has its own version cycle)
+# apps/desktop/package.json — desktop tracker version is now mirrored to
+# the extension version (one release = one number for everything we ship).
+# app.getVersion() inside the tray menu reads from this.
+node -e "
+  const fs = require('fs');
+  const path = 'apps/desktop/package.json';
+  const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
+  pkg.version = '$VERSION';
+  fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');
+  console.log('  apps/desktop/package.json → ' + pkg.version);
+"
+
+# apps/backend/src/app.ts (/api/version response — both extension and
+# desktop report the same VERSION. The tracker compares its installed
+# app.getVersion() against the desktop field to surface an update prompt.)
 node -e "
   const fs = require('fs');
   const path = 'apps/backend/src/app.ts';
   let src = fs.readFileSync(path, 'utf8');
   src = src.replace(/extension: \{ version: \"[^\"]*\"/, 'extension: { version: \"$VERSION\"');
+  src = src.replace(/desktop: \{ version: \"[^\"]*\"/, 'desktop: { version: \"$VERSION\"');
   fs.writeFileSync(path, src);
   console.log('  apps/backend/src/app.ts /api/version → $VERSION');
 "

@@ -3,7 +3,9 @@ import type { AuthService } from "./AuthService";
 export class ApiClient {
   constructor(private authService: AuthService) {}
 
-  private getBaseUrl(): string {
+  /** Public so callers that build their own URLs (e.g. the unauthenticated
+   *  /api/version probe) can resolve the configured server. */
+  getBaseUrl(): string {
     return this.authService.getServerUrl();
   }
 
