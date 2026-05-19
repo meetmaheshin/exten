@@ -25,6 +25,24 @@ interface User {
   fullName: string;
 }
 
+// Diagnostic replay response shape from POST /api/dashboard/test-sync.
+// On success the backend returns 200 with ok:true; on push failure it also
+// returns 200 but with ok:false so this UI can render the upstream error
+// instead of choking on a non-2xx — see tracker.routes.ts.
+interface TestSyncResult {
+  ok?: boolean;
+  took_ms?: number;
+  slot_id?: string;
+  screenshot_id?: string;
+  screenshot_url?: string;
+  chat_ui_response?: unknown;
+  upstream_status?: number | null;
+  upstream_body?: string | null;
+  message?: string;
+  error?: string;
+  captured_at?: string;
+}
+
 export default function ScreenshotsPage() {
   const { accessToken } = useAuth();
   const [screenshots, setScreenshots] = useState<Screenshot[]>([]);
@@ -38,6 +56,8 @@ export default function ScreenshotsPage() {
   const [filterUserId, setFilterUserId] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<TestSyncResult | null>(null);
 
   const PAGE_SIZE = 100;
 
@@ -156,6 +176,44 @@ export default function ScreenshotsPage() {
     }
   };
 
+  // Diagnostic: replay the caller's most recent screenshot's snapshot through
+  // the same push pipeline the per-slot timer uses. chat-ui dedups by slot_id
+  // so re-pushing an existing slot is billing-safe. The backend may return
+  // 404/409 for the "no screenshots"/"not an hourly slot" cases — those are
+  // diagnostic results we want to surface, not exceptions, so we fetch
+  // directly instead of going through apiFetch.
+  const runTestSync = async () => {
+    if (!accessToken) return;
+    setTesting(true);
+    setTestResult(null);
+    try {
+      // When admin has filtered to a specific user, replay THAT user's slot.
+      // Without it, the backend falls back to the caller's own screenshots.
+      const qs = filterUserId ? `?userId=${encodeURIComponent(filterUserId)}` : "";
+      const resp = await fetch(`${API_BASE}/api/dashboard/test-sync${qs}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const text = await resp.text();
+      let parsed: TestSyncResult;
+      try {
+        parsed = JSON.parse(text) as TestSyncResult;
+      } catch {
+        parsed = { message: text || `HTTP ${resp.status}` };
+      }
+      // 200 with ok flag handled by backend; 4xx → render with implicit ok:false
+      if (!resp.ok && parsed.ok === undefined) parsed.ok = false;
+      setTestResult(parsed);
+    } catch (e) {
+      setTestResult({
+        ok: false,
+        message: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setTesting(false);
+    }
+  };
+
   const deleteAllForUser = async () => {
     if (!accessToken || !filterUserId) return;
     const userName = users.find((u) => u.id === filterUserId)?.fullName || filterUserId.slice(0, 8);
@@ -226,6 +284,23 @@ export default function ScreenshotsPage() {
 
         {/* Delete actions */}
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          <button
+            className="btn btn-secondary"
+            onClick={runTestSync}
+            disabled={testing}
+            style={{ fontSize: 12 }}
+            title={
+              filterUserId
+                ? `Re-push the latest hourly-tracker slot for ${users.find((u) => u.id === filterUserId)?.fullName || "selected user"}. Safe — chat-ui dedups by slot_id.`
+                : "Re-push your own latest hourly-tracker slot through chat-ui. Safe — chat-ui dedups by slot_id."
+            }
+          >
+            {testing
+              ? "Testing..."
+              : filterUserId
+                ? `Test sync (${(users.find((u) => u.id === filterUserId)?.fullName || "user").split(" ")[0]})`
+                : "Test sync"}
+          </button>
           {screenshots.length > 0 && (
             <button className="btn btn-secondary" onClick={selectAll} style={{ fontSize: 12 }}>
               {selectedIds.size === screenshots.length ? "Deselect All" : "Select All"}
@@ -253,6 +328,68 @@ export default function ScreenshotsPage() {
           )}
         </div>
       </div>
+
+      {/* Test sync result modal */}
+      {testResult && (
+        <div
+          onClick={() => setTestResult(null)}
+          style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
+            zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center",
+            padding: 24,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "var(--bg, #fff)", color: "var(--text, #111)",
+              borderRadius: 8, maxWidth: 640, width: "100%", maxHeight: "85vh",
+              overflow: "auto", padding: 20, boxShadow: "0 8px 48px rgba(0,0,0,0.4)",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <div style={{ fontSize: 16, fontWeight: 600 }}>
+                {testResult.ok ? "✓ Sync OK" : "✗ Sync failed"}
+                {typeof testResult.took_ms === "number" && (
+                  <span style={{ marginLeft: 8, fontSize: 12, color: "var(--text-muted)", fontWeight: 400 }}>
+                    ({testResult.took_ms} ms)
+                  </span>
+                )}
+              </div>
+              <button onClick={() => setTestResult(null)} className="btn btn-secondary" style={{ fontSize: 12 }}>Close</button>
+            </div>
+            {testResult.message && (
+              <div style={{ fontSize: 13, marginBottom: 12, padding: 10, background: "var(--bg-subtle, #f5f5f5)", borderRadius: 6 }}>
+                {testResult.message}
+              </div>
+            )}
+            <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "4px 12px", fontSize: 12 }}>
+              {testResult.slot_id && (<><span style={{ color: "var(--text-muted)" }}>slot_id</span><code>{testResult.slot_id}</code></>)}
+              {testResult.screenshot_id && (<><span style={{ color: "var(--text-muted)" }}>screenshot_id</span><code>{testResult.screenshot_id}</code></>)}
+              {testResult.screenshot_url && (<><span style={{ color: "var(--text-muted)" }}>screenshot_url</span><code style={{ wordBreak: "break-all" }}>{testResult.screenshot_url}</code></>)}
+              {testResult.captured_at && (<><span style={{ color: "var(--text-muted)" }}>captured_at</span><span>{formatDateTime(testResult.captured_at)}</span></>)}
+              {testResult.upstream_status != null && (<><span style={{ color: "var(--text-muted)" }}>upstream_status</span><code>{testResult.upstream_status}</code></>)}
+              {testResult.error && (<><span style={{ color: "var(--text-muted)" }}>error</span><span>{testResult.error}</span></>)}
+            </div>
+            {testResult.upstream_body && (
+              <details style={{ marginTop: 12, fontSize: 12 }}>
+                <summary style={{ cursor: "pointer", color: "var(--text-muted)" }}>upstream_body</summary>
+                <pre style={{ marginTop: 6, padding: 10, background: "var(--bg-subtle, #f5f5f5)", borderRadius: 6, overflow: "auto", maxHeight: 200 }}>
+                  {testResult.upstream_body}
+                </pre>
+              </details>
+            )}
+            {testResult.chat_ui_response !== undefined && testResult.chat_ui_response !== null && (
+              <details style={{ marginTop: 12, fontSize: 12 }} open>
+                <summary style={{ cursor: "pointer", color: "var(--text-muted)" }}>chat_ui_response</summary>
+                <pre style={{ marginTop: 6, padding: 10, background: "var(--bg-subtle, #f5f5f5)", borderRadius: 6, overflow: "auto", maxHeight: 240 }}>
+                  {JSON.stringify(testResult.chat_ui_response, null, 2)}
+                </pre>
+              </details>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Lightbox */}
       {selectedId && (

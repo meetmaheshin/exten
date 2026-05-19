@@ -4,11 +4,16 @@
  * Endpoints:
  *   GET  /api/tracker/status?subProjectId=...  (JWT) — proxies to chat-ui /hourly-billing/status
  *   POST /api/tracker/snapshot                  (JWT) — HMAC-signs and forwards to chat-ui
+ *   POST /api/dashboard/test-sync               (JWT) — temporary diagnostic: replays the
+ *                                                       caller's most recent screenshot's
+ *                                                       snapshot through the same push path
+ *                                                       so a button on the dashboard can
+ *                                                       confirm the pipeline is healthy.
  *   GET  /api/tracker/screenshots/:id           (PUBLIC) — serves screenshot PNG from DB by UUID
  */
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { requireAuth } from "../middleware/requireAuth.js";
 import type { AuthService } from "../services/AuthService.js";
 import type { HourlyTrackerReporter } from "../services/HourlyTrackerReporter.js";
@@ -157,6 +162,142 @@ export function trackerRoutes(
         error: "Snapshot ingestion failed",
         message: error.message,
         upstream_body: error.body ?? null,
+      });
+    }
+  });
+
+  // ── POST /api/dashboard/test-sync — diagnostic replay ───────────────
+  //
+  // Temporary button on the dashboard's Screenshots page. Picks the
+  // caller's most recent live screenshot, parses its metadata.slotId
+  // (`<sub_project_id>:<lancer_user_id>:<slot_start_iso>`), and re-pushes
+  // a snapshot through the SAME `reporter.pushSnapshot()` code path that
+  // the per-slot timer in the extension client uses. chat-ui dedups by
+  // slot_id, so re-pushing an existing slot is a no-op for billing — the
+  // call exercises HMAC + network + parsing without creating new billable
+  // time. Failures (401, 5xx, timeout) reveal the pipeline break.
+  app.post("/api/dashboard/test-sync", { preHandler: auth }, async (request, reply) => {
+    if (!reporter.isEnabled()) {
+      return reply.status(503).send({ error: "Hourly billing tracker not configured" });
+    }
+    const callerSub = request.user?.sub;
+    if (!callerSub) {
+      return reply.status(401).send({ error: "Missing user id on token" });
+    }
+    // Admins viewing the Screenshots page filter by another user. Honor an
+    // explicit ?userId= override so the admin can replay that user's slot,
+    // otherwise default to the caller's own screenshots.
+    const callerRole = request.user?.role;
+    const isAdmin = callerRole === "admin" || callerRole === "super_admin";
+    const requestedUserId = (request.query as Record<string, string | undefined>).userId;
+    if (requestedUserId && !isAdmin) {
+      return reply.status(403).send({
+        error: "Only admins can replay another user's snapshot",
+      });
+    }
+    const targetUserId = requestedUserId || callerSub;
+
+    // Other code paths (legacy 5-min auto-capture, desktop tracker
+    // screenshots) upload to /api/telemetry/screenshot WITHOUT slotId in
+    // metadata. If we just took the absolute latest row we'd often land on
+    // one of those and report "not hourly-tracker captured" even though
+    // valid hourly slots exist further back. Filter to rows where the
+    // jsonb metadata has slotId set so we always find a replayable slot
+    // if one exists.
+    const [latest] = await db
+      .select({
+        id: screenshots.id,
+        metadata: screenshots.metadata,
+        capturedAt: screenshots.capturedAt,
+      })
+      .from(screenshots)
+      .where(
+        and(
+          eq(screenshots.userId, targetUserId),
+          isNull(screenshots.deletedAt),
+          sql`${screenshots.metadata} ->> 'slotId' IS NOT NULL`,
+        ),
+      )
+      .orderBy(desc(screenshots.capturedAt))
+      .limit(1);
+
+    if (!latest) {
+      return reply.status(404).send({
+        error: "No hourly-tracker screenshots found",
+        message:
+          "No screenshots with an hourly-tracker slotId for this user. " +
+          "Either the user hasn't tracked an HOURLY sub-project yet, or only " +
+          "non-tracker capture paths (5-min auto-capture, desktop app) have uploaded.",
+        target_user_id: targetUserId,
+      });
+    }
+
+    // metadata.slotId shape: `<sub_project_id>:<lancer_user_id>:<slot_start_iso>`.
+    // UUIDs have no colons, the ISO carries the rest — greedy tail captures it.
+    const md = (latest.metadata ?? {}) as Record<string, unknown>;
+    const slotId = typeof md.slotId === "string" ? md.slotId : "";
+    const m = slotId.match(/^([^:]+):([^:]+):(.+)$/);
+    if (!m) {
+      return reply.status(409).send({
+        error: "Malformed slotId in screenshot metadata",
+        message: `slotId="${slotId}" doesn't match expected <sp>:<lancer>:<iso> shape`,
+        screenshot_id: latest.id,
+        captured_at: latest.capturedAt.toISOString(),
+      });
+    }
+    const [, subProjectId, lancerUserId, slotStartIso] = m;
+    // Behind nginx/cloudflare, `request.protocol` reads from the socket and
+    // returns "http" even when the public URL is https — Fastify only honors
+    // x-forwarded-proto if trustProxy is enabled (it isn't). Read the
+    // forwarded headers ourselves so chat-ui stores an https URL it can hit.
+    const xfProto = (request.headers["x-forwarded-proto"] as string | undefined)?.split(",")[0]?.trim();
+    const xfHost = (request.headers["x-forwarded-host"] as string | undefined)?.split(",")[0]?.trim();
+    const proto = xfProto || request.protocol;
+    const host = xfHost || request.host;
+    const screenshotUrl = `${proto}://${host}/api/tracker/screenshots/${latest.id}`;
+
+    const payload = {
+      slot_id: slotId,
+      sub_project_id: subProjectId,
+      lancer_user_id: lancerUserId,
+      slot_start: slotStartIso,
+      screenshot_url: screenshotUrl,
+      screenshot_taken_at: latest.capturedAt.toISOString(),
+      // Counters aren't stored locally — re-push with zeros. chat-ui dedups
+      // by slot_id so the real counters from the original push are preserved.
+      keyboard_hits: 0,
+      mouse_hits: 0,
+      activity_percent: 0,
+      memo: "[test-sync] dashboard diagnostic replay",
+      active_window: null,
+    };
+
+    const startedAt = Date.now();
+    try {
+      const status = await reporter.pushSnapshot(payload);
+      return reply.send({
+        ok: true,
+        took_ms: Date.now() - startedAt,
+        slot_id: slotId,
+        screenshot_id: latest.id,
+        screenshot_url: screenshotUrl,
+        chat_ui_response: status,
+        message: "chat-ui accepted the replay — the snapshot push pipeline is healthy.",
+      });
+    } catch (err) {
+      const error = err as Error & { statusCode?: number; body?: string };
+      return reply.status(200).send({
+        // 200 with `ok: false` so the dashboard can render the diagnostic
+        // result instead of choking on a non-2xx. The pipeline IS the
+        // thing being tested — surfacing the error is the success path.
+        ok: false,
+        took_ms: Date.now() - startedAt,
+        slot_id: slotId,
+        screenshot_id: latest.id,
+        screenshot_url: screenshotUrl,
+        upstream_status: error.statusCode ?? null,
+        upstream_body: error.body ?? null,
+        message: error.message,
       });
     }
   });
