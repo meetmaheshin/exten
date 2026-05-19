@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useState } from "react";
 import Link from "next/link";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { DashboardShell } from "@/components/DashboardShell";
 import { DateRangeFilter, dateRangePresets, dateRangeToISO, type DateRange } from "@/components/DateRangeFilter";
 import { StatCard } from "@/components/StatCard";
@@ -104,18 +104,17 @@ export default function MyPerformancePage() {
   const daysWithAnyActivity = daily.filter((d) => d.totalActiveSeconds > 0).length;
   const daysWith8hPlus = daily.filter((d) => d.totalActiveSeconds >= 8 * 3600).length;
 
-  // Chart data — bar per day, color-coded by hours. Reverse so oldest is on
-  // the left and newest on the right (natural left-to-right reading order).
+  // Chart data — stacked bar per day with Active on bottom + Idle on top.
+  // Stack height = total time at the machine that day. The user sees both
+  // "what got billed" (green) and "what was sitting-but-not-working" (orange)
+  // in the same column instead of needing two charts.
+  // Oldest on the left so the eye reads it like a calendar.
   const chartData = [...daily].sort((a, b) => a.date.localeCompare(b.date)).map((d) => ({
     date: d.date,
     label: new Date(d.date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-    hours: Math.round((d.totalActiveSeconds / 3600) * 100) / 100,
+    active: Math.round((d.totalActiveSeconds / 3600) * 100) / 100,
+    idle: Math.round((d.totalIdleSeconds / 3600) * 100) / 100,
   }));
-  const barColor = (hours: number) => {
-    if (hours >= 6) return "var(--success)";    // green — on target
-    if (hours >= 4) return "var(--warning)";    // yellow — moderate
-    return "#ef5350";                            // red — low
-  };
 
   // Label e.g. "(30d)" used in stat-card sublabels
   const rangeLabel = (() => {
@@ -208,28 +207,31 @@ export default function MyPerformancePage() {
           {chartData.length > 0 && (
             <div className="card" style={{ marginBottom: 16 }}>
               <div className="card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>Active Hours per Day</span>
+                <span>Hours per Day</span>
                 <span style={{ fontSize: 11, fontWeight: 400, color: "var(--text-muted)", display: "flex", gap: 12 }}>
-                  <span><span style={{ display: "inline-block", width: 10, height: 10, background: "var(--success)", borderRadius: 2, marginRight: 4 }} />≥6h</span>
-                  <span><span style={{ display: "inline-block", width: 10, height: 10, background: "var(--warning)", borderRadius: 2, marginRight: 4 }} />4–6h</span>
-                  <span><span style={{ display: "inline-block", width: 10, height: 10, background: "#ef5350", borderRadius: 2, marginRight: 4 }} />&lt;4h</span>
+                  <span><span style={{ display: "inline-block", width: 10, height: 10, background: "var(--success)", borderRadius: 2, marginRight: 4 }} />Active</span>
+                  <span><span style={{ display: "inline-block", width: 10, height: 10, background: "var(--warning)", borderRadius: 2, marginRight: 4 }} />Idle</span>
                 </span>
               </div>
               <div style={{ padding: "12px 16px 16px" }}>
-                <ResponsiveContainer width="100%" height={220}>
+                <ResponsiveContainer width="100%" height={240}>
                   <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
                     <XAxis dataKey="label" tick={{ fontSize: 11, fill: "var(--text-muted)" }} interval="preserveStartEnd" />
                     <YAxis tick={{ fontSize: 11, fill: "var(--text-muted)" }} unit="h" />
                     <Tooltip
                       contentStyle={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 6, fontSize: 12 }}
                       labelStyle={{ color: "var(--text)" }}
-                      formatter={(value: number) => [`${value.toFixed(2)} h`, "Active"]}
+                      // Recharts default sums stacked values automatically; we
+                      // format each series row with 2-decimal hours so the
+                      // tooltip reads "Active: 7.50 h" / "Idle: 1.25 h".
+                      formatter={(value: number, name: string) => [`${value.toFixed(2)} h`, name]}
                     />
-                    <Bar dataKey="hours" radius={[4, 4, 0, 0]}>
-                      {chartData.map((d) => (
-                        <Cell key={d.date} fill={barColor(d.hours)} />
-                      ))}
-                    </Bar>
+                    {/* Active is the BOTTOM of the stack so the visual weight
+                        of green carries the "work happened" signal. Idle sits
+                        on top in orange. Both share the same x value (label)
+                        and Recharts stacks them via stackId. */}
+                    <Bar dataKey="active" name="Active" stackId="day" fill="var(--success)" />
+                    <Bar dataKey="idle"   name="Idle"   stackId="day" fill="var(--warning)" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
