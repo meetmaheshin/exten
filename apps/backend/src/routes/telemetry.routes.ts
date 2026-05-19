@@ -18,6 +18,9 @@ const heartbeatSchema = z.object({
   activeSeconds: z.number().int().min(0),
   idleSeconds: z.number().int().min(0),
   keystrokeCount: z.number().int().min(0),
+  // Older clients (pre-v0.2.21) don't send this — default to 0 so the
+  // SUM in the heartbeat update doesn't NaN.
+  mouseEventCount: z.number().int().min(0).optional().default(0),
   fileSaveCount: z.number().int().min(0),
   fileChangeCount: z.number().int().min(0),
   filesModified: z.record(z.object({ language: z.string(), changes: z.number() })),
@@ -116,6 +119,7 @@ export function telemetryRoutes(app: FastifyInstance, authService: AuthService, 
       activeSeconds: session.activeSeconds + clampedActive,
       idleSeconds: session.idleSeconds + clampedIdle,
       totalKeystrokes: session.totalKeystrokes + body.keystrokeCount,
+      totalMouseEvents: session.totalMouseEvents + body.mouseEventCount,
       totalFileSaves: session.totalFileSaves + body.fileSaveCount,
       totalFileChanges: session.totalFileChanges + body.fileChangeCount,
       lastHeartbeatAt: new Date(),

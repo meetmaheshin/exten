@@ -15,6 +15,9 @@ export const activitySessions = pgTable(
     activeSeconds: integer("active_seconds").notNull().default(0),
     idleSeconds: integer("idle_seconds").notNull().default(0),
     totalKeystrokes: integer("total_keystrokes").notNull().default(0),
+    // Editor-focus changes — proxy for mouse activity in the VS Code
+    // extension. Updates per heartbeat. See migration 0015.
+    totalMouseEvents: integer("total_mouse_events").notNull().default(0),
     totalFileSaves: integer("total_file_saves").notNull().default(0),
     totalFileChanges: integer("total_file_changes").notNull().default(0),
     filesTouched: jsonb("files_touched").default([]),

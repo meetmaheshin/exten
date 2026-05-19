@@ -10,6 +10,10 @@ export class ActivityTracker {
   private lastTickTimestamp = Date.now();
 
   private keystrokeCount = 0;
+  // Editor-focus changes — proxy for mouse activity since VS Code's
+  // extension API can't see real mouse moves. Manager-visible alongside
+  // keystrokeCount so "user was at their keyboard" gets two signals.
+  private mouseEventCount = 0;
   private fileSaveCount = 0;
   private fileChangeCount = 0;
   private filesModified = new Map<string, { language: string; changes: number }>();
@@ -135,6 +139,11 @@ export class ActivityTracker {
 
   onEditorChange(_editor: vscode.TextEditor | undefined): void {
     this.lastActivityTimestamp = Date.now();
+    // Count this as a "mouse/focus event" — VS Code's extension API can't
+    // see real mouse moves, but switching editors is a strong proxy for
+    // "the user is interacting with the IDE." Surfaced in /me alongside
+    // keystrokes so managers see two signals of attention.
+    this.mouseEventCount++;
   }
 
   onWindowStateChange(state: vscode.WindowState): void {
@@ -160,6 +169,7 @@ export class ActivityTracker {
       activeSeconds: this.activeSeconds,
       idleSeconds: this.idleSeconds,
       keystrokeCount: this.keystrokeCount,
+      mouseEventCount: this.mouseEventCount,
       fileSaveCount: this.fileSaveCount,
       fileChangeCount: this.fileChangeCount,
       filesModified: Object.fromEntries(this.filesModified),
@@ -172,6 +182,7 @@ export class ActivityTracker {
     this.activeSeconds = 0;
     this.idleSeconds = 0;
     this.keystrokeCount = 0;
+    this.mouseEventCount = 0;
     this.fileSaveCount = 0;
     this.fileChangeCount = 0;
     this.filesModified.clear();

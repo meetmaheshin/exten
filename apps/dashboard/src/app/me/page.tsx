@@ -8,7 +8,7 @@ import { DateRangeFilter, dateRangePresets, dateRangeToISO, type DateRange } fro
 import { StatCard } from "@/components/StatCard";
 import { useAuth } from "@/lib/auth";
 import { apiFetch, API_BASE } from "@/lib/api";
-import { formatDuration, formatDateTime } from "@/lib/format";
+import { formatDuration, formatNumber, formatDateTime } from "@/lib/format";
 
 interface MySummary {
   totalSessions: number;
@@ -21,6 +21,8 @@ interface MyDaily {
   date: string;
   totalActiveSeconds: number;
   totalIdleSeconds: number;
+  totalKeystrokes?: number;
+  totalMouseEvents?: number;
   totalFileSaves: number;
   sessionCount: number;
 }
@@ -253,7 +255,7 @@ export default function MyPerformancePage() {
             <div className="table-container">
               <table>
                 <thead>
-                  <tr><th>Date</th><th>Active</th><th>Idle</th><th>Total</th><th>Sessions</th><th></th></tr>
+                  <tr><th>Date</th><th>Active</th><th>Idle</th><th>Total</th><th>Keys</th><th>Mouse</th><th>Sessions</th><th></th></tr>
                 </thead>
                 <tbody>
                   {[...daily].reverse().map((d) => {
@@ -282,6 +284,8 @@ export default function MyPerformancePage() {
                           <td style={{ color: "var(--success)", fontWeight: 600 }}>{formatDuration(d.totalActiveSeconds)}</td>
                           <td style={{ color: "var(--warning)" }}>{formatDuration(d.totalIdleSeconds)}</td>
                           <td style={{ fontWeight: 600 }}>{formatDuration(totalSeconds)}</td>
+                          <td title="Number of characters typed in VS Code">{formatNumber(d.totalKeystrokes ?? 0)}</td>
+                          <td title="Editor / window focus changes — proxy for mouse activity">{formatNumber(d.totalMouseEvents ?? 0)}</td>
                           <td>{d.sessionCount}</td>
                           <td style={{ fontSize: 11, color: "var(--text-muted)" }}>
                             {d.totalActiveSeconds > 0 && `${Math.round(d.totalActiveSeconds / 300)} screenshot${Math.round(d.totalActiveSeconds / 300) === 1 ? "" : "s"}`}
@@ -289,7 +293,7 @@ export default function MyPerformancePage() {
                         </tr>
                         {isExpanded && (
                           <tr>
-                            <td colSpan={6} style={{ padding: 16, background: "rgba(99,102,241,0.03)" }}>
+                            <td colSpan={8} style={{ padding: 16, background: "rgba(99,102,241,0.03)" }}>
                               {!shots ? (
                                 <div style={{ color: "var(--text-muted)", fontSize: 13 }}>Loading screenshots…</div>
                               ) : shots.length === 0 ? (
@@ -323,7 +327,7 @@ export default function MyPerformancePage() {
                     );
                   })}
                   {daily.length === 0 && (
-                    <tr><td colSpan={6} style={{ textAlign: "center", color: "var(--text-muted)", padding: 32 }}>No activity recorded yet</td></tr>
+                    <tr><td colSpan={8} style={{ textAlign: "center", color: "var(--text-muted)", padding: 32 }}>No activity recorded yet</td></tr>
                   )}
                 </tbody>
               </table>

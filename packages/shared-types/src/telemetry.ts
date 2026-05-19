@@ -28,6 +28,8 @@ export interface SessionHeartbeat {
   activeSeconds: number;
   idleSeconds: number;
   keystrokeCount: number;
+  // Optional for back-compat with older clients that don't report it yet.
+  mouseEventCount?: number;
   fileSaveCount: number;
   fileChangeCount: number;
   filesModified: Record<string, { language: string; changes: number }>;
@@ -40,6 +42,7 @@ export interface ActivitySnapshot {
   activeSeconds: number;
   idleSeconds: number;
   keystrokeCount: number;
+  mouseEventCount: number;
   fileSaveCount: number;
   fileChangeCount: number;
   filesModified: Record<string, { language: string; changes: number }>;
