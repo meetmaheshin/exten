@@ -187,7 +187,10 @@ export default function ScreenshotsPage() {
     setTesting(true);
     setTestResult(null);
     try {
-      const resp = await fetch(`${API_BASE}/api/dashboard/test-sync`, {
+      // When admin has filtered to a specific user, replay THAT user's slot.
+      // Without it, the backend falls back to the caller's own screenshots.
+      const qs = filterUserId ? `?userId=${encodeURIComponent(filterUserId)}` : "";
+      const resp = await fetch(`${API_BASE}/api/dashboard/test-sync${qs}`, {
         method: "POST",
         headers: { Authorization: `Bearer ${accessToken}` },
       });
@@ -286,9 +289,17 @@ export default function ScreenshotsPage() {
             onClick={runTestSync}
             disabled={testing}
             style={{ fontSize: 12 }}
-            title="Re-push your most recent screenshot's snapshot through the chat-ui sync pipeline. Safe — chat-ui dedups by slot_id."
+            title={
+              filterUserId
+                ? `Re-push the latest hourly-tracker slot for ${users.find((u) => u.id === filterUserId)?.fullName || "selected user"}. Safe — chat-ui dedups by slot_id.`
+                : "Re-push your own latest hourly-tracker slot through chat-ui. Safe — chat-ui dedups by slot_id."
+            }
           >
-            {testing ? "Testing..." : "Test sync"}
+            {testing
+              ? "Testing..."
+              : filterUserId
+                ? `Test sync (${(users.find((u) => u.id === filterUserId)?.fullName || "user").split(" ")[0]})`
+                : "Test sync"}
           </button>
           {screenshots.length > 0 && (
             <button className="btn btn-secondary" onClick={selectAll} style={{ fontSize: 12 }}>

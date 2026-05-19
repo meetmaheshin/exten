@@ -13,7 +13,7 @@
  */
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { requireAuth } from "../middleware/requireAuth.js";
 import type { AuthService } from "../services/AuthService.js";
 import type { HourlyTrackerReporter } from "../services/HourlyTrackerReporter.js";
@@ -180,12 +180,30 @@ export function trackerRoutes(
     if (!reporter.isEnabled()) {
       return reply.status(503).send({ error: "Hourly billing tracker not configured" });
     }
-    const localUserId = request.user?.sub;
-    if (!localUserId) {
+    const callerSub = request.user?.sub;
+    if (!callerSub) {
       return reply.status(401).send({ error: "Missing user id on token" });
     }
+    // Admins viewing the Screenshots page filter by another user. Honor an
+    // explicit ?userId= override so the admin can replay that user's slot,
+    // otherwise default to the caller's own screenshots.
+    const callerRole = request.user?.role;
+    const isAdmin = callerRole === "admin" || callerRole === "super_admin";
+    const requestedUserId = (request.query as Record<string, string | undefined>).userId;
+    if (requestedUserId && !isAdmin) {
+      return reply.status(403).send({
+        error: "Only admins can replay another user's snapshot",
+      });
+    }
+    const targetUserId = requestedUserId || callerSub;
 
-    // Most recent live screenshot for this user
+    // Other code paths (legacy 5-min auto-capture, desktop tracker
+    // screenshots) upload to /api/telemetry/screenshot WITHOUT slotId in
+    // metadata. If we just took the absolute latest row we'd often land on
+    // one of those and report "not hourly-tracker captured" even though
+    // valid hourly slots exist further back. Filter to rows where the
+    // jsonb metadata has slotId set so we always find a replayable slot
+    // if one exists.
     const [latest] = await db
       .select({
         id: screenshots.id,
@@ -193,31 +211,36 @@ export function trackerRoutes(
         capturedAt: screenshots.capturedAt,
       })
       .from(screenshots)
-      .where(and(eq(screenshots.userId, localUserId), isNull(screenshots.deletedAt)))
+      .where(
+        and(
+          eq(screenshots.userId, targetUserId),
+          isNull(screenshots.deletedAt),
+          sql`${screenshots.metadata} ->> 'slotId' IS NOT NULL`,
+        ),
+      )
       .orderBy(desc(screenshots.capturedAt))
       .limit(1);
 
     if (!latest) {
       return reply.status(404).send({
-        error: "No screenshots found",
-        message: "No screenshots captured for your account yet — nothing to replay.",
+        error: "No hourly-tracker screenshots found",
+        message:
+          "No screenshots with an hourly-tracker slotId for this user. " +
+          "Either the user hasn't tracked an HOURLY sub-project yet, or only " +
+          "non-tracker capture paths (5-min auto-capture, desktop app) have uploaded.",
+        target_user_id: targetUserId,
       });
     }
 
-    // metadata.slotId is set by HourlyBillingTracker on the original upload,
-    // shape: `<sub_project_id>:<lancer_user_id>:<slot_start_iso>`. Without
-    // it we can't reconstruct a valid snapshot payload — the screenshot
-    // wasn't taken by the hourly tracker (could be from the older 5-min
-    // auto-capture flow), so this test isn't applicable.
+    // metadata.slotId shape: `<sub_project_id>:<lancer_user_id>:<slot_start_iso>`.
+    // UUIDs have no colons, the ISO carries the rest — greedy tail captures it.
     const md = (latest.metadata ?? {}) as Record<string, unknown>;
     const slotId = typeof md.slotId === "string" ? md.slotId : "";
     const m = slotId.match(/^([^:]+):([^:]+):(.+)$/);
     if (!m) {
       return reply.status(409).send({
-        error: "Latest screenshot has no hourly-tracker slotId",
-        message:
-          "The most recent screenshot wasn't captured by the hourly billing tracker. " +
-          "Start tracking on an HOURLY sub-project, wait for a slot to complete, then retry.",
+        error: "Malformed slotId in screenshot metadata",
+        message: `slotId="${slotId}" doesn't match expected <sp>:<lancer>:<iso> shape`,
         screenshot_id: latest.id,
         captured_at: latest.capturedAt.toISOString(),
       });
