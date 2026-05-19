@@ -169,6 +169,12 @@ export default function MyPerformancePage() {
                 {formatDuration(todayData?.totalIdleSeconds ?? 0)}
               </div>
             </div>
+            <div>
+              <div style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>Total</div>
+              <div style={{ fontSize: 24, fontWeight: 700, color: "var(--primary)" }}>
+                {formatDuration((todayData?.totalActiveSeconds ?? 0) + (todayData?.totalIdleSeconds ?? 0))}
+              </div>
+            </div>
             <div style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-muted)", maxWidth: 260, lineHeight: 1.4 }}>
               Updates every 5 min as new screenshots arrive. If you just started, your first screenshot is still pending.
             </div>
@@ -197,6 +203,7 @@ export default function MyPerformancePage() {
           <div className="stats-grid">
             <StatCard value={formatDuration(summary?.totalActiveSeconds ?? 0)} label={`Active Time ${rangeLabel}`} color="blue" />
             <StatCard value={formatDuration(summary?.totalIdleSeconds ?? 0)} label={`Idle Time ${rangeLabel}`} color="yellow" />
+            <StatCard value={formatDuration((summary?.totalActiveSeconds ?? 0) + (summary?.totalIdleSeconds ?? 0))} label={`Total Time ${rangeLabel}`} color="purple" />
             <StatCard value={String(daysWithAnyActivity)} label={`Days Logged In ${rangeLabel}`} color="green" />
             <StatCard value={String(daysWith8hPlus)} label={`Days with 8h+ ${rangeLabel}`} color="purple" />
           </div>
@@ -246,13 +253,17 @@ export default function MyPerformancePage() {
             <div className="table-container">
               <table>
                 <thead>
-                  <tr><th>Date</th><th>Active</th><th>Idle</th><th>Sessions</th><th></th></tr>
+                  <tr><th>Date</th><th>Active</th><th>Idle</th><th>Total</th><th>Sessions</th><th></th></tr>
                 </thead>
                 <tbody>
                   {[...daily].reverse().map((d) => {
                     const isToday = d.date === todayStr;
                     const isExpanded = expandedDate === d.date;
                     const shots = dayScreenshots[d.date];
+                    // Total = active + idle. Same number the stacked chart
+                    // bar height represents — having it explicit in the table
+                    // saves the user from mentally adding the two columns.
+                    const totalSeconds = d.totalActiveSeconds + d.totalIdleSeconds;
                     return (
                       <Fragment key={d.date}>
                         <tr
@@ -270,6 +281,7 @@ export default function MyPerformancePage() {
                           </td>
                           <td style={{ color: "var(--success)", fontWeight: 600 }}>{formatDuration(d.totalActiveSeconds)}</td>
                           <td style={{ color: "var(--warning)" }}>{formatDuration(d.totalIdleSeconds)}</td>
+                          <td style={{ fontWeight: 600 }}>{formatDuration(totalSeconds)}</td>
                           <td>{d.sessionCount}</td>
                           <td style={{ fontSize: 11, color: "var(--text-muted)" }}>
                             {d.totalActiveSeconds > 0 && `${Math.round(d.totalActiveSeconds / 300)} screenshot${Math.round(d.totalActiveSeconds / 300) === 1 ? "" : "s"}`}
@@ -277,7 +289,7 @@ export default function MyPerformancePage() {
                         </tr>
                         {isExpanded && (
                           <tr>
-                            <td colSpan={5} style={{ padding: 16, background: "rgba(99,102,241,0.03)" }}>
+                            <td colSpan={6} style={{ padding: 16, background: "rgba(99,102,241,0.03)" }}>
                               {!shots ? (
                                 <div style={{ color: "var(--text-muted)", fontSize: 13 }}>Loading screenshots…</div>
                               ) : shots.length === 0 ? (
@@ -311,7 +323,7 @@ export default function MyPerformancePage() {
                     );
                   })}
                   {daily.length === 0 && (
-                    <tr><td colSpan={5} style={{ textAlign: "center", color: "var(--text-muted)", padding: 32 }}>No activity recorded yet</td></tr>
+                    <tr><td colSpan={6} style={{ textAlign: "center", color: "var(--text-muted)", padding: 32 }}>No activity recorded yet</td></tr>
                   )}
                 </tbody>
               </table>
