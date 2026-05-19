@@ -52,13 +52,20 @@ export class HourlyTrackerReporter {
     return this.enabled;
   }
 
-  async getStatus(subProjectId: string): Promise<TrackerStatusResponse | null> {
+  async getStatus(
+    subProjectId: string,
+    lancerUserId?: string | null,
+  ): Promise<TrackerStatusResponse | null> {
     if (!this.enabled) return null;
+    const params = new URLSearchParams({ sub_project_id: subProjectId });
+    if (lancerUserId) params.set("lancer_user_id", lancerUserId);
+    const url = `${this.apiUrl}/hourly-billing/status?${params.toString()}`;
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const signature = this.sign(timestamp, "");
     try {
-      const url = `${this.apiUrl}/hourly-billing/status?sub_project_id=${encodeURIComponent(subProjectId)}`;
-      const timestamp = Math.floor(Date.now() / 1000).toString();
-      const signature = this.sign(timestamp, "");
-
+      console.log(
+        `[HourlyTrackerReporter] GET ${url}  ts=${timestamp}  lancer=${lancerUserId ?? "-"}`,
+      );
       const response = await fetch(url, {
         method: "GET",
         headers: {
@@ -66,10 +73,20 @@ export class HourlyTrackerReporter {
           "X-Billing-Timestamp": timestamp,
         },
       });
-      if (!response.ok) return null;
-      return (await response.json()) as TrackerStatusResponse;
+      if (!response.ok) {
+        const body = await response.text().catch(() => "");
+        console.error(
+          `[HourlyTrackerReporter] /status ${response.status}: ${body.slice(0, 400)}`,
+        );
+        return null;
+      }
+      const result = (await response.json()) as TrackerStatusResponse;
+      console.log(
+        `[HourlyTrackerReporter] /status OK: is_hourly=${result.is_hourly} billing_status=${result.billing_status} lancer=${result.lancer_user_id}`,
+      );
+      return result;
     } catch (err) {
-      console.error("[HourlyTrackerReporter] /status failed:", err);
+      console.error("[HourlyTrackerReporter] /status network/parse failed:", err);
       return null;
     }
   }
@@ -80,8 +97,13 @@ export class HourlyTrackerReporter {
     const bodyStr = JSON.stringify(payload);
     const timestamp = Math.floor(Date.now() / 1000).toString();
     const signature = this.sign(timestamp, bodyStr);
+    const url = `${this.apiUrl}/hourly-billing/snapshots`;
 
-    const response = await fetch(`${this.apiUrl}/hourly-billing/snapshots`, {
+    console.log(
+      `[HourlyTrackerReporter] POST ${url}  ts=${timestamp}  slot=${payload.slot_id}  lancer=${payload.lancer_user_id}  bytes=${bodyStr.length}`,
+    );
+
+    const response = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -93,6 +115,9 @@ export class HourlyTrackerReporter {
 
     if (!response.ok) {
       const text = await response.text().catch(() => "");
+      console.error(
+        `[HourlyTrackerReporter] /snapshots ${response.status} for slot=${payload.slot_id}: ${text.slice(0, 400)}`,
+      );
       const error = new Error(`HTTP ${response.status}: ${text}`) as Error & {
         statusCode: number;
         body: string;
@@ -101,7 +126,11 @@ export class HourlyTrackerReporter {
       error.body = text;
       throw error;
     }
-    return (await response.json()) as TrackerStatusResponse;
+    const result = (await response.json()) as TrackerStatusResponse;
+    console.log(
+      `[HourlyTrackerReporter] /snapshots OK slot=${payload.slot_id}  is_hourly=${result.is_hourly}  billing_status=${result.billing_status}`,
+    );
+    return result;
   }
 
   private sign(timestamp: string, body: string): string {
