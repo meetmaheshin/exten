@@ -44,36 +44,115 @@ export function trackerRoutes(
   // ── GET /api/tracker/status — proxy to chat-ui ──────────────────────
   app.get("/api/tracker/status", { preHandler: auth }, async (request, reply) => {
     if (!reporter.isEnabled()) {
+      request.log.warn(
+        "[tracker.status] reporter disabled (AILANCERS_BILLING_API_URL or HMAC_SECRET missing)",
+      );
       return reply.status(503).send({ error: "Hourly billing tracker not configured" });
     }
     const query = statusQuerySchema.safeParse(request.query);
     if (!query.success) {
+      request.log.warn({ query: request.query }, "[tracker.status] bad query");
       return reply.status(400).send({ error: "Missing subProjectId" });
     }
-    const status = await reporter.getStatus(query.data.subProjectId);
+    const lancerUserId = request.user?.platformUserId ?? null;
+    request.log.info(
+      {
+        sub_project_id: query.data.subProjectId,
+        lancer_user_id: lancerUserId,
+        local_user_sub: request.user?.sub,
+        authed_via: lancerUserId ? "platform" : "local",
+      },
+      "[tracker.status] fetching",
+    );
+    const status = await reporter.getStatus(query.data.subProjectId, lancerUserId);
     if (!status) {
+      request.log.error(
+        { sub_project_id: query.data.subProjectId, lancer_user_id: lancerUserId },
+        "[tracker.status] reporter.getStatus returned null (upstream error)",
+      );
       return reply.status(502).send({ error: "Failed to fetch tracker status from platform" });
     }
+    request.log.info(
+      {
+        sub_project_id: query.data.subProjectId,
+        is_hourly: status.is_hourly,
+        billing_status: status.billing_status,
+        returned_lancer_user_id: status.lancer_user_id,
+        suspended: status.suspended,
+        limit_reached: status.limit_reached,
+      },
+      "[tracker.status] upstream OK",
+    );
     return reply.send(status);
   });
 
   // ── POST /api/tracker/snapshot — sign + forward to chat-ui ──────────
   app.post("/api/tracker/snapshot", { preHandler: auth }, async (request, reply) => {
     if (!reporter.isEnabled()) {
+      request.log.warn("[tracker.snapshot] reporter disabled");
       return reply.status(503).send({ error: "Hourly billing tracker not configured" });
     }
     const parsed = snapshotBodySchema.safeParse(request.body);
     if (!parsed.success) {
+      request.log.warn(
+        {
+          err_count: parsed.error.errors.length,
+          errors: parsed.error.errors.map((e) => `${e.path.join(".")}: ${e.message}`),
+        },
+        "[tracker.snapshot] payload validation failed",
+      );
       return reply.status(400).send({
         error: "Invalid snapshot payload",
         message: parsed.error.errors.map((e) => `${e.path.join(".")}: ${e.message}`).join(", "),
       });
     }
+    const callerId = request.user?.platformUserId ?? null;
+    if (callerId && parsed.data.lancer_user_id !== callerId) {
+      request.log.warn(
+        { caller: callerId, payload_lancer: parsed.data.lancer_user_id },
+        "[tracker.snapshot] identity mismatch",
+      );
+      return reply.status(403).send({
+        error: "Snapshot lancer_user_id does not match authenticated user",
+      });
+    }
+    request.log.info(
+      {
+        slot_id: parsed.data.slot_id,
+        sub_project_id: parsed.data.sub_project_id,
+        lancer_user_id: parsed.data.lancer_user_id,
+        slot_start: parsed.data.slot_start,
+        keyboard_hits: parsed.data.keyboard_hits,
+        mouse_hits: parsed.data.mouse_hits,
+        activity_percent: parsed.data.activity_percent,
+        has_screenshot: !!parsed.data.screenshot_url,
+      },
+      "[tracker.snapshot] forwarding to chat-ui",
+    );
     try {
       const status = await reporter.pushSnapshot(parsed.data);
+      request.log.info(
+        {
+          slot_id: parsed.data.slot_id,
+          is_hourly: status.is_hourly,
+          billing_status: status.billing_status,
+          suspended: status.suspended,
+          limit_reached: status.limit_reached,
+        },
+        "[tracker.snapshot] chat-ui accepted",
+      );
       return reply.send(status);
     } catch (err) {
       const error = err as Error & { statusCode?: number; body?: string };
+      request.log.error(
+        {
+          slot_id: parsed.data.slot_id,
+          status: error.statusCode,
+          body: error.body,
+          message: error.message,
+        },
+        "[tracker.snapshot] chat-ui rejected",
+      );
       return reply.status(error.statusCode ?? 502).send({
         error: "Snapshot ingestion failed",
         message: error.message,

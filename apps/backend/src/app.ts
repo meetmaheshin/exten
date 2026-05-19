@@ -28,7 +28,16 @@ import { AppError } from "./utils/errors.js";
 import { ZodError } from "zod";
 
 export async function buildApp(env: Env, db: Database) {
+  // bodyLimit accommodates base64-encoded screenshots posted to
+  // /api/telemetry/screenshot. Fastify defaults to 1 MB, which 413s a
+  // typical PNG (~1.5-5 MB binary → ~2-7 MB base64). Size it from the
+  // per-screenshot limit env var, doubled to cover base64 expansion
+  // (4/3×) plus the JSON wrapper. The route itself still enforces the
+  // per-file binary limit before the screenshot is persisted.
+  const screenshotBytes = env.SCREENSHOT_MAX_SIZE_MB * 1024 * 1024;
+  const bodyLimit = Math.max(2 * 1024 * 1024, screenshotBytes * 2);
   const app = Fastify({
+    bodyLimit,
     logger: {
       level: env.LOG_LEVEL,
       transport: env.NODE_ENV === "development" ? { target: "pino-pretty" } : undefined,
