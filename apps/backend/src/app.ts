@@ -11,6 +11,7 @@ import { AuthService } from "./services/AuthService.js";
 import { AIService } from "./services/AIService.js";
 import { BillingReporter } from "./services/BillingReporter.js";
 import { HourlyTrackerReporter } from "./services/HourlyTrackerReporter.js";
+import { HourlyBillingPusher } from "./services/HourlyBillingPusher.js";
 import { FigmaService } from "./services/FigmaService.js";
 import { eq, and, desc, isNull, like, gte } from "drizzle-orm";
 import { activitySessions } from "./models/index.js";
@@ -160,6 +161,7 @@ export async function buildApp(env: Env, db: Database) {
   const billingReporter = new BillingReporter(env);
   billingReporter.start();
   const hourlyTrackerReporter = new HourlyTrackerReporter(env);
+  const hourlyBillingPusher = new HourlyBillingPusher(db, hourlyTrackerReporter);
   const figmaService = new FigmaService(env);
 
   // Figma URL reader — used by the figma_read agent tool. Auth-required so
@@ -252,7 +254,7 @@ export async function buildApp(env: Env, db: Database) {
   chatRoutes(app, authService, db, aiService);
   chatWsRoute(app, authService, aiService, db, billingReporter);
   telemetryRoutes(app, authService, db);
-  screenshotRoutes(app, authService, db, env);
+  screenshotRoutes(app, authService, db, env, hourlyBillingPusher);
   activityRoutes(app, authService, db);
   externalProjectsRoutes(app, authService, db);
   billingRoutes(app, authService, billingReporter);

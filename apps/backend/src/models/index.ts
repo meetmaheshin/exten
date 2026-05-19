@@ -8,6 +8,7 @@ export { telemetryEvents } from "./telemetryEvents.js";
 export { aiUsageDaily } from "./aiUsageLog.js";
 export { budgetAlerts } from "./budgetAlerts.js";
 export { screenshots, screenshotsRelations } from "./screenshots.js";
+export { hourlySlotPushes, hourlySlotPushesRelations } from "./hourlySlotPushes.js";
 export {
   externalProjects,
   externalTasks,

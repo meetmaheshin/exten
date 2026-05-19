@@ -5,6 +5,7 @@ import { requireAuth, requireAdmin } from "../middleware/requireAuth.js";
 import type { AuthService } from "../services/AuthService.js";
 import type { Database } from "../config/database.js";
 import type { Env } from "../config/env.js";
+import type { HourlyBillingPusher } from "../services/HourlyBillingPusher.js";
 import { screenshots, activitySessions, users } from "../models/index.js";
 
 const uploadSchema = z.object({
@@ -30,7 +31,8 @@ export function screenshotRoutes(
   app: FastifyInstance,
   authService: AuthService,
   db: Database,
-  env: Env
+  env: Env,
+  hourlyBillingPusher: HourlyBillingPusher,
 ) {
   const auth = requireAuth(authService);
   const admin = requireAdmin(authService);
@@ -90,6 +92,31 @@ export function screenshotRoutes(
         capturedAt: new Date(body.capturedAt),
       })
       .returning();
+
+    // Fire-and-forget chat-ui hourly billing push. Replaces the old per-client
+    // HourlyBillingTracker (deleted from extension). The pusher decides
+    // whether the sub-project qualifies (status cache), buckets the
+    // screenshot into a slot, and signs+POSTs to chat-ui. Errors are logged
+    // inside tryPush — the upload response must not block on chat-ui.
+    //
+    // The screenshot URL has to be reachable by chat-ui from outside our
+    // network. trustProxy isn't set on Fastify so request.protocol returns
+    // the socket protocol (http behind nginx) — read x-forwarded-proto
+    // explicitly so the URL ends up https in production.
+    const xfProto = (request.headers["x-forwarded-proto"] as string | undefined)?.split(",")[0]?.trim();
+    const xfHost = (request.headers["x-forwarded-host"] as string | undefined)?.split(",")[0]?.trim();
+    const proto = xfProto || request.protocol;
+    const host = xfHost || request.host;
+    const screenshotUrl = `${proto}://${host}/api/tracker/screenshots/${record.id}`;
+    void hourlyBillingPusher.tryPush({
+      screenshotId: record.id,
+      capturedAt: new Date(body.capturedAt),
+      userId: request.user.sub,
+      sessionId: body.sessionId,
+      platformUserId: request.user.platformUserId ?? null,
+      screenshotUrl,
+      log: request.log,
+    });
 
     return reply.status(201).send({ id: record.id });
   });
