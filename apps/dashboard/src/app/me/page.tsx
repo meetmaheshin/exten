@@ -6,6 +6,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recha
 import { DashboardShell } from "@/components/DashboardShell";
 import { DateRangeFilter, dateRangePresets, dateRangeToISO, type DateRange } from "@/components/DateRangeFilter";
 import { StatCard } from "@/components/StatCard";
+import { ScreenshotLightbox, type LightboxItem } from "@/components/ScreenshotLightbox";
 import { useAuth } from "@/lib/auth";
 import { apiFetch, API_BASE } from "@/lib/api";
 import { formatDuration, formatNumber, formatDateTime } from "@/lib/format";
@@ -45,6 +46,21 @@ export default function MyPerformancePage() {
   // than navigating to a new page, and keeps the user's place in the table.
   const [expandedDate, setExpandedDate] = useState<string | null>(null);
   const [dayScreenshots, setDayScreenshots] = useState<Record<string, MyScreenshot[]>>({});
+
+  // Lightbox state — when a thumbnail is clicked we open a full-screen viewer
+  // with left/right nav. Holds the array currently being browsed AND the
+  // index inside it. Null = closed.
+  const [lightboxItems, setLightboxItems] = useState<LightboxItem[] | null>(null);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
+  const openLightbox = (items: MyScreenshot[], startIndex: number) => {
+    if (!accessToken) return;
+    setLightboxItems(items.map((s) => ({
+      id: s.id,
+      url: `${API_BASE}/api/telemetry/screenshots/${s.id}/image?token=${accessToken}`,
+      capturedAt: s.capturedAt,
+    })));
+    setLightboxIndex(startIndex);
+  };
 
   useEffect(() => {
     if (!accessToken) return;
@@ -305,8 +321,13 @@ export default function MyPerformancePage() {
                                     each represents ~5 min of tracked work.
                                   </div>
                                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10 }}>
-                                    {shots.map((s) => (
-                                      <div key={s.id} style={{ background: "var(--bg-card)", borderRadius: 6, overflow: "hidden", border: "1px solid var(--border)" }}>
+                                    {shots.map((s, idx) => (
+                                      <div
+                                        key={s.id}
+                                        onClick={() => openLightbox(shots, idx)}
+                                        style={{ background: "var(--bg-card)", borderRadius: 6, overflow: "hidden", border: "1px solid var(--border)", cursor: "pointer" }}
+                                        title="Click to open"
+                                      >
                                         <img
                                           src={`${API_BASE}/api/telemetry/screenshots/${s.id}/image?token=${accessToken}`}
                                           alt={s.filename}
@@ -346,8 +367,14 @@ export default function MyPerformancePage() {
               <div style={{ padding: 24, color: "var(--text-muted)", textAlign: "center" }}>No screenshots yet</div>
             ) : (
               <div className="screenshots-grid">
-                {screenshots.map((s) => (
-                  <div key={s.id} className="screenshot-card">
+                {screenshots.map((s, idx) => (
+                  <div
+                    key={s.id}
+                    className="screenshot-card"
+                    onClick={() => openLightbox(screenshots, idx)}
+                    style={{ cursor: "pointer" }}
+                    title="Click to open"
+                  >
                     <img
                       src={`${API_BASE}/api/telemetry/screenshots/${s.id}/image?token=${accessToken}`}
                       alt={s.filename}
@@ -364,6 +391,18 @@ export default function MyPerformancePage() {
             )}
           </div>
         </>
+      )}
+
+      {/* Full-screen image viewer. Shared across both screenshot galleries
+          on this page; the openLightbox() helper pre-builds the URL list so
+          the user can navigate within whichever gallery they clicked from. */}
+      {lightboxItems && (
+        <ScreenshotLightbox
+          items={lightboxItems}
+          index={lightboxIndex}
+          onIndexChange={setLightboxIndex}
+          onClose={() => setLightboxItems(null)}
+        />
       )}
     </DashboardShell>
   );

@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { DashboardShell } from "@/components/DashboardShell";
 import { DateRangeFilter, dateRangePresets, dateRangeToISO, type DateRange } from "@/components/DateRangeFilter";
 import { StatCard } from "@/components/StatCard";
+import { ScreenshotLightbox, type LightboxItem } from "@/components/ScreenshotLightbox";
 import { useAuth } from "@/lib/auth";
 import { apiFetch, API_BASE } from "@/lib/api";
 import { formatDuration, formatNumber, formatCost, formatDateTime } from "@/lib/format";
@@ -53,6 +54,10 @@ function DeveloperDetailContent() {
   const [screenshots, setScreenshots] = useState<ScreenshotEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [dateRange, setDateRange] = useState<DateRange>(() => dateRangePresets.last30Days());
+  // Lightbox state — clicking any screenshot thumbnail opens a full-screen
+  // viewer with prev/next nav.
+  const [lightboxItems, setLightboxItems] = useState<LightboxItem[] | null>(null);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
 
   useEffect(() => {
     if (!accessToken || !userId) return;
@@ -174,8 +179,22 @@ function DeveloperDetailContent() {
               <div style={{ color: "var(--text-muted)", padding: 16 }}>No screenshots captured</div>
             ) : (
               <div className="screenshots-grid">
-                {screenshots.map((s) => (
-                  <div key={s.id} className="screenshot-card">
+                {screenshots.map((s, idx) => (
+                  <div
+                    key={s.id}
+                    className="screenshot-card"
+                    onClick={() => {
+                      if (!accessToken) return;
+                      setLightboxItems(screenshots.map((ss) => ({
+                        id: ss.id,
+                        url: `${API_BASE}/api/telemetry/screenshots/${ss.id}/image?token=${accessToken}`,
+                        capturedAt: ss.capturedAt,
+                      })));
+                      setLightboxIndex(idx);
+                    }}
+                    style={{ cursor: "pointer" }}
+                    title="Click to open"
+                  >
                     <img src={`${API_BASE}/api/telemetry/screenshots/${s.id}/image?token=${accessToken}`} alt={s.filename}
                       style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: "8px 8px 0 0", display: "block" }} />
                     <div className="screenshot-meta">{formatDateTime(s.capturedAt)} · {Math.round(s.fileSizeBytes / 1024)} KB</div>
@@ -190,6 +209,15 @@ function DeveloperDetailContent() {
         </>
       ) : (
         <div className="loading">No data found for this developer</div>
+      )}
+
+      {lightboxItems && (
+        <ScreenshotLightbox
+          items={lightboxItems}
+          index={lightboxIndex}
+          onIndexChange={setLightboxIndex}
+          onClose={() => setLightboxItems(null)}
+        />
       )}
     </DashboardShell>
   );
