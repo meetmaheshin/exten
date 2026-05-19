@@ -10,7 +10,9 @@
  * Flow (called fire-and-forget from /api/telemetry/screenshot after the row
  * is persisted):
  *
- *   1. Resolve session.subProjectId (set on heartbeats). If absent → skip.
+ *   1. Take subProjectId from PushArgs (upload route plucks it from the
+ *      just-inserted screenshot row — supplied by the client at upload
+ *      time, persisted on screenshots.sub_project_id). Absent → skip.
  *   2. Resolve lancer_user_id from JWT.platformUserId. If absent → skip.
  *   3. Check /hourly-billing/status (cached ~5 min). If sub-project isn't
  *      hourly / is suspended / limit reached → skip.
@@ -51,8 +53,12 @@ interface PushArgs {
   capturedAt: Date;
   /** users.id — owner of the screenshot. */
   userId: string;
-  /** activity_sessions.id — used to look up the active sub-project + counters. */
+  /** activity_sessions.id — used to look up per-session counters (kb, mouse). */
   sessionId: string;
+  /** chat-ui sub-project this screenshot is attributed to. Comes from
+   *  screenshots.sub_project_id (set by the upload route from body.subProjectId).
+   *  Null/empty → skip (we don't know which sub-project to bill against). */
+  subProjectId: string | null;
   /** JWT platformUserId — chat-ui's lancer_user_id. Required; logs and skips if missing. */
   platformUserId: string | null;
   /** Absolute public URL chat-ui can render the screenshot at. */
@@ -108,13 +114,26 @@ export class HourlyBillingPusher {
       );
       return;
     }
+    if (!args.subProjectId) {
+      // sub_project_id lives on the screenshot row (set by the upload route
+      // from body.subProjectId). Clients refuse to capture when no
+      // sub-project is selected, but legacy uploads or admin-injected rows
+      // may still arrive without one — nothing for chat-ui to attribute.
+      args.log.info(
+        { screenshot_id: args.screenshotId, user_id: args.userId },
+        "[HourlyBillingPusher] skip: screenshot has no subProjectId",
+      );
+      return;
+    }
+    const subProjectId = args.subProjectId;
 
-    // Read session.subProjectId + counters in one round-trip.
+    // Per-session counters used to compute per-slot deltas. The mouse signal
+    // comes from total_mouse_events (editor-focus changes), wired in
+    // migration 0015. Kb signal is total_keystrokes (already there).
     const [session] = await this.db
       .select({
-        subProjectId: activitySessions.subProjectId,
         totalKeystrokes: activitySessions.totalKeystrokes,
-        totalMouseHits: activitySessions.totalMouseHits,
+        totalMouseEvents: activitySessions.totalMouseEvents,
       })
       .from(activitySessions)
       .where(eq(activitySessions.id, args.sessionId))
@@ -127,20 +146,11 @@ export class HourlyBillingPusher {
       );
       return;
     }
-    if (!session.subProjectId) {
-      // Most common skip path until clients start sending subProjectId on
-      // heartbeats. Logged at debug-equivalent (info) so it doesn't spam.
-      args.log.info(
-        { session_id: args.sessionId },
-        "[HourlyBillingPusher] skip: session has no subProjectId — heartbeat hasn't reported one yet",
-      );
-      return;
-    }
 
-    const status = await this.getCachedStatus(session.subProjectId, args.platformUserId);
+    const status = await this.getCachedStatus(subProjectId, args.platformUserId);
     if (!status.isHourly) {
       args.log.info(
-        { sub_project_id: session.subProjectId, lancer_user_id: args.platformUserId },
+        { sub_project_id: subProjectId, lancer_user_id: args.platformUserId },
         "[HourlyBillingPusher] skip: sub-project is not hourly (or status unavailable)",
       );
       return;
@@ -148,7 +158,7 @@ export class HourlyBillingPusher {
     if (status.suspended || status.limitReached) {
       args.log.info(
         {
-          sub_project_id: session.subProjectId,
+          sub_project_id: subProjectId,
           lancer_user_id: args.platformUserId,
           suspended: status.suspended,
           limit_reached: status.limitReached,
@@ -170,7 +180,7 @@ export class HourlyBillingPusher {
       .insert(hourlySlotPushes)
       .values({
         userId: args.userId,
-        subProjectId: session.subProjectId,
+        subProjectId: subProjectId,
         slotStart,
         lancerUserId: args.platformUserId,
         keystrokesAtPush: 0,
@@ -183,7 +193,7 @@ export class HourlyBillingPusher {
     if (claimed.length === 0) {
       args.log.info(
         {
-          sub_project_id: session.subProjectId,
+          sub_project_id: subProjectId,
           slot_start: slotStartIso,
           screenshot_id: args.screenshotId,
         },
@@ -203,7 +213,7 @@ export class HourlyBillingPusher {
       .where(
         and(
           eq(hourlySlotPushes.userId, args.userId),
-          eq(hourlySlotPushes.subProjectId, session.subProjectId),
+          eq(hourlySlotPushes.subProjectId, subProjectId),
           lt(hourlySlotPushes.slotStart, slotStart),
         ),
       )
@@ -213,17 +223,17 @@ export class HourlyBillingPusher {
     const prevKb = prev?.keystrokesAtPush ?? 0;
     const prevMouse = prev?.mouseHitsAtPush ?? 0;
     const kbDelta = Math.max(0, session.totalKeystrokes - prevKb);
-    const mouseDelta = Math.max(0, session.totalMouseHits - prevMouse);
+    const mouseDelta = Math.max(0, session.totalMouseEvents - prevMouse);
     // Match the extension's old activity baseline: 15 events per minute per slot
     // == 100%. Clamp at 100.
     const slotMinutes = SLOT_DURATION_MS / 60_000;
     const baseline = Math.max(1, slotMinutes * 15);
     const activityPercent = Math.min(100, Math.round(((kbDelta + mouseDelta) / baseline) * 100));
 
-    const slotId = `${session.subProjectId}:${args.platformUserId}:${slotStartIso}`;
+    const slotId = `${subProjectId}:${args.platformUserId}:${slotStartIso}`;
     const payload = {
       slot_id: slotId,
-      sub_project_id: session.subProjectId,
+      sub_project_id: subProjectId,
       lancer_user_id: args.platformUserId,
       slot_start: slotStartIso,
       screenshot_url: args.screenshotUrl,
@@ -242,20 +252,20 @@ export class HourlyBillingPusher {
         .update(hourlySlotPushes)
         .set({
           keystrokesAtPush: session.totalKeystrokes,
-          mouseHitsAtPush: session.totalMouseHits,
+          mouseHitsAtPush: session.totalMouseEvents,
           screenshotId: args.screenshotId,
           pushedAt: new Date(),
         })
         .where(
           and(
             eq(hourlySlotPushes.userId, args.userId),
-            eq(hourlySlotPushes.subProjectId, session.subProjectId),
+            eq(hourlySlotPushes.subProjectId, subProjectId),
             eq(hourlySlotPushes.slotStart, slotStart),
           ),
         );
       args.log.info(
         {
-          sub_project_id: session.subProjectId,
+          sub_project_id: subProjectId,
           lancer_user_id: args.platformUserId,
           slot_id: slotId,
           kb: kbDelta,
@@ -273,7 +283,7 @@ export class HourlyBillingPusher {
         .where(
           and(
             eq(hourlySlotPushes.userId, args.userId),
-            eq(hourlySlotPushes.subProjectId, session.subProjectId),
+            eq(hourlySlotPushes.subProjectId, subProjectId),
             eq(hourlySlotPushes.slotStart, slotStart),
           ),
         );

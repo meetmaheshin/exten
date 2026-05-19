@@ -5,15 +5,21 @@ import type { ApiClient } from "./ApiClient";
 import type { ActivityTracker } from "./ActivityTracker";
 import type { ConfigStore } from "./ConfigStore";
 import type { TelemetryService } from "./TelemetryService";
+import type { ProjectService } from "./ProjectService";
 
 export class ScreenCaptureService {
   private captureInterval: ReturnType<typeof setInterval> | null = null;
+  /** Last time the "no project selected" warning was shown — throttled to
+   *  one per 15 min so the 5-min capture cadence doesn't spam the user. */
+  private lastNoProjectWarnAt = 0;
+  private static readonly NO_PROJECT_WARN_INTERVAL_MS = 15 * 60 * 1000;
 
   constructor(
     private apiClient: ApiClient,
     private activityTracker: ActivityTracker,
     private configStore: ConfigStore,
-    private telemetryService: TelemetryService
+    private telemetryService: TelemetryService,
+    private projectService: ProjectService,
   ) {}
 
   start(): void {
@@ -38,6 +44,26 @@ export class ScreenCaptureService {
 
     const sessionId = this.telemetryService.sessionId;
     if (!sessionId) return;
+
+    // Sub-project gate: every screenshot must be attributed to a sub-project
+    // for chat-ui billing. If none is selected, refuse the capture and warn
+    // the user — throttled to one notification per 15 min.
+    const subProjectId = this.projectService.activeSubProjectId;
+    if (!subProjectId) {
+      const now = Date.now();
+      if (now - this.lastNoProjectWarnAt > ScreenCaptureService.NO_PROJECT_WARN_INTERVAL_MS) {
+        this.lastNoProjectWarnAt = now;
+        if (Notification.isSupported()) {
+          new Notification({
+            title: "Ailancers Tracker",
+            body: "No sub-project selected. Your time is NOT being counted. Right-click the tray icon → Select Project/Task.",
+            icon: getIconPath(),
+          }).show();
+        }
+      }
+      log.warn("[ScreenCapture] Skipping capture — no sub-project selected");
+      return;
+    }
 
     try {
       const sources = await desktopCapturer.getSources({
@@ -72,6 +98,7 @@ export class ScreenCaptureService {
         filename,
         imageBase64,
         capturedAt: new Date().toISOString(),
+        subProjectId,
       });
 
       log.info(`[ScreenCapture] Captured and uploaded (${(pngBuffer.length / 1024).toFixed(0)}KB) — id=${result.id}`);

@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, integer, timestamp, index, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, text, integer, timestamp, index, primaryKey } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { users } from "./users.js";
 import { screenshots } from "./screenshots.js";
@@ -9,7 +9,9 @@ export const hourlySlotPushes = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    subProjectId: uuid("sub_project_id").notNull(),
+    // varchar(64) — matches screenshots.sub_project_id type. See migration
+    // 0014. Platform UUIDs flow as strings throughout the codebase.
+    subProjectId: varchar("sub_project_id", { length: 64 }).notNull(),
     slotStart: timestamp("slot_start", { withTimezone: true }).notNull(),
     lancerUserId: text("lancer_user_id").notNull(),
     keystrokesAtPush: integer("keystrokes_at_push").notNull().default(0),

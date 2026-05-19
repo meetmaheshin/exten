@@ -223,8 +223,8 @@ export async function buildApp(env: Env, db: Database) {
   // both); the tracker compares its installed app.getVersion() to the
   // desktop field and surfaces "Update available" in its tray menu.
   app.get("/api/version", async () => ({
-    extension: { version: "0.2.19", downloadUrl: "https://apivscode.ailancers.com/dashboard/downloads/" },
-    desktop: { version: "0.2.19", downloadUrl: "https://apivscode.ailancers.com/dashboard/downloads/" },
+    extension: { version: "0.2.20", downloadUrl: "https://apivscode.ailancers.com/dashboard/downloads/" },
+    desktop: { version: "0.2.20", downloadUrl: "https://apivscode.ailancers.com/dashboard/downloads/" },
   }));
 
   // Check if user has an active session from a specific source (for duplicate detection)

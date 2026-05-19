@@ -343,7 +343,15 @@ export default function TeamSnapshotPage() {
         </div>
       ) : (
         <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-          <div style={{ overflowX: "auto" }}>
+          {/* Clamp the grid to 70vh and let it own its own scrolling — both
+              axes. Two wins:
+                - `position: sticky; top: 0` on <th> actually sticks now,
+                  because this wrapper is the nearest scrollable ancestor.
+                  Date header stays visible while the user scrolls down rows.
+                - The horizontal scrollbar lives at the bottom of THIS
+                  wrapper (which is on-screen), not at the bottom of a 100-row
+                  table that's halfway off the page. */}
+          <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "70vh" }}>
             <table style={{ borderCollapse: "collapse", fontSize: 12, width: "100%" }}>
               <thead>
                 <tr style={{ background: "var(--bg-secondary)" }}>
@@ -359,7 +367,12 @@ export default function TeamSnapshotPage() {
               </thead>
               <tbody>
                 {displayGroups.map((group) => (
-                  <ManagerBlock key={group.managerName} group={group} dates={data.dates} />
+                  <ManagerBlock
+                    key={group.managerName}
+                    group={group}
+                    dates={data.dates}
+                    showHeader={isManager}
+                  />
                 ))}
               </tbody>
             </table>
@@ -407,7 +420,14 @@ const thStyle: React.CSSProperties = {
   position: "sticky" as const,
   top: 0,
   background: "var(--bg-secondary)",
-  zIndex: 1,
+  // z-index has to clear the manager-group header rows (which use an indigo
+  // tint background and would otherwise paint over the sticky th when they
+  // scroll under it).
+  zIndex: 2,
+  // Soft shadow draws a visual edge between the pinned header and the rows
+  // sliding underneath — without it the header looks weirdly attached to
+  // whatever row is at the top of the viewport.
+  boxShadow: "0 1px 0 var(--border)",
 };
 
 const tdStyle: React.CSSProperties = {
@@ -416,10 +436,15 @@ const tdStyle: React.CSSProperties = {
   whiteSpace: "nowrap",
 };
 
-function ManagerBlock({ group, dates }: { group: SnapshotGroup; dates: string[] }) {
+function ManagerBlock({ group, dates, showHeader }: { group: SnapshotGroup; dates: string[]; showHeader: boolean }) {
   return (
     <>
-      {/* Manager header row */}
+      {/* Manager header row — only rendered when the viewer is a manager.
+          Employees viewing /team-snapshot get their own single row directly
+          (no parent group header), so they don't see their manager's name
+          or the team-bandwidth aggregate (which would just be themselves
+          and look bizarre at low utilization). */}
+      {showHeader && (
       <tr style={{ background: "rgba(99, 102, 241, 0.08)" }}>
         <td style={{ ...tdStyle, fontWeight: 700 }}>
           👤 {group.managerName} ({group.employees.length})
@@ -482,11 +507,14 @@ function ManagerBlock({ group, dates }: { group: SnapshotGroup; dates: string[] 
           );
         })}
       </tr>
+      )}
       {/* Employee rows */}
       {group.employees.map((emp) => (
         <tr key={emp.userId}>
           <td style={tdStyle}>
-            <div style={{ paddingLeft: 18 }}>
+            {/* Indent under the manager-header bar when one is shown;
+                no indent when the viewer is an employee (no header above). */}
+            <div style={{ paddingLeft: showHeader ? 18 : 0 }}>
               <span style={{ fontWeight: 500 }}>{emp.fullName || emp.email}</span>
               {emp.isOwnManager && (
                 <span

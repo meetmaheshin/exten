@@ -15,10 +15,11 @@ export const activitySessions = pgTable(
     activeSeconds: integer("active_seconds").notNull().default(0),
     idleSeconds: integer("idle_seconds").notNull().default(0),
     totalKeystrokes: integer("total_keystrokes").notNull().default(0),
-    // Added by parallel migration (companion PR). Mouse-click counter
-    // accumulates from heartbeat body.mouseHitCount; chat-ui's hourly
-    // billing snapshots expect kb+mouse to compute activity_percent.
-    totalMouseHits: integer("total_mouse_hits").notNull().default(0),
+    // Editor-focus changes — proxy for mouse activity in the VS Code
+    // extension. Updates per heartbeat. See migration 0015. Also doubles
+    // as the mouse_hits signal HourlyBillingPusher sends to chat-ui for
+    // the activity_percent calculation.
+    totalMouseEvents: integer("total_mouse_events").notNull().default(0),
     totalFileSaves: integer("total_file_saves").notNull().default(0),
     totalFileChanges: integer("total_file_changes").notNull().default(0),
     filesTouched: jsonb("files_touched").default([]),
@@ -34,12 +35,6 @@ export const activitySessions = pgTable(
     // External platform project/task being worked on during this session
     externalProjectId: integer("external_project_id").references(() => externalProjects.id, { onDelete: "set null" }),
     externalTaskId: integer("external_task_id").references(() => externalTasks.id, { onDelete: "set null" }),
-    // chat-ui (Ailancers platform v2) sub-project UUID — sent by the tracker
-    // on heartbeats and persisted here. Used by HourlyBillingPusher to
-    // identify which sub-project a screenshot belongs to so it can be
-    // pushed to chat-ui's /hourly-billing/snapshots. Added by parallel
-    // migration (companion PR).
-    subProjectId: uuid("sub_project_id"),
     // Wall-clock anchor for the heartbeat clamp — replaces a query against
     // telemetry_events. Updated on every heartbeat.
     lastHeartbeatAt: timestamp("last_heartbeat_at", { withTimezone: true }),

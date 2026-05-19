@@ -191,6 +191,7 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
         date: sql<string>`date(${activitySessions.startedAt})`,
         totalIdleSeconds: sql<number>`coalesce(sum(least(${activitySessions.idleSeconds}, 86400)), 0)::int`,
         totalKeystrokes: sql<number>`coalesce(sum(${activitySessions.totalKeystrokes}), 0)::int`,
+        totalMouseEvents: sql<number>`coalesce(sum(${activitySessions.totalMouseEvents}), 0)::int`,
         totalFileSaves: sql<number>`coalesce(sum(${activitySessions.totalFileSaves}), 0)::int`,
         sessionCount: sql<number>`count(*)::int`,
       })
@@ -224,6 +225,7 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
           date,
           totalIdleSeconds: 0,
           totalKeystrokes: 0,
+          totalMouseEvents: 0,
           totalFileSaves: 0,
           sessionCount: 0,
           totalActiveSeconds: activeSeconds,

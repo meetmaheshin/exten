@@ -39,8 +39,11 @@ app.whenReady().then(async () => {
   const systemIdle = new SystemIdleService();
   const activityTracker = new ActivityTracker(systemIdle, configStore);
   const telemetryService = new TelemetryService(apiClient, activityTracker, configStore);
-  const screenCapture = new ScreenCaptureService(apiClient, activityTracker, configStore, telemetryService);
+  // projectService must be constructed BEFORE screenCapture — the capture
+  // pipeline reads activeSubProjectId on every tick and refuses to upload
+  // when nothing is selected.
   const projectService = new ProjectService(authService);
+  const screenCapture = new ScreenCaptureService(apiClient, activityTracker, configStore, telemetryService, projectService);
 
   // Use Electron's built-in idle detection (more reliable than PowerShell)
   systemIdle.setElectronIdleProvider(() => powerMonitor.getSystemIdleTime());

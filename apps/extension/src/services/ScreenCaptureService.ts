@@ -32,6 +32,10 @@ interface PendingUpload {
   capturedAt: string;
   metadata: Record<string, unknown>;
   attempts: number;
+  /** Sub-project the screenshot was attributed to at capture time.
+   *  Pinned with the queued item so retries don't get reassigned if
+   *  the user switches projects between attempts. */
+  subProjectId: string;
 }
 
 const MAX_QUEUE_SIZE = 20;     // Cap memory; oldest dropped if exceeded
@@ -59,9 +63,19 @@ export class ScreenCaptureService implements vscode.Disposable {
      *  rogue call to `start()` after logout (e.g. the midnight reset firing
      *  with a stale closure) doesn't keep capturing on a logged-out user. */
     private isAuthenticated?: () => boolean,
+    /** Read-only getter for the currently-selected sub-project ID. The
+     *  chat-ui billing pipeline requires every screenshot to be attributed
+     *  to one sub-project; when this returns null we refuse the capture
+     *  entirely and warn the user once. */
+    private getSubProjectId?: () => string | null,
   ) {
     this.screenshotDir = path.join(extensionContext.globalStorageUri.fsPath, "screenshots");
   }
+  /** Last time we warned the user that no sub-project is selected. Used
+   *  to throttle the warning to at most once every 15 minutes — the
+   *  5-min capture cadence would otherwise spam them on every tick. */
+  private lastNoProjectWarnAt = 0;
+  private static readonly NO_PROJECT_WARN_INTERVAL_MS = 15 * 60 * 1000;
 
   async start(sessionId: string): Promise<void> {
     // Refuse to start when the user isn't authenticated. Defends against
@@ -133,6 +147,25 @@ export class ScreenCaptureService implements vscode.Disposable {
     // taking the screenshot in the first place (saves battery + disk).
     if (this.disabledByAdmin) return null;
 
+    // Sub-project gate: every screenshot must be attributed to a sub-project
+    // for chat-ui billing. If the user hasn't picked one, refuse the capture
+    // entirely and warn them — once every 15 min so we don't spam.
+    const subProjectId = this.getSubProjectId?.() ?? null;
+    if (!subProjectId) {
+      const now = Date.now();
+      if (now - this.lastNoProjectWarnAt > ScreenCaptureService.NO_PROJECT_WARN_INTERVAL_MS) {
+        this.lastNoProjectWarnAt = now;
+        const choice = await vscode.window.showWarningMessage(
+          "Ailancers: no sub-project selected. Your time is NOT being counted.",
+          "Select Project",
+        );
+        if (choice === "Select Project") {
+          vscode.commands.executeCommand("ailancers.selectProject").then(undefined, () => {});
+        }
+      }
+      return null;
+    }
+
     this.isCapturing = true;
 
     try {
@@ -189,7 +222,7 @@ export class ScreenCaptureService implements vscode.Disposable {
       };
 
       // 3. Try the upload. On failure, push to retry queue instead of dropping.
-      const screenshotId = await this.tryUpload({ filePath, capturedAt, metadata, attempts: 1 });
+      const screenshotId = await this.tryUpload({ filePath, capturedAt, metadata, attempts: 1, subProjectId });
 
       // 4. Show notification with delete option (only on successful upload).
       // User can silence this per-capture toast via the
@@ -248,6 +281,7 @@ export class ScreenCaptureService implements vscode.Disposable {
         imageBase64: base64Data,
         capturedAt: item.capturedAt,
         metadata: item.metadata,
+        subProjectId: item.subProjectId,
       });
       return resp.id || null;
     } catch (err) {

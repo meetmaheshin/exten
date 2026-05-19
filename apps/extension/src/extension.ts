@@ -60,6 +60,8 @@ export async function activate(context: vscode.ExtensionContext) {
     apiClient,
     activityTracker,
     () => authService.isAuthenticated,
+    // Sub-project getter for the capture pipeline. Refuses captures when null.
+    () => projectPicker.activeSelection?.subProjectId ?? null,
   );
   const autoStartService = new AutoStartService(context);
 
@@ -493,7 +495,7 @@ export async function activate(context: vscode.ExtensionContext) {
   log("Ailancers Code extension activated");
 }
 
-const CURRENT_VERSION = "0.2.19";
+const CURRENT_VERSION = "0.2.20";
 
 async function checkForUpdates(apiClient: import("./services/ApiClient").ApiClient, log: (msg: string) => void): Promise<void> {
   try {

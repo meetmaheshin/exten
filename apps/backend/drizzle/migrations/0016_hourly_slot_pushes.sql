@@ -25,7 +25,10 @@
 -- naturally aligns to the new boundary.
 CREATE TABLE IF NOT EXISTS hourly_slot_pushes (
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  sub_project_id UUID NOT NULL,
+  -- varchar(64) mirrors screenshots.sub_project_id (migration 0014). Keeps
+  -- the "platform UUID carried as string" contract consistent across the
+  -- codebase — no implicit casts on JOINs.
+  sub_project_id VARCHAR(64) NOT NULL,
   slot_start TIMESTAMPTZ NOT NULL,
   lancer_user_id TEXT NOT NULL,
   keystrokes_at_push INTEGER NOT NULL DEFAULT 0,
