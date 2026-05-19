@@ -20,6 +20,11 @@ export const screenshots = pgTable(
     imageData: bytea("image_data"),
     fileSizeBytes: integer("file_size_bytes").notNull().default(0),
     metadata: jsonb("metadata").default({}),
+    // Sub-project the screenshot is attributed to. Chat-ui Ailancers team
+    // queries this directly for billing. NULL on historical rows that
+    // pre-date migration 0014; new rows MUST have it (capture pipeline
+    // refuses to upload when no sub-project is selected).
+    subProjectId: varchar("sub_project_id", { length: 64 }),
     capturedAt: timestamp("captured_at", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     // Soft-delete columns. Live rows have deleted_at IS NULL; payroll queries

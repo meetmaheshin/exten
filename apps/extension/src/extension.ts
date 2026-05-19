@@ -61,6 +61,8 @@ export async function activate(context: vscode.ExtensionContext) {
     apiClient,
     activityTracker,
     () => authService.isAuthenticated,
+    // Sub-project getter for the capture pipeline. Refuses captures when null.
+    () => projectPicker.activeSelection?.subProjectId ?? null,
   );
   const hourlyBillingTracker = new HourlyBillingTracker(
     context,

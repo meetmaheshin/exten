@@ -13,6 +13,10 @@ const uploadSchema = z.object({
   imageBase64: z.string(),
   capturedAt: z.string().datetime(),
   metadata: z.record(z.unknown()).optional(),
+  // Sub-project this screenshot is attributed to. Required for chat-ui
+  // billing pipeline. Captured as varchar to mirror the rest of the
+  // codebase (platform UUIDs are sent as strings).
+  subProjectId: z.string().max(64).optional().nullable(),
 });
 
 const querySchema = z.object({
@@ -75,7 +79,11 @@ export function screenshotRoutes(
       return reply.status(403).send({ error: "Session not found or unauthorized" });
     }
 
-    // Save record with image data in DB
+    // Save record with image data in DB. sub_project_id is persisted on
+    // every new row so chat-ui can directly attribute each screenshot for
+    // billing. Clients refuse to capture when no sub-project is selected,
+    // so for new rows this should be non-null in practice — but we still
+    // accept null here as a safety net (e.g. manual entries from admins).
     const [record] = await db
       .insert(screenshots)
       .values({
@@ -88,6 +96,7 @@ export function screenshotRoutes(
         fileSizeBytes: imageBuffer.length,
         metadata: body.metadata ?? {},
         capturedAt: new Date(body.capturedAt),
+        subProjectId: body.subProjectId ?? null,
       })
       .returning();
 
