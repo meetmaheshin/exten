@@ -543,7 +543,8 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
     }).parse(request.body);
 
     try {
-      // Create a manual session entry
+      // Create a manual session entry. activeSeconds on the session is kept
+      // for debugging only — payroll reads from screenshots now (count × 300).
       const startedAt = new Date(`${body.date}T09:00:00.000Z`);
       const endedAt = new Date(startedAt.getTime() + body.activeSeconds * 1000);
 
@@ -566,8 +567,17 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
         })
         .returning({ id: activitySessions.id });
 
-      // Create a blank screenshot to mark it as manual entry
-      await db.insert(screenshots).values({
+      // Create one blank "screenshot" per 5-min interval the manual entry
+      // covers. Payroll math is count(live screenshots) * 300, so for a
+      // 1-hour manual entry we need 12 placeholder rows, for 8 hours we
+      // need 96, etc. Without this, manual entries silently undercounted
+      // to a flat 5 minutes regardless of how many hours admin entered.
+      //
+      // Capped at 288 rows (a full 24h day) as a safety net — admin form
+      // already limits to 86400s, but defensive math here too.
+      const SLOT_SECONDS = 300;
+      const slotCount = Math.min(288, Math.max(1, Math.ceil(body.activeSeconds / SLOT_SECONDS)));
+      const screenshotRows = Array.from({ length: slotCount }, (_, i) => ({
         userId: body.userId,
         sessionId: session.id,
         filename: "manual-entry.png",
@@ -576,19 +586,26 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
         fileSizeBytes: 0,
         metadata: {
           manualEntry: true,
+          slotIndex: i + 1,
+          slotCount,
           addedBy: request.user.sub,
           addedByEmail: request.user.email,
           note: body.note || "Manually added by admin",
         },
-        capturedAt: startedAt,
-      });
+        // Stagger captured_at by 5 min so each "slot" sits in a distinct
+        // bucket — helps when downstream reports group screenshots by
+        // 5-min windows.
+        capturedAt: new Date(startedAt.getTime() + i * SLOT_SECONDS * 1000),
+      }));
+      await db.insert(screenshots).values(screenshotRows);
 
-      console.log(`[Activity] Manual entry: ${body.activeSeconds}s for user ${body.userId} on ${body.date} by admin ${request.user.email}`);
+      console.log(`[Activity] Manual entry: ${body.activeSeconds}s (${slotCount} slots) for user ${body.userId} on ${body.date} by admin ${request.user.email}`);
 
       return reply.send({
         ok: true,
         sessionId: session.id,
         activeSeconds: body.activeSeconds,
+        slotCount,
         date: body.date,
       });
     } catch (err) {
