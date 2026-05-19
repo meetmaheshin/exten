@@ -618,7 +618,11 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
       .limit(1);
     if (!me) return reply.status(404).send({ error: "User not found" });
 
-    // Build the date column list: from..to inclusive, today excluded, newest first
+    // Build the date column list: from..to inclusive, but cap the upper
+    // bound at YESTERDAY. Today is excluded (still in progress), and any
+    // date in the future is also excluded — without this, picking "May 2026"
+    // mid-May would render columns for May 20-31 with nobody able to have
+    // tracked yet. Sort newest-first to keep the most recent days on the left.
     const todayStr = new Date().toISOString().slice(0, 10);
     const dates: string[] = [];
     {
@@ -626,7 +630,7 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
       const end = new Date(`${query.to}T00:00:00Z`);
       for (let d = new Date(end); d >= start; d.setUTCDate(d.getUTCDate() - 1)) {
         const s = d.toISOString().slice(0, 10);
-        if (s === todayStr) continue;
+        if (s >= todayStr) continue; // skip today AND any future day
         dates.push(s);
       }
     }

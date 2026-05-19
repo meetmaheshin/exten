@@ -112,9 +112,15 @@ function monthOptions(): Array<{ value: string; label: string }> {
 function rangeForMonth(yyyymm: string): { from: string; to: string } {
   const [y, m] = yyyymm.split("-").map(Number);
   const from = `${y}-${m.toString().padStart(2, "0")}-01`;
-  // Last day of month
+  // Last day of the month (default upper bound for past months)
   const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
-  const to = `${y}-${m.toString().padStart(2, "0")}-${last.toString().padStart(2, "0")}`;
+  let to = `${y}-${m.toString().padStart(2, "0")}-${last.toString().padStart(2, "0")}`;
+  // If the chosen month is the CURRENT month, cap the upper bound at
+  // yesterday — picking "May 2026" mid-May should not render columns for
+  // dates that haven't happened yet. Backend re-clamps too as a safety
+  // net (see the date-column loop in activity.routes.ts).
+  const yesterday = dateNDaysAgo(1);
+  if (to > yesterday) to = yesterday;
   return { from, to };
 }
 
