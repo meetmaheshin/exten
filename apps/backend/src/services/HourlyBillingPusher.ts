@@ -16,10 +16,15 @@
  *   2. Resolve lancer_user_id from JWT.platformUserId. If absent → skip.
  *   3. Check /hourly-billing/status (cached ~5 min). If sub-project isn't
  *      hourly / is suspended / limit reached → skip.
- *   4. Bucket capturedAt into a 10-min slot boundary. (We intentionally
- *      ignore chat-ui's dynamic slot_duration_minutes — using a fixed
- *      bucket keeps both sides aligned as long as chat-ui's default stays
- *      10 min, which it does today. If it changes, update SLOT_DURATION_MS.)
+ *   4. Bucket capturedAt into a slot boundary using slot_duration_minutes
+ *      from the cached /status response. This auto-syncs with whatever
+ *      chat-ui's `hourly_billing_slot_duration_minutes` is set to — if it
+ *      flips from 10 to 5 (or 15), our bucket size follows on the next
+ *      cache refresh (≤5 min later). Billing math stays correct because
+ *      chat-ui multiplies `accepted_slot_rows × slot_duration_minutes` —
+ *      keeping the bucket width equal to chat-ui's slot length gives
+ *      exactly one row per slot per (sub-project, lancer) per hour and
+ *      bills the actual minutes worked, no over/under.
  *   5. INSERT a placeholder row into hourly_slot_pushes with ON CONFLICT DO
  *      NOTHING. If another push for the same slot won the race, skip.
  *   6. Compute per-slot deltas: (session.totalKeystrokes - previous slot's
@@ -39,12 +44,15 @@ import type { Database } from "../config/database.js";
 import type { HourlyTrackerReporter, TrackerStatusResponse } from "./HourlyTrackerReporter.js";
 import { activitySessions, hourlySlotPushes } from "../models/index.js";
 
-/** Slot bucket width in milliseconds. See file header for why this is fixed. */
-const SLOT_DURATION_MS = 10 * 60 * 1000;
-/** Positive-status TTL: re-check chat-ui every 5 min so suspended/limit_reached flips are seen quickly. */
+/** Positive-status TTL: re-check chat-ui every 5 min so suspended/limit_reached/slot_duration flips are seen quickly. */
 const STATUS_CACHE_TTL_MS = 5 * 60 * 1000;
 /** Negative TTL: when /status fails or returns non-hourly, back off briefly. Avoids hammering chat-ui on missing data without locking in stale "not hourly" for too long. */
 const STATUS_NEGATIVE_TTL_MS = 60 * 1000;
+/** Safety floor on slot_duration_minutes from chat-ui. Anything less than 1
+ *  min is almost certainly a config bug — clamp so we never overbill at e.g.
+ *  60 pushes/hour × 1 min × wildly-wrong-multiplier. Upper bound is omitted
+ *  on purpose: a huge slot length just means fewer pushes, never overbill. */
+const MIN_SLOT_MINUTES = 1;
 
 interface PushArgs {
   /** screenshots.id — just persisted. */
@@ -75,6 +83,10 @@ interface CachedStatus {
   isHourly: boolean;
   suspended: boolean;
   limitReached: boolean;
+  /** Bucket width in minutes from chat-ui's /status — drives our slot
+   *  bucketing so chat-ui's billing math (rows × this value) gives 60
+   *  min/hour regardless of capture cadence. */
+  slotDurationMinutes: number;
   expiresAt: number;
 }
 
@@ -168,8 +180,14 @@ export class HourlyBillingPusher {
       return;
     }
 
-    // 10-min slot bucket. floor(capturedAt / SLOT) * SLOT.
-    const slotStartMs = Math.floor(args.capturedAt.getTime() / SLOT_DURATION_MS) * SLOT_DURATION_MS;
+    // Bucket width comes from chat-ui's /status (cached). Whatever value
+    // chat-ui's hourly_billing_slot_duration_minutes config holds is what
+    // we use — keeps our claim dedup aligned with chat-ui's billing math
+    // (rows × slot_duration_minutes per hour). At 5/5 every screenshot
+    // pushes; at 10/5 every other screenshot pushes; at 5/10 each push is
+    // a unique slot.
+    const slotDurationMs = status.slotDurationMinutes * 60_000;
+    const slotStartMs = Math.floor(args.capturedAt.getTime() / slotDurationMs) * slotDurationMs;
     const slotStart = new Date(slotStartMs);
     const slotStartIso = slotStart.toISOString();
 
@@ -197,7 +215,7 @@ export class HourlyBillingPusher {
           slot_start: slotStartIso,
           screenshot_id: args.screenshotId,
         },
-        "[HourlyBillingPusher] skip: slot already pushed (another screenshot in same 10-min window)",
+        "[HourlyBillingPusher] skip: slot already pushed (another screenshot in same bucket)",
       );
       return;
     }
@@ -225,9 +243,9 @@ export class HourlyBillingPusher {
     const kbDelta = Math.max(0, session.totalKeystrokes - prevKb);
     const mouseDelta = Math.max(0, session.totalMouseEvents - prevMouse);
     // Match the extension's old activity baseline: 15 events per minute per slot
-    // == 100%. Clamp at 100.
-    const slotMinutes = SLOT_DURATION_MS / 60_000;
-    const baseline = Math.max(1, slotMinutes * 15);
+    // == 100%. Baseline scales with slot length so a 10-min slot needs 150
+    // events for 100%, a 5-min slot needs 75. Clamp at 100.
+    const baseline = Math.max(1, status.slotDurationMinutes * 15);
     const activityPercent = Math.min(100, Math.round(((kbDelta + mouseDelta) / baseline) * 100));
 
     const slotId = `${subProjectId}:${args.platformUserId}:${slotStartIso}`;
@@ -277,33 +295,54 @@ export class HourlyBillingPusher {
         "[HourlyBillingPusher] pushed snapshot",
       );
     } catch (err) {
-      // Roll back the claim so the next screenshot in this slot will retry.
-      await this.db
-        .delete(hourlySlotPushes)
-        .where(
-          and(
-            eq(hourlySlotPushes.userId, args.userId),
-            eq(hourlySlotPushes.subProjectId, subProjectId),
-            eq(hourlySlotPushes.slotStart, slotStart),
-          ),
-        );
       const e = err as Error & { statusCode?: number; body?: string };
-      args.log.error(
-        {
-          slot_id: slotId,
-          status: e.statusCode,
-          body: e.body,
-          message: e.message,
-        },
-        "[HourlyBillingPusher] push failed — claim rolled back, will retry on next screenshot",
-      );
+      // Distinguish transient vs semantic failures:
+      //
+      // 5xx / network: transient — chat-ui is down or flaking. Roll back
+      //   the claim so the NEXT screenshot in this same slot retries the
+      //   push. The 5-min capture cadence doubles as retry redundancy.
+      //
+      // 4xx (incl. "not hourly", "suspended", "limit reached"): semantic —
+      //   chat-ui has rejected this slot on policy grounds. Retrying with
+      //   the same payload will get the same 4xx, so we KEEP the claim row
+      //   (subsequent screenshots in this slot become no-ops) AND
+      //   invalidate the status cache so the next slot re-fetches the
+      //   current billing config. Prevents thrashing chat-ui with rejected
+      //   pushes when a sub-project flips HOURLY → FIXED mid-session.
+      const isTransient =
+        e.statusCode === undefined || // network / no HTTP response
+        e.statusCode === 408 ||
+        e.statusCode === 429 ||
+        (e.statusCode >= 500 && e.statusCode < 600);
+      if (isTransient) {
+        await this.db
+          .delete(hourlySlotPushes)
+          .where(
+            and(
+              eq(hourlySlotPushes.userId, args.userId),
+              eq(hourlySlotPushes.subProjectId, subProjectId),
+              eq(hourlySlotPushes.slotStart, slotStart),
+            ),
+          );
+        args.log.error(
+          { slot_id: slotId, status: e.statusCode, body: e.body, message: e.message },
+          "[HourlyBillingPusher] push failed (transient) — claim rolled back, will retry on next screenshot",
+        );
+      } else {
+        // Drop the cached status so the next push re-asks chat-ui.
+        this.statusCache.delete(`${subProjectId}|${args.platformUserId}`);
+        args.log.error(
+          { slot_id: slotId, status: e.statusCode, body: e.body, message: e.message },
+          "[HourlyBillingPusher] push rejected (semantic) — claim retained, status cache invalidated",
+        );
+      }
     }
   }
 
   private async getCachedStatus(
     subProjectId: string,
     lancerUserId: string,
-  ): Promise<{ isHourly: boolean; suspended: boolean; limitReached: boolean }> {
+  ): Promise<CachedStatus> {
     const key = `${subProjectId}|${lancerUserId}`;
     const now = Date.now();
     const cached = this.statusCache.get(key);
@@ -313,23 +352,32 @@ export class HourlyBillingPusher {
     const fresh = await this.reporter.getStatus(subProjectId, lancerUserId);
     if (!fresh) {
       // Negative cache so we don't hammer chat-ui when it's down. Same
-      // record shape as a successful "not hourly" — both cause skip.
+      // record shape as a successful "not hourly" — both cause skip. The
+      // slot_duration_minutes value on this record is never read (isHourly
+      // gates the push), so any positive number works as a placeholder.
       const fallback: CachedStatus = {
         isHourly: false,
         suspended: false,
         limitReached: false,
+        slotDurationMinutes: MIN_SLOT_MINUTES,
         expiresAt: now + STATUS_NEGATIVE_TTL_MS,
       };
       this.statusCache.set(key, fallback);
       return fallback;
     }
-    // Note: deliberately not reading fresh.slot_duration_minutes — see file
-    // header comment. SLOT_DURATION_MS is our authority.
+    // Floor at MIN_SLOT_MINUTES — protects against a chat-ui config bug
+    // returning 0 or a negative which would either crash the floor() math
+    // or turn every screenshot into a unique slot (massive overbill).
+    const slotDurationMinutes = Math.max(
+      MIN_SLOT_MINUTES,
+      Math.floor(fresh.slot_duration_minutes ?? MIN_SLOT_MINUTES),
+    );
     const ttl = fresh.is_hourly ? STATUS_CACHE_TTL_MS : STATUS_NEGATIVE_TTL_MS;
     const record: CachedStatus = {
       isHourly: fresh.is_hourly,
       suspended: !!fresh.suspended,
       limitReached: !!fresh.limit_reached,
+      slotDurationMinutes,
       expiresAt: now + ttl,
     };
     this.statusCache.set(key, record);
