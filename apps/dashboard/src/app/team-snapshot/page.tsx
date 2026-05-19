@@ -367,7 +367,12 @@ export default function TeamSnapshotPage() {
               </thead>
               <tbody>
                 {displayGroups.map((group) => (
-                  <ManagerBlock key={group.managerName} group={group} dates={data.dates} />
+                  <ManagerBlock
+                    key={group.managerName}
+                    group={group}
+                    dates={data.dates}
+                    showHeader={isManager}
+                  />
                 ))}
               </tbody>
             </table>
@@ -431,10 +436,15 @@ const tdStyle: React.CSSProperties = {
   whiteSpace: "nowrap",
 };
 
-function ManagerBlock({ group, dates }: { group: SnapshotGroup; dates: string[] }) {
+function ManagerBlock({ group, dates, showHeader }: { group: SnapshotGroup; dates: string[]; showHeader: boolean }) {
   return (
     <>
-      {/* Manager header row */}
+      {/* Manager header row — only rendered when the viewer is a manager.
+          Employees viewing /team-snapshot get their own single row directly
+          (no parent group header), so they don't see their manager's name
+          or the team-bandwidth aggregate (which would just be themselves
+          and look bizarre at low utilization). */}
+      {showHeader && (
       <tr style={{ background: "rgba(99, 102, 241, 0.08)" }}>
         <td style={{ ...tdStyle, fontWeight: 700 }}>
           👤 {group.managerName} ({group.employees.length})
@@ -497,11 +507,14 @@ function ManagerBlock({ group, dates }: { group: SnapshotGroup; dates: string[] 
           );
         })}
       </tr>
+      )}
       {/* Employee rows */}
       {group.employees.map((emp) => (
         <tr key={emp.userId}>
           <td style={tdStyle}>
-            <div style={{ paddingLeft: 18 }}>
+            {/* Indent under the manager-header bar when one is shown;
+                no indent when the viewer is an employee (no header above). */}
+            <div style={{ paddingLeft: showHeader ? 18 : 0 }}>
               <span style={{ fontWeight: 500 }}>{emp.fullName || emp.email}</span>
               {emp.isOwnManager && (
                 <span
