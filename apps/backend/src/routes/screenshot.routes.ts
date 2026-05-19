@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { eq, desc, and, gte, lte, inArray, sql, isNull } from "drizzle-orm";
+import { eq, desc, and, gte, lte, inArray, sql, isNull, isNotNull } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../middleware/requireAuth.js";
 import type { AuthService } from "../services/AuthService.js";
 import type { Database } from "../config/database.js";
@@ -110,7 +110,17 @@ export function screenshotRoutes(
     // isNull(deletedAt) — hide soft-deleted shots from user-facing listings.
     // Payroll-impacting reads must do the same; deleted rows are kept only for
     // audit trail, not for display.
-    const conditions = [eq(screenshots.userId, request.user.sub), isNull(screenshots.deletedAt)];
+    //
+    // isNotNull(imageData) — hide manual-entry placeholder rows. They carry
+    // filename "manual-entry.png" but no actual PNG bytes; the image-serve
+    // endpoint 404's them, which floods the browser console with broken-
+    // image errors in the gallery. Placeholders still count toward billable
+    // seconds (count × 300), they just don't show up as thumbnails.
+    const conditions = [
+      eq(screenshots.userId, request.user.sub),
+      isNull(screenshots.deletedAt),
+      isNotNull(screenshots.imageData),
+    ];
     if (query.from) conditions.push(gte(screenshots.capturedAt, new Date(query.from)));
     if (query.to) conditions.push(lte(screenshots.capturedAt, new Date(query.to)));
     if (query.sessionId) conditions.push(eq(screenshots.sessionId, query.sessionId));
@@ -144,8 +154,9 @@ export function screenshotRoutes(
 
     // Admins also see only live screenshots by default. If we ever want a
     // dedicated "audit deleted" view we can add ?includeDeleted=true; for now
-    // every payroll-impacting read filters identically.
-    const conditions = [isNull(screenshots.deletedAt)];
+    // every payroll-impacting read filters identically. isNotNull(imageData)
+    // also skips manual-entry placeholders — same reason as in /me listing.
+    const conditions = [isNull(screenshots.deletedAt), isNotNull(screenshots.imageData)];
     if (query.userId) conditions.push(eq(screenshots.userId, query.userId));
     if (query.from) conditions.push(gte(screenshots.capturedAt, new Date(query.from)));
     if (query.to) conditions.push(lte(screenshots.capturedAt, new Date(query.to)));
