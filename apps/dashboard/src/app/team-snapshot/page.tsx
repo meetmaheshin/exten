@@ -343,7 +343,15 @@ export default function TeamSnapshotPage() {
         </div>
       ) : (
         <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-          <div style={{ overflowX: "auto" }}>
+          {/* Clamp the grid to 70vh and let it own its own scrolling — both
+              axes. Two wins:
+                - `position: sticky; top: 0` on <th> actually sticks now,
+                  because this wrapper is the nearest scrollable ancestor.
+                  Date header stays visible while the user scrolls down rows.
+                - The horizontal scrollbar lives at the bottom of THIS
+                  wrapper (which is on-screen), not at the bottom of a 100-row
+                  table that's halfway off the page. */}
+          <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "70vh" }}>
             <table style={{ borderCollapse: "collapse", fontSize: 12, width: "100%" }}>
               <thead>
                 <tr style={{ background: "var(--bg-secondary)" }}>
@@ -407,7 +415,14 @@ const thStyle: React.CSSProperties = {
   position: "sticky" as const,
   top: 0,
   background: "var(--bg-secondary)",
-  zIndex: 1,
+  // z-index has to clear the manager-group header rows (which use an indigo
+  // tint background and would otherwise paint over the sticky th when they
+  // scroll under it).
+  zIndex: 2,
+  // Soft shadow draws a visual edge between the pinned header and the rows
+  // sliding underneath — without it the header looks weirdly attached to
+  // whatever row is at the top of the viewport.
+  boxShadow: "0 1px 0 var(--border)",
 };
 
 const tdStyle: React.CSSProperties = {
