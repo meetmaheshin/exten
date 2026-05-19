@@ -2,13 +2,11 @@ import * as vscode from "vscode";
 import type { AuthService } from "../services/AuthService";
 import type { ActivityTracker } from "../services/ActivityTracker";
 import type { ProjectPickerService } from "../services/ProjectPickerService";
-import type { HourlyBillingTracker } from "../services/HourlyBillingTracker";
 
 export class StatusBarProvider implements vscode.Disposable {
   private signInItem: vscode.StatusBarItem;
   private statusBarItem: vscode.StatusBarItem;
   private projectBarItem: vscode.StatusBarItem;
-  private trackerBarItem: vscode.StatusBarItem;
   private attentionItem: vscode.StatusBarItem;
   private attentionState: "none" | "pending" | "done" = "none";
   /** True while an agent stream is actively running. Takes priority over
@@ -24,7 +22,6 @@ export class StatusBarProvider implements vscode.Disposable {
     private authService: AuthService,
     private activityTracker: ActivityTracker,
     private projectPicker: ProjectPickerService,
-    private hourlyBillingTracker?: HourlyBillingTracker,
   ) {
     // Highest priority: a hard-to-miss yellow Sign in button shown only when
     // not authenticated. Separate from statusBarItem so its presence is the
@@ -42,10 +39,6 @@ export class StatusBarProvider implements vscode.Disposable {
     // Left side (next to it): active project/task
     this.projectBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 99);
     this.projectBarItem.command = "ailancers.selectProject";
-
-    // Hourly billing tracker state — only shown for HOURLY sub-projects
-    this.trackerBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 98);
-    this.trackerBarItem.command = "ailancers.openChat";
 
     // Attention indicator — shown only when the chat is hidden AND something
     // needs the user (permission pending or stream completed). Click → open chat.
@@ -128,7 +121,6 @@ export class StatusBarProvider implements vscode.Disposable {
       this.signInItem.show();
       this.statusBarItem.hide();
       this.projectBarItem.hide();
-      this.trackerBarItem.hide();
       this.attentionItem.hide();
       return;
     }
@@ -166,46 +158,6 @@ export class StatusBarProvider implements vscode.Disposable {
       this.projectBarItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
     }
     this.projectBarItem.show();
-
-    this.refreshTrackerBar();
-  }
-
-  private refreshTrackerBar(): void {
-    if (!this.hourlyBillingTracker) {
-      this.trackerBarItem.hide();
-      return;
-    }
-    const status = this.hourlyBillingTracker.status;
-    if (!status || !status.is_hourly) {
-      this.trackerBarItem.hide();
-      return;
-    }
-
-    const used = (status.weekly_hours_used ?? 0).toFixed(1);
-    const limit = status.weekly_hour_limit ?? 0;
-    const spendStr =
-      typeof status.weekly_spend_estimate === "number"
-        ? `$${status.weekly_spend_estimate.toFixed(2)}`
-        : "";
-
-    if (status.suspended || status.billing_status === "SUSPENDED") {
-      this.trackerBarItem.text = "$(warning) Tracker SUSPENDED";
-      this.trackerBarItem.tooltip = "Hourly billing is suspended (payment failed). Tracking will resume once payment is restored.";
-      this.trackerBarItem.backgroundColor = new vscode.ThemeColor("statusBarItem.errorBackground");
-    } else if (status.limit_reached) {
-      this.trackerBarItem.text = `$(warning) Limit reached ${used}/${limit}h`;
-      this.trackerBarItem.tooltip = "Weekly hour limit reached. Tracking will resume next week.";
-      this.trackerBarItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
-    } else if (this.hourlyBillingTracker.isTracking) {
-      this.trackerBarItem.text = `$(record) Tracking ${used}/${limit}h${spendStr ? ` · ${spendStr}` : ""}`;
-      this.trackerBarItem.tooltip = `Hourly tracker active\nThis week: ${used} / ${limit} hrs${spendStr ? `\nEstimate: ${spendStr}` : ""}`;
-      this.trackerBarItem.backgroundColor = undefined;
-    } else {
-      this.trackerBarItem.text = `$(circle-outline) Tracker idle ${used}/${limit}h`;
-      this.trackerBarItem.tooltip = "Hourly tracker is idle (between slots)";
-      this.trackerBarItem.backgroundColor = undefined;
-    }
-    this.trackerBarItem.show();
   }
 
   dispose(): void {
@@ -214,7 +166,6 @@ export class StatusBarProvider implements vscode.Disposable {
     this.signInItem.dispose();
     this.statusBarItem.dispose();
     this.projectBarItem.dispose();
-    this.trackerBarItem.dispose();
     this.attentionItem.dispose();
     for (const d of this.disposables) d.dispose();
   }

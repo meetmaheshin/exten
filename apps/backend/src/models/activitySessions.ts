@@ -16,7 +16,9 @@ export const activitySessions = pgTable(
     idleSeconds: integer("idle_seconds").notNull().default(0),
     totalKeystrokes: integer("total_keystrokes").notNull().default(0),
     // Editor-focus changes — proxy for mouse activity in the VS Code
-    // extension. Updates per heartbeat. See migration 0015.
+    // extension. Updates per heartbeat. See migration 0015. Also doubles
+    // as the mouse_hits signal HourlyBillingPusher sends to chat-ui for
+    // the activity_percent calculation.
     totalMouseEvents: integer("total_mouse_events").notNull().default(0),
     totalFileSaves: integer("total_file_saves").notNull().default(0),
     totalFileChanges: integer("total_file_changes").notNull().default(0),

@@ -9,7 +9,6 @@ import { HookRunner } from "./services/HookRunner";
 import { ActivityTracker } from "./services/ActivityTracker";
 import { TelemetryService } from "./services/TelemetryService";
 import { ScreenCaptureService } from "./services/ScreenCaptureService";
-import { HourlyBillingTracker } from "./services/HourlyBillingTracker";
 import { SystemIdleService } from "./services/SystemIdleService";
 import { AutoStartService } from "./services/AutoStartService";
 import { ProjectPickerService } from "./services/ProjectPickerService";
@@ -64,13 +63,6 @@ export async function activate(context: vscode.ExtensionContext) {
     // Sub-project getter for the capture pipeline. Refuses captures when null.
     () => projectPicker.activeSelection?.subProjectId ?? null,
   );
-  const hourlyBillingTracker = new HourlyBillingTracker(
-    context,
-    apiClient,
-    authService,
-    projectPicker,
-    activityTracker,
-  );
   const autoStartService = new AutoStartService(context);
 
   // Register sidebar webview
@@ -90,7 +82,6 @@ export async function activate(context: vscode.ExtensionContext) {
     authService,
     activityTracker,
     projectPicker,
-    hourlyBillingTracker,
   );
   context.subscriptions.push(statusBar, projectPicker);
 
@@ -414,7 +405,6 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     activityTracker,
     screenCaptureService,
-    hourlyBillingTracker,
     { dispose: () => systemIdleService.dispose() },
   );
 
@@ -427,14 +417,7 @@ export async function activate(context: vscode.ExtensionContext) {
     if (sessionId) {
       screenCaptureService.start(sessionId);
       log("Screen capture started");
-      // Hourly billing tracker uses the same telemetry session id to upload
-      // its slot screenshots to the existing /api/telemetry/screenshot endpoint.
-      hourlyBillingTracker.setTelemetrySessionId(sessionId);
     }
-    // Hourly billing tracker — only activates for HOURLY sub-projects
-    hourlyBillingTracker.start().catch((err) =>
-      log(`HourlyBillingTracker start failed: ${err}`),
-    );
     // Pre-fetch user's projects in background so picker is instant
     projectPicker.fetchProjects().catch(() => {});
     // Prompt auto-start on first login
@@ -492,11 +475,7 @@ export async function activate(context: vscode.ExtensionContext) {
       wsClient.connect();
       if (sessionId) {
         screenCaptureService.start(sessionId);
-        hourlyBillingTracker.setTelemetrySessionId(sessionId);
       }
-      hourlyBillingTracker.start().catch((err) =>
-        log(`HourlyBillingTracker start failed: ${err}`),
-      );
       // Pre-cache projects after login
       projectPicker.invalidateCache();
       projectPicker.fetchProjects().catch(() => {});
@@ -506,8 +485,6 @@ export async function activate(context: vscode.ExtensionContext) {
       telemetryService.endSession();
       wsClient.disconnect();
       screenCaptureService.stop();
-      hourlyBillingTracker.stop();
-      hourlyBillingTracker.setTelemetrySessionId(null);
       projectPicker.clearSelection();
       projectPicker.invalidateCache();
     }
