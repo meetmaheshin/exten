@@ -371,16 +371,20 @@ export class ScreenCaptureService implements vscode.Disposable {
   }
 
   private async captureWindows(outputPath: string): Promise<void> {
-    // Use PowerShell to capture the active window screenshot
+    // Capture the VIRTUAL screen — the bounding rectangle that covers every
+    // monitor at its actual position (origin can be negative if a monitor
+    // sits to the left of primary, etc.). One PNG containing all displays
+    // side-by-side. The previous PrimaryScreen-only path missed work on
+    // secondary monitors entirely, leaving HR reviewers thinking the user
+    // wasn't working when they were on display #2.
     const psScript = `
       Add-Type -AssemblyName System.Windows.Forms
       Add-Type -AssemblyName System.Drawing
 
-      $screen = [System.Windows.Forms.Screen]::PrimaryScreen
-      $bounds = $screen.Bounds
-      $bitmap = New-Object System.Drawing.Bitmap($bounds.Width, $bounds.Height)
+      $vs = [System.Windows.Forms.SystemInformation]::VirtualScreen
+      $bitmap = New-Object System.Drawing.Bitmap($vs.Width, $vs.Height)
       $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-      $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+      $graphics.CopyFromScreen($vs.X, $vs.Y, 0, 0, $vs.Size)
       $bitmap.Save('${outputPath.replace(/\\/g, "\\\\")}', [System.Drawing.Imaging.ImageFormat]::Png)
       $graphics.Dispose()
       $bitmap.Dispose()
@@ -402,11 +406,17 @@ export class ScreenCaptureService implements vscode.Disposable {
   }
 
   private async captureLinux(outputPath: string): Promise<void> {
-    // Try multiple tools in order of preference
+    // Try multiple tools in order of preference. All flags below ask for the
+    // ENTIRE virtual screen (all monitors stitched), not just the active one.
+    //   - gnome-screenshot has no multi-monitor flag — captures the active
+    //     display only. Listed last as a fallback for single-monitor setups.
+    //   - scrot -m → grabs all monitors into one image (multi-monitor flag).
+    //   - import -window root → the X11 root window IS the virtual screen
+    //     spanning all monitors on most setups.
     const tools = [
-      { cmd: "gnome-screenshot", args: ["-f", outputPath] },
-      { cmd: "scrot", args: [outputPath] },
+      { cmd: "scrot", args: ["-m", outputPath] },
       { cmd: "import", args: ["-window", "root", outputPath] }, // ImageMagick
+      { cmd: "gnome-screenshot", args: ["-f", outputPath] },     // fallback, single-monitor
     ];
 
     for (const tool of tools) {
@@ -418,7 +428,7 @@ export class ScreenCaptureService implements vscode.Disposable {
       }
     }
 
-    throw new Error("No screenshot tool available. Install gnome-screenshot, scrot, or imagemagick.");
+    throw new Error("No screenshot tool available. Install scrot, imagemagick, or gnome-screenshot.");
   }
 
   // Note: the previous uploadScreenshot() helper was inlined into tryUpload()

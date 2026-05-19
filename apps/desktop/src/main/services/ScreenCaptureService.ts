@@ -1,4 +1,5 @@
-import { desktopCapturer, Notification } from "electron";
+import { desktopCapturer, nativeImage, Notification } from "electron";
+import type { NativeImage } from "electron";
 import { getIconPath } from "../paths";
 import { log } from "../logger";
 import type { ApiClient } from "./ApiClient";
@@ -66,6 +67,11 @@ export class ScreenCaptureService {
     }
 
     try {
+      // Capture EVERY display, not just sources[0]. On a multi-monitor setup
+      // the work might be on a secondary monitor while the primary shows
+      // Slack — capturing only primary leaves HR thinking the user wasn't
+      // working. Stitching all displays side-by-side puts everything in
+      // one PNG so reviewers see the whole workspace.
       const sources = await desktopCapturer.getSources({
         types: ["screen"],
         thumbnailSize: { width: 1920, height: 1080 },
@@ -76,9 +82,7 @@ export class ScreenCaptureService {
         return;
       }
 
-      const primaryScreen = sources[0];
-      const image = primaryScreen.thumbnail;
-      const pngBuffer = image.toPNG();
+      const pngBuffer = stitchScreensHorizontally(sources.map((s) => s.thumbnail));
 
       // Blank-image filter: PNG's DEFLATE compresses solid colors to almost
       // nothing. A legitimate 1080p screenshot is 200KB-2MB+; a blank/black
@@ -144,4 +148,60 @@ export class ScreenCaptureService {
   dispose(): void {
     this.stop();
   }
+}
+
+/**
+ * Stitch N display thumbnails into one wide PNG, side-by-side, left-to-right.
+ *
+ * Each `desktopCapturer` source returns a NativeImage scaled to fit the
+ * thumbnailSize we requested (1920×1080). On multi-monitor setups, the
+ * thumbnails may have slightly different sizes (Electron preserves the
+ * native aspect ratio inside the requested bounds), so we:
+ *   1) read each image's raw BGRA bitmap and size
+ *   2) compute the combined width and the max height
+ *   3) build a single Buffer the size of the composite
+ *   4) blit each source into its column, padding the bottom rows with
+ *      transparent pixels when its height < the composite max height
+ *
+ * Returns a PNG buffer. Falls back to single-screen behavior if anything
+ * goes wrong (e.g. zero-sized image) — never throws.
+ */
+function stitchScreensHorizontally(images: NativeImage[]): Buffer {
+  if (images.length === 1) return images[0].toPNG();
+
+  // Read raw BGRA bytes + dimensions for each image. Electron's
+  // toBitmap() returns a Buffer of BGRA (NOT RGBA), 4 bytes per pixel,
+  // in scanline order.
+  const tiles = images.map((img) => ({
+    bgra: img.toBitmap(),
+    size: img.getSize(),
+  })).filter((t) => t.size.width > 0 && t.size.height > 0);
+
+  if (tiles.length === 0) return images[0].toPNG();
+  if (tiles.length === 1) {
+    // Defensive: only one valid display — just return that one.
+    return nativeImage.createFromBitmap(tiles[0].bgra, tiles[0].size).toPNG();
+  }
+
+  const compositeWidth = tiles.reduce((sum, t) => sum + t.size.width, 0);
+  const compositeHeight = tiles.reduce((max, t) => Math.max(max, t.size.height), 0);
+  const composite = Buffer.alloc(compositeWidth * compositeHeight * 4); // BGRA
+
+  let xOffset = 0;
+  for (const tile of tiles) {
+    const { width, height } = tile.size;
+    // Copy each scanline of the source into the composite at its column.
+    // Composite scanlines are compositeWidth*4 bytes; source scanlines are
+    // width*4 bytes; we offset by xOffset*4 within each composite scanline.
+    for (let y = 0; y < height; y++) {
+      const srcStart = y * width * 4;
+      const dstStart = y * compositeWidth * 4 + xOffset * 4;
+      tile.bgra.copy(composite, dstStart, srcStart, srcStart + width * 4);
+    }
+    xOffset += width;
+  }
+
+  return nativeImage
+    .createFromBitmap(composite, { width: compositeWidth, height: compositeHeight })
+    .toPNG();
 }
