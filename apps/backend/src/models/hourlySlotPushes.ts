@@ -16,6 +16,11 @@ export const hourlySlotPushes = pgTable(
     lancerUserId: text("lancer_user_id").notNull(),
     keystrokesAtPush: integer("keystrokes_at_push").notNull().default(0),
     mouseHitsAtPush: integer("mouse_hits_at_push").notNull().default(0),
+    // Session-cumulative active/idle seconds at push time (migration 0017).
+    // Delta vs the previous slot's snapshot drives the activity_percent
+    // fallback when kb/mouse hooks aren't available on the desktop tracker.
+    activeSecondsAtPush: integer("active_seconds_at_push").notNull().default(0),
+    idleSecondsAtPush: integer("idle_seconds_at_push").notNull().default(0),
     screenshotId: uuid("screenshot_id").references(() => screenshots.id, {
       onDelete: "set null",
     }),

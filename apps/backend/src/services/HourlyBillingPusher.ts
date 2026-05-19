@@ -142,10 +142,16 @@ export class HourlyBillingPusher {
     // Per-session counters used to compute per-slot deltas. The mouse signal
     // comes from total_mouse_events (editor-focus changes), wired in
     // migration 0015. Kb signal is total_keystrokes (already there).
+    // active/idle seconds back-up activity_percent when the desktop tracker
+    // can't capture OS-level kb+mouse hits (no Accessibility/X11 permission)
+    // — we fall back to active-time-ratio so the engagement metric isn't
+    // stuck at 0%.
     const [session] = await this.db
       .select({
         totalKeystrokes: activitySessions.totalKeystrokes,
         totalMouseEvents: activitySessions.totalMouseEvents,
+        activeSeconds: activitySessions.activeSeconds,
+        idleSeconds: activitySessions.idleSeconds,
       })
       .from(activitySessions)
       .where(eq(activitySessions.id, args.sessionId))
@@ -220,12 +226,17 @@ export class HourlyBillingPusher {
       return;
     }
 
-    // Per-slot deltas: subtract counters at the previous successful push.
-    // Clamp at 0 in case the session restarted and totals reset.
+    // Per-slot deltas: subtract counters at the previous successful push for
+    // this (user, sub_project). Clamp at 0 in case the session restarted
+    // and totals reset. All four counters get the same delta treatment —
+    // keyboard / mouse / active_seconds / idle_seconds — so activity_percent
+    // reflects what happened DURING this slot, not session-cumulative.
     const [prev] = await this.db
       .select({
         keystrokesAtPush: hourlySlotPushes.keystrokesAtPush,
         mouseHitsAtPush: hourlySlotPushes.mouseHitsAtPush,
+        activeSecondsAtPush: hourlySlotPushes.activeSecondsAtPush,
+        idleSecondsAtPush: hourlySlotPushes.idleSecondsAtPush,
       })
       .from(hourlySlotPushes)
       .where(
@@ -240,13 +251,38 @@ export class HourlyBillingPusher {
 
     const prevKb = prev?.keystrokesAtPush ?? 0;
     const prevMouse = prev?.mouseHitsAtPush ?? 0;
+    const prevActive = prev?.activeSecondsAtPush ?? 0;
+    const prevIdle = prev?.idleSecondsAtPush ?? 0;
     const kbDelta = Math.max(0, session.totalKeystrokes - prevKb);
     const mouseDelta = Math.max(0, session.totalMouseEvents - prevMouse);
-    // Match the extension's old activity baseline: 15 events per minute per slot
-    // == 100%. Baseline scales with slot length so a 10-min slot needs 150
-    // events for 100%, a 5-min slot needs 75. Clamp at 100.
-    const baseline = Math.max(1, status.slotDurationMinutes * 15);
-    const activityPercent = Math.min(100, Math.round(((kbDelta + mouseDelta) / baseline) * 100));
+    const activeDelta = Math.max(0, session.activeSeconds - prevActive);
+    const idleDelta = Math.max(0, session.idleSeconds - prevIdle);
+
+    // activity_percent: prefer real input signal when present, fall back to
+    // per-slot active/idle ratio when the desktop tracker can't capture
+    // kb+mouse (lacks OS-level Accessibility / X11 permissions). The fallback
+    // uses SystemIdleService data, which is captured cross-platform via
+    // Electron's powerMonitor.getSystemIdleTime() — no permissions needed.
+    //
+    // Both branches now use per-slot deltas: keyboard/mouse deltas drive
+    // the primary signal, active/idle deltas drive the fallback. Either way,
+    // activity_percent reflects engagement DURING this slot only, not the
+    // session-wide average.
+    let activityPercent: number;
+    if (kbDelta + mouseDelta > 0) {
+      // Real input — original heuristic: 15 events/min == 100%. Scales with
+      // slot length (10-min slot → 150 events; 5-min slot → 75 events).
+      const baseline = Math.max(1, status.slotDurationMinutes * 15);
+      activityPercent = Math.min(100, Math.round(((kbDelta + mouseDelta) / baseline) * 100));
+    } else {
+      // Per-slot active/idle ratio. If 9 of the last 10 min were active
+      // (powerMonitor says user was at the machine), this is 90% — even
+      // if hour 1 of the session was idle.
+      const totalDelta = activeDelta + idleDelta;
+      activityPercent = totalDelta > 0
+        ? Math.min(100, Math.round((activeDelta / totalDelta) * 100))
+        : 0;
+    }
 
     const slotId = `${subProjectId}:${args.platformUserId}:${slotStartIso}`;
     const payload = {
@@ -266,11 +302,15 @@ export class HourlyBillingPusher {
     try {
       const resp = await this.reporter.pushSnapshot(payload);
       // Backfill the claim row with counters + screenshot_id + bumped pushed_at.
+      // All four counters captured so the NEXT push's delta math has the
+      // baseline it needs.
       await this.db
         .update(hourlySlotPushes)
         .set({
           keystrokesAtPush: session.totalKeystrokes,
           mouseHitsAtPush: session.totalMouseEvents,
+          activeSecondsAtPush: session.activeSeconds,
+          idleSecondsAtPush: session.idleSeconds,
           screenshotId: args.screenshotId,
           pushedAt: new Date(),
         })
