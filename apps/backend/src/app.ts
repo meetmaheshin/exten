@@ -25,6 +25,7 @@ import { activityRoutes } from "./routes/activity.routes.js";
 import { externalProjectsRoutes } from "./routes/externalProjects.routes.js";
 import { billingRoutes } from "./routes/billing.routes.js";
 import { trackerRoutes } from "./routes/tracker.routes.js";
+import { agencyRoutes } from "./routes/agency.routes.js";
 import { AppError } from "./utils/errors.js";
 import { ZodError } from "zod";
 
@@ -259,6 +260,7 @@ export async function buildApp(env: Env, db: Database) {
   externalProjectsRoutes(app, authService, db);
   billingRoutes(app, authService, billingReporter);
   trackerRoutes(app, authService, hourlyTrackerReporter, db);
+  agencyRoutes(app, env, db);
 
   return app;
 }
