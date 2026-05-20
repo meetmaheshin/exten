@@ -21,6 +21,10 @@ export class TrayManager {
   private loginWindow: BrowserWindow | null = null;
   private pickerWindow: BrowserWindow | null = null;
   private totalActiveSeconds = 0;
+  /** Heartbeat health. When "disconnected" the tray shows a warning hint
+   *  in the menu + tooltip + fires a one-shot notification (so the user
+   *  knows their time isn't being saved). */
+  private healthState: "ok" | "disconnected" = "ok";
 
   constructor(
     private authService: AuthService,
@@ -54,9 +58,16 @@ export class TrayManager {
 
     let statusLabel = "Not logged in";
     if (isAuth) {
-      statusLabel = isIdle
-        ? `Idle`
-        : `Tracking (${formatTime(this.totalActiveSeconds)})`;
+      if (this.healthState === "disconnected") {
+        // Override the normal "Tracking" / "Idle" line when heartbeats are
+        // failing — user needs to see this loudly. Time displayed is the
+        // last-known total before connectivity dropped.
+        statusLabel = `⚠ Disconnected — time not being saved`;
+      } else {
+        statusLabel = isIdle
+          ? `Idle`
+          : `Tracking (${formatTime(this.totalActiveSeconds)})`;
+      }
     }
 
     const projectLabel = selection
@@ -74,11 +85,16 @@ export class TrayManager {
           },
         }
       : { label: `v${updateState.current}`, type: "normal", enabled: false };
-    this.tray.setToolTip(
-      updateState.isOutdated && updateState.latest
-        ? `Ailancers Tracker — update available (v${updateState.latest})`
-        : "Ailancers Tracker"
-    );
+    // Tooltip priority: disconnected warning > update available > default.
+    // Disconnected wins because it's the most urgent state — the user's time
+    // isn't reaching the server until it's resolved.
+    let tooltip = "Ailancers Tracker";
+    if (this.healthState === "disconnected") {
+      tooltip = "⚠ Ailancers Tracker — disconnected (heartbeats failing)";
+    } else if (updateState.isOutdated && updateState.latest) {
+      tooltip = `Ailancers Tracker — update available (v${updateState.latest})`;
+    }
+    this.tray.setToolTip(tooltip);
 
     const template: Electron.MenuItemConstructorOptions[] = [
       { label: "Ailancers Tracker", type: "normal", enabled: false },
@@ -147,6 +163,31 @@ export class TrayManager {
 
   resetActiveTime(): void {
     this.totalActiveSeconds = 0;
+  }
+
+  /** Update the displayed heartbeat-health state. Wired to
+   *  TelemetryService.onHealthChange in main/index.ts. When state flips to
+   *  "disconnected" we also fire a native notification so the user sees the
+   *  warning without having to open the tray menu. The OS-level notification
+   *  is one-shot per state-flip (not throttled internally) because the
+   *  listener itself only fires on actual transitions. */
+  setHealthState(state: "ok" | "disconnected"): void {
+    const previous = this.healthState;
+    this.healthState = state;
+    if (previous === "ok" && state === "disconnected" && Notification.isSupported()) {
+      new Notification({
+        title: "Ailancers Tracker — disconnected",
+        body: "Heartbeats are failing. Your time is NOT being saved. The tracker will reconnect automatically when the server is back.",
+        icon: getIconPath(),
+      }).show();
+    } else if (previous === "disconnected" && state === "ok" && Notification.isSupported()) {
+      new Notification({
+        title: "Ailancers Tracker — reconnected",
+        body: "Heartbeats are flowing again. Your time is being saved.",
+        icon: getIconPath(),
+        silent: true,
+      }).show();
+    }
   }
 
   showLoginWindow(): void {

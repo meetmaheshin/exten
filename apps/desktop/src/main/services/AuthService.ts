@@ -125,17 +125,32 @@ export class AuthService extends EventEmitter {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      if (!resp.ok) {
+      if (resp.ok) {
+        const data = await resp.json() as { token?: string };
+        const newToken = data.token || token;
+        this.accessToken = newToken;
+        this.secureStore.set(TOKEN_KEY, newToken);
+        return newToken;
+      }
+
+      // Token is genuinely invalid → clear credentials and force re-login.
+      // Anything else (5xx, 429, 504) means "platform couldn't answer right
+      // now" — keep the stored token and just return null so the caller's
+      // request fails this cycle. Next heartbeat will retry with the same
+      // token; when the platform comes back, things resume automatically
+      // without the user having to sign in again.
+      //
+      // This was a real production bug: a 502 from the platform's nginx
+      // (server restart) was logging users out and forcing them to
+      // re-authenticate every time something blipped.
+      if (resp.status === 401 || resp.status === 403) {
         this.clearCredentials();
         return null;
       }
-
-      const data = await resp.json() as { token?: string };
-      const newToken = data.token || token;
-      this.accessToken = newToken;
-      this.secureStore.set(TOKEN_KEY, newToken);
-      return newToken;
+      return null;
     } catch {
+      // Network error / DNS / TLS handshake failure — same logic: don't
+      // clear creds, just fail this attempt.
       return null;
     }
   }

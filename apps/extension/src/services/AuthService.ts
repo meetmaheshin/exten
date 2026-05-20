@@ -155,9 +155,17 @@ export class AuthService {
       });
 
       if (!response.ok) {
-        this.accessToken = null;
-        await this.secrets.delete("ailancers.platformToken");
-        this.notifyListeners(false);
+        // Only clear credentials on a real auth failure (401/403). For 5xx,
+        // 429, etc. the token is probably still valid — the platform just
+        // can't answer right now. Returning null without deleting the
+        // stored token lets the next heartbeat retry against the same
+        // token. Without this guard, a brief platform outage forced every
+        // user to re-sign-in.
+        if (response.status === 401 || response.status === 403) {
+          this.accessToken = null;
+          await this.secrets.delete("ailancers.platformToken");
+          this.notifyListeners(false);
+        }
         return null;
       }
 

@@ -17,12 +17,30 @@ export class TelemetryService {
   private activeProjectName: string | null = null;
   private activeTaskName: string | null = null;
   private onFlushCallback: ((result: TelemetryFlushResult) => void) | null = null;
+  // Heartbeat-health tracking. consecutiveFailures counts how many
+  // heartbeats in a row have hit a network error or auth failure. When it
+  // crosses the threshold we surface the "disconnected" state via the
+  // listener (tray uses this to show a warning badge + notification).
+  private consecutiveFailures = 0;
+  private healthState: "ok" | "disconnected" = "ok";
+  private onHealthChangeCallback: ((state: "ok" | "disconnected") => void) | null = null;
+  private static readonly FAILURE_THRESHOLD = 3;
 
   constructor(
     private apiClient: ApiClient,
     private activityTracker: ActivityTracker,
     private configStore: ConfigStore
   ) {}
+
+  /** Subscribe to heartbeat-health changes. Fires only when state flips
+   *  (ok → disconnected, or disconnected → ok), not on every heartbeat. */
+  onHealthChange(cb: (state: "ok" | "disconnected") => void): void {
+    this.onHealthChangeCallback = cb;
+  }
+
+  get health(): "ok" | "disconnected" {
+    return this.healthState;
+  }
 
   get sessionId(): string | null {
     return this._sessionId;
@@ -139,6 +157,14 @@ export class TelemetryService {
         `project=${this.activeProjectName ?? "—"} session=${this._sessionId}`
       );
 
+      // Heartbeat OK → reset failure counter, flip health back to ok if
+      // we were previously flagged as disconnected.
+      this.consecutiveFailures = 0;
+      if (this.healthState !== "ok") {
+        this.healthState = "ok";
+        this.onHealthChangeCallback?.("ok");
+      }
+
       if (this.onFlushCallback) {
         this.onFlushCallback({
           activeSeconds: metrics.activeSeconds,
@@ -150,6 +176,19 @@ export class TelemetryService {
         `[Telemetry] Heartbeat FAILED — active=${metrics.activeSeconds}s idle=${metrics.idleSeconds}s ` +
         `session=${this._sessionId} error=${err instanceof Error ? err.message : String(err)}`
       );
+
+      // Track consecutive failures. Once we cross the threshold (3 in a row
+      // ≈ 3 minutes of heartbeat failures), flip to "disconnected" so the
+      // tray can warn the user. The flag only flips on the threshold-
+      // crossing tick; subsequent failures don't re-fire the listener.
+      this.consecutiveFailures += 1;
+      if (
+        this.consecutiveFailures >= TelemetryService.FAILURE_THRESHOLD &&
+        this.healthState !== "disconnected"
+      ) {
+        this.healthState = "disconnected";
+        this.onHealthChangeCallback?.("disconnected");
+      }
     }
   }
 

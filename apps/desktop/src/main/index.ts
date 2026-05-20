@@ -63,6 +63,13 @@ app.whenReady().then(async () => {
   updateCheck.start();
 
   // ─── Update tray timer on each heartbeat flush ───
+  // When heartbeat health flips, surface the change in the tray. Notification
+  // fires once on the "ok → disconnected" edge so users see a single warning
+  // when connectivity drops, not one per failed heartbeat.
+  telemetryService.onHealthChange((state) => {
+    trayManager.setHealthState(state);
+    trayManager.rebuildMenu();
+  });
   telemetryService.onFlush((result) => {
     trayManager.updateActiveTime(result.activeSeconds);
     trayManager.rebuildMenu();
