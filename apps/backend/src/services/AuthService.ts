@@ -23,6 +23,19 @@ export class AuthService {
   /** Cache: platform token → { payload, expiresAt } — avoids calling external API on every request */
   private platformTokenCache = new Map<string, { payload: JwtPayload; expiresAt: number }>();
 
+  /**
+   * Drop any cached platform-token payloads belonging to a given user.
+   * Call this when something on the user record changes that's embedded in
+   * the JWT payload (currently: role). Without this, an admin who promotes
+   * a freelancer to manager would have to wait up to 10 min OR restart the
+   * backend before the user's next request reflects the new role.
+   */
+  invalidateCacheForUser(userId: string): void {
+    for (const [token, entry] of this.platformTokenCache.entries()) {
+      if (entry.payload.sub === userId) this.platformTokenCache.delete(token);
+    }
+  }
+
   constructor(
     private db: Database,
     private env: Env

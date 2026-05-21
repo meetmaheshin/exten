@@ -487,6 +487,10 @@ tryAutoLogin();
       .set({ role: body.role, updatedAt: new Date() })
       .where(eq(users.id, userId));
 
+    // Evict any cached platform-token entries for this user so the role
+    // change is visible on their very next request, not 10 min later.
+    authService.invalidateCacheForUser(userId);
+
     return reply.send({ ok: true });
   });
 

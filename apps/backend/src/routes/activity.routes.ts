@@ -837,11 +837,18 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
     // Bucket users into manager groups. Manager identity = users.team value.
     // Anyone whose team is null/empty goes into "Unassigned".
     //
-    // Special case (Cattr parity): if a user is THEMSELVES a manager — i.e.
-    // someone else's team field matches their fullName — they get placed at
-    // the top of their own team's bucket instead of falling through to
-    // "Unassigned". This lets a manager who also tracks time see their own
-    // hours alongside their reports.
+    // Two special cases:
+    //   1. (Cattr parity) If a user is THEMSELVES a manager — i.e. someone
+    //      else's team field matches their fullName — they get placed at the
+    //      top of their own team's bucket instead of falling through to
+    //      "Unassigned". This lets a manager who also tracks time see their
+    //      own hours alongside their reports.
+    //   2. If the VIEWER is a manager (role=manager) and we're rendering
+    //      their own row, we must NOT bucket them under THEIR manager's name
+    //      (their `team` field points up the org chart). Without this, a
+    //      manager who logs in sees a second group titled with their boss's
+    //      name containing just themselves — which looks like a permissions
+    //      leak even though it isn't.
     const managerNames = new Set(
       visibleUsers
         .map((u) => (u.team || "").trim())
@@ -850,8 +857,14 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
     const groupBuckets = new Map<string, typeof visibleUsers>();
     for (const u of visibleUsers) {
       const team = (u.team || "").trim();
+      const isViewerAsManager =
+        u.id === me.id && !isAdmin && isManager && u.fullName;
       let key: string;
-      if (team) {
+      if (isViewerAsManager) {
+        // Force the manager-viewer's own row under their own fullName so the
+        // bucket key matches the group of reports we also keep for them.
+        key = u.fullName!;
+      } else if (team) {
         key = team;
       } else if (u.fullName && managerNames.has(u.fullName)) {
         // User is referenced as a manager by at least one report → bucket
