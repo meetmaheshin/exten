@@ -63,25 +63,28 @@ function dateNDaysAgo(n: number): string {
 }
 
 function cellStyle(cell: DateCell): React.CSSProperties {
+  // Pastels matched to Cattr's Time Report. Slightly softer than what we
+  // had before — easier to scan a long row, less migraine on dark monitors.
   if (cell.kind === "weekend") {
-    return { background: "#e8eaf6", color: "#5c6bc0", fontStyle: "italic" };
+    return { background: "#eef0fa", color: "#7780b8", fontStyle: "italic" };
   }
   if (cell.kind === "holiday") {
-    return { background: "#e3f2fd", color: "#1565c0", fontStyle: "italic" };
+    return { background: "#dff1ff", color: "#1565c0", fontStyle: "italic" };
   }
   if (cell.kind === "leave") {
-    return { background: "#fff3e0", color: "#bf360c", fontStyle: "italic" };
+    return { background: "#ffe9d6", color: "#b45309", fontStyle: "italic" };
   }
   if (cell.kind === "no-data") {
     // "Not Logged" is longer than the H:MM format; shrink the type so the
     // column doesn't widen when one user didn't track on a given day.
-    return { background: "#e0e0e0", color: "#666", fontSize: 10, fontStyle: "italic" as const };
+    return { background: "#f1f3f5", color: "#8a8f99", fontSize: 10, fontStyle: "italic" as const };
   }
-  // "data" — color by hours
+  // "data" — color by hours. Cattr-style pastels: green ≥7h, orange 4–7h,
+  // pink <4h. Text colors deepened so the value is legible on the tint.
   const hours = cell.activeSeconds / 3600;
-  if (hours >= 7) return { background: "#c8e6c9", color: "#1b5e20", fontWeight: 600 };
-  if (hours >= 4) return { background: "#ffcc80", color: "#e65100", fontWeight: 600 };
-  return { background: "#ffcdd2", color: "#c62828", fontWeight: 600 };
+  if (hours >= 7) return { background: "#cce5b8", color: "#2e7d32", fontWeight: 600 };
+  if (hours >= 4) return { background: "#fdd49e", color: "#b45309", fontWeight: 600 };
+  return { background: "#fbbcb6", color: "#b91c1c", fontWeight: 600 };
 }
 
 function tbBadgeColor(pct: number): string {
@@ -355,8 +358,8 @@ export default function TeamSnapshotPage() {
             <table style={{ borderCollapse: "collapse", fontSize: 12, width: "100%" }}>
               <thead>
                 <tr style={{ background: "var(--bg-secondary)" }}>
-                  <th style={thStyle}>Manager / Employee</th>
-                  <th style={{ ...thStyle, textAlign: "center", whiteSpace: "nowrap" }}>ATD</th>
+                  <th style={thStickyLeftStyle}>Manager / Employee</th>
+                  <th style={thStickyLeftAtdStyle}>ATD</th>
                   {data.dates.map((d) => (
                     <th key={d} style={{ ...thStyle, textAlign: "center", whiteSpace: "nowrap", minWidth: 76 }}>
                       <div style={{ fontWeight: 600 }}>{shortDate(d)}</div>
@@ -377,6 +380,7 @@ export default function TeamSnapshotPage() {
               </tbody>
             </table>
           </div>
+          <Legend />
         </div>
       )}
 
@@ -430,10 +434,54 @@ const thStyle: React.CSSProperties = {
   boxShadow: "0 1px 0 var(--border)",
 };
 
+// Pinned first-column header (Manager / Employee). Needs both top:0 AND
+// left:0 to stay anchored under horizontal + vertical scroll, plus a higher
+// z-index than the column-pinned td below it (which is z:1) so it wins at
+// the intersection.
+const thStickyLeftStyle: React.CSSProperties = {
+  ...thStyle,
+  left: 0,
+  zIndex: 3,
+  boxShadow: "1px 0 0 var(--border), 0 1px 0 var(--border)",
+  minWidth: 240,
+};
+
+// Pinned ATD header — second column. Offset by the width of the first
+// pinned column (240px) so they sit side-by-side on horizontal scroll.
+const thStickyLeftAtdStyle: React.CSSProperties = {
+  ...thStyle,
+  left: 240,
+  zIndex: 3,
+  boxShadow: "1px 0 0 var(--border), 0 1px 0 var(--border)",
+  textAlign: "center" as const,
+  whiteSpace: "nowrap" as const,
+};
+
 const tdStyle: React.CSSProperties = {
   padding: "8px 10px",
   borderBottom: "1px solid var(--border)",
   whiteSpace: "nowrap",
+};
+
+// Pinned-left body cells need a solid background so date columns scrolling
+// underneath don't bleed through the (default-transparent) cells. The
+// background is set per-row at the call site because manager-header rows
+// and employee rows use different fills.
+const tdStickyLeftStyle: React.CSSProperties = {
+  ...tdStyle,
+  position: "sticky" as const,
+  left: 0,
+  zIndex: 1,
+  boxShadow: "1px 0 0 var(--border)",
+  minWidth: 240,
+};
+
+const tdStickyLeftAtdStyle: React.CSSProperties = {
+  ...tdStyle,
+  position: "sticky" as const,
+  left: 240,
+  zIndex: 1,
+  boxShadow: "1px 0 0 var(--border)",
 };
 
 function ManagerBlock({ group, dates, showHeader }: { group: SnapshotGroup; dates: string[]; showHeader: boolean }) {
@@ -445,8 +493,8 @@ function ManagerBlock({ group, dates, showHeader }: { group: SnapshotGroup; date
           or the team-bandwidth aggregate (which would just be themselves
           and look bizarre at low utilization). */}
       {showHeader && (
-      <tr style={{ background: "rgba(99, 102, 241, 0.08)" }}>
-        <td style={{ ...tdStyle, fontWeight: 700 }}>
+      <tr style={{ background: "#e8e4f8" }}>
+        <td style={{ ...tdStickyLeftStyle, background: "#e8e4f8", fontWeight: 700 }}>
           👤 {group.managerName} ({group.employees.length})
           <span
             title={`Team logged ${(Object.values(group.perDateTeamAvgSeconds).reduce((a, c) => a + c, 0) * group.employees.length / 3600).toFixed(0)}h vs 8h × ${group.employees.length} × ${dates.filter((d) => { const wd = new Date(`${d}T00:00:00Z`).getUTCDay(); return wd !== 0 && wd !== 6; }).length} working days expected`}
@@ -484,7 +532,7 @@ function ManagerBlock({ group, dates, showHeader }: { group: SnapshotGroup; date
             </span>
           )}
         </td>
-        <td style={{ ...tdStyle, textAlign: "center", fontWeight: 700 }}>
+        <td style={{ ...tdStickyLeftAtdStyle, background: "#e8e4f8", textAlign: "center", fontWeight: 700 }}>
           {fmtHHMM(group.headerAtdSeconds)}
         </td>
         {dates.map((d) => {
@@ -511,7 +559,7 @@ function ManagerBlock({ group, dates, showHeader }: { group: SnapshotGroup; date
       {/* Employee rows */}
       {group.employees.map((emp) => (
         <tr key={emp.userId}>
-          <td style={tdStyle}>
+          <td style={{ ...tdStickyLeftStyle, background: "#ffffff" }}>
             {/* Indent under the manager-header bar when one is shown;
                 no indent when the viewer is an employee (no header above). */}
             <div style={{ paddingLeft: showHeader ? 18 : 0 }}>
@@ -570,7 +618,7 @@ function ManagerBlock({ group, dates, showHeader }: { group: SnapshotGroup; date
               <div style={{ fontSize: 10, color: "var(--text-muted)" }}>{emp.email}</div>
             </div>
           </td>
-          <td style={{ ...tdStyle, textAlign: "center", fontWeight: 600 }}>
+          <td style={{ ...tdStickyLeftAtdStyle, background: "#ffffff", textAlign: "center", fontWeight: 600 }}>
             {fmtHHMM(emp.atdSeconds)}
           </td>
           {dates.map((d) => {
@@ -593,5 +641,38 @@ function ManagerBlock({ group, dates, showHeader }: { group: SnapshotGroup; date
         </tr>
       ))}
     </>
+  );
+}
+
+// Legend strip — color chips match the cellStyle palette exactly. Lives
+// below the grid so a reader can decode the pastels at a glance. Cattr
+// shows the same row of swatches under their Time Report.
+function Legend() {
+  const chip = (bg: string, color: string, label: string) => (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+      <span style={{ display: "inline-block", width: 14, height: 14, borderRadius: 3, background: bg, border: `1px solid ${color}22` }} />
+      <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{label}</span>
+    </span>
+  );
+  return (
+    <div
+      style={{
+        padding: "10px 16px",
+        borderTop: "1px solid var(--border)",
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 16,
+        alignItems: "center",
+        background: "var(--bg-secondary)",
+      }}
+    >
+      {chip("#cce5b8", "#2e7d32", "≥ 7h tracked")}
+      {chip("#fdd49e", "#b45309", "4–7h tracked")}
+      {chip("#fbbcb6", "#b91c1c", "< 4h tracked")}
+      {chip("#eef0fa", "#7780b8", "Weekend")}
+      {chip("#dff1ff", "#1565c0", "Holiday")}
+      {chip("#ffe9d6", "#b45309", "Leave")}
+      {chip("#f1f3f5", "#8a8f99", "Not logged")}
+    </div>
   );
 }
