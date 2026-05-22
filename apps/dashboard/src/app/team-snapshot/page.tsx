@@ -493,8 +493,8 @@ function ManagerBlock({ group, dates, showHeader }: { group: SnapshotGroup; date
           or the team-bandwidth aggregate (which would just be themselves
           and look bizarre at low utilization). */}
       {showHeader && (
-      <tr style={{ background: "#e8e4f8" }}>
-        <td style={{ ...tdStickyLeftStyle, background: "#e8e4f8", fontWeight: 700 }}>
+      <tr style={{ background: "rgba(99, 102, 241, 0.08)" }}>
+        <td style={{ ...tdStickyLeftStyle, background: "#21223a", fontWeight: 700 }}>
           👤 {group.managerName} ({group.employees.length})
           <span
             title={`Team logged ${(Object.values(group.perDateTeamAvgSeconds).reduce((a, c) => a + c, 0) * group.employees.length / 3600).toFixed(0)}h vs 8h × ${group.employees.length} × ${dates.filter((d) => { const wd = new Date(`${d}T00:00:00Z`).getUTCDay(); return wd !== 0 && wd !== 6; }).length} working days expected`}
@@ -532,7 +532,7 @@ function ManagerBlock({ group, dates, showHeader }: { group: SnapshotGroup; date
             </span>
           )}
         </td>
-        <td style={{ ...tdStickyLeftAtdStyle, background: "#e8e4f8", textAlign: "center", fontWeight: 700 }}>
+        <td style={{ ...tdStickyLeftAtdStyle, background: "#21223a", textAlign: "center", fontWeight: 700 }}>
           {fmtHHMM(group.headerAtdSeconds)}
         </td>
         {dates.map((d) => {
@@ -559,7 +559,7 @@ function ManagerBlock({ group, dates, showHeader }: { group: SnapshotGroup; date
       {/* Employee rows */}
       {group.employees.map((emp) => (
         <tr key={emp.userId}>
-          <td style={{ ...tdStickyLeftStyle, background: "#ffffff" }}>
+          <td style={{ ...tdStickyLeftStyle, background: "var(--bg-card)" }}>
             {/* Indent under the manager-header bar when one is shown;
                 no indent when the viewer is an employee (no header above). */}
             <div style={{ paddingLeft: showHeader ? 18 : 0 }}>
@@ -618,7 +618,7 @@ function ManagerBlock({ group, dates, showHeader }: { group: SnapshotGroup; date
               <div style={{ fontSize: 10, color: "var(--text-muted)" }}>{emp.email}</div>
             </div>
           </td>
-          <td style={{ ...tdStickyLeftAtdStyle, background: "#ffffff", textAlign: "center", fontWeight: 600 }}>
+          <td style={{ ...tdStickyLeftAtdStyle, background: "var(--bg-card)", textAlign: "center", fontWeight: 600 }}>
             {fmtHHMM(emp.atdSeconds)}
           </td>
           {dates.map((d) => {

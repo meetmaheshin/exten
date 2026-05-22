@@ -1,21 +1,17 @@
 :root {
-  /* Light mode — modeled on Cattr's dashboard. The variable names stay
-     identical to the previous dark theme so every component picks up the
-     new palette without code changes. If we ever need the dark theme back,
-     git log -p globals.css → revert this block. */
-  --bg: #f4f5f9;            /* page background — very light grey */
-  --bg-secondary: #ffffff;  /* sidebar + table header background */
-  --bg-card: #ffffff;       /* card background */
-  --border: #e2e6ee;        /* hairline borders */
-  --text: #1f2937;          /* near-black body text */
-  --text-muted: #6b7280;    /* secondary text, captions, axis labels */
-  --primary: #6366f1;       /* indigo — buttons, links, manager-header tint */
-  --primary-hover: #4f46e5;
-  --success: #16a34a;       /* slightly deeper green for legibility on white */
-  --warning: #d97706;       /* deeper orange for legibility on white */
-  --danger: #dc2626;
-  --accent-blue: #2563eb;
-  --accent-purple: #7c3aed;
+  --bg: #0f1117;
+  --bg-secondary: #161822;
+  --bg-card: #1c1e2e;
+  --border: #2a2d3e;
+  --text: #e4e4e7;
+  --text-muted: #8b8d98;
+  --primary: #6366f1;
+  --primary-hover: #818cf8;
+  --success: #22c55e;
+  --warning: #eab308;
+  --danger: #ef4444;
+  --accent-blue: #3b82f6;
+  --accent-purple: #a855f7;
   --radius: 8px;
 }
 
@@ -224,7 +220,7 @@ td {
 }
 
 tr:hover {
-  background: rgba(99, 102, 241, 0.04);
+  background: rgba(255, 255, 255, 0.02);
 }
 
 tr:last-child td {
@@ -261,7 +257,7 @@ tr:last-child td {
 }
 
 .btn-secondary:hover {
-  background: rgba(99, 102, 241, 0.06);
+  background: rgba(255, 255, 255, 0.05);
   color: var(--text);
 }
 
@@ -328,7 +324,7 @@ tr:last-child td {
   vertical-align: middle;
 }
 .data-table tbody tr:hover {
-  background: rgba(99, 102, 241, 0.04);
+  background: rgba(255,255,255,0.02);
 }
 .data-table tbody tr:last-child td {
   border-bottom: none;
