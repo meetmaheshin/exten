@@ -51,28 +51,84 @@ async function loadActiveSecondsByUserDay(
   db: Database,
   opts: { userIds?: string[]; from?: Date; to?: Date },
 ): Promise<Map<string, number>> {
-  const conditions = [isNull(screenshots.deletedAt)];
+  // Identify users whose screenshots have been disabled by an admin. For
+  // them, screenshot count is structurally zero — but management has
+  // approved the work, so payroll should fall back to the legacy session
+  // active_seconds aggregate. Without this, screenshot-disabled users show
+  // "Not Logged" everywhere even when they worked all day.
+  const disabledConds = [eq(users.screenshotsDisabled, true)];
   if (opts.userIds && opts.userIds.length > 0) {
-    conditions.push(inArray(screenshots.userId, opts.userIds));
+    disabledConds.push(inArray(users.id, opts.userIds));
   }
-  if (opts.from) conditions.push(gte(screenshots.capturedAt, opts.from));
-  if (opts.to) conditions.push(lte(screenshots.capturedAt, opts.to));
-
-  const rows = await db
-    .select({
-      userId: screenshots.userId,
-      day: sql<string>`to_char(${screenshots.capturedAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`,
-      ssCount: sql<number>`count(*)::int`,
-    })
-    .from(screenshots)
-    .where(and(...conditions))
-    .groupBy(screenshots.userId, sql`to_char(${screenshots.capturedAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`);
+  const disabledRows = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(and(...disabledConds));
+  const disabledIds = new Set(disabledRows.map((r) => r.id));
 
   const out = new Map<string, number>();
-  for (const r of rows) {
-    const seconds = Math.min(r.ssCount * BILLABLE_SECONDS_PER_SCREENSHOT, 86400);
-    out.set(`${r.userId}|${r.day}`, seconds);
+
+  // 1. Screenshot-driven path — everyone NOT in the disabled set.
+  const ssConditions = [isNull(screenshots.deletedAt)];
+  if (opts.userIds && opts.userIds.length > 0) {
+    const enabled = opts.userIds.filter((id) => !disabledIds.has(id));
+    if (enabled.length === 0) {
+      // Fall through to the sessions path below; nothing to query here.
+    } else {
+      ssConditions.push(inArray(screenshots.userId, enabled));
+    }
+  } else if (disabledIds.size > 0) {
+    // No userIds filter from caller; explicitly EXCLUDE disabled users so
+    // they don't get a zero-count row that would override their sessions
+    // fallback below.
+    ssConditions.push(sql`${screenshots.userId} NOT IN (${sql.join(
+      Array.from(disabledIds).map((id) => sql`${id}`),
+      sql`, `,
+    )})`);
   }
+  if (opts.from) ssConditions.push(gte(screenshots.capturedAt, opts.from));
+  if (opts.to) ssConditions.push(lte(screenshots.capturedAt, opts.to));
+
+  // Skip the query entirely if the caller scoped to disabled-only users.
+  const shouldQuerySs =
+    !opts.userIds || opts.userIds.some((id) => !disabledIds.has(id));
+  if (shouldQuerySs) {
+    const ssRows = await db
+      .select({
+        userId: screenshots.userId,
+        day: sql<string>`to_char(${screenshots.capturedAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`,
+        ssCount: sql<number>`count(*)::int`,
+      })
+      .from(screenshots)
+      .where(and(...ssConditions))
+      .groupBy(screenshots.userId, sql`to_char(${screenshots.capturedAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`);
+    for (const r of ssRows) {
+      const seconds = Math.min(r.ssCount * BILLABLE_SECONDS_PER_SCREENSHOT, 86400);
+      out.set(`${r.userId}|${r.day}`, seconds);
+    }
+  }
+
+  // 2. Sessions fallback — only for users with screenshots_disabled = true.
+  //    Sums activity_sessions.active_seconds grouped by (user, day), where
+  //    day = the session's started_at in UTC. Capped at 86400 per day.
+  if (disabledIds.size > 0) {
+    const sessConditions = [inArray(activitySessions.userId, Array.from(disabledIds))];
+    if (opts.from) sessConditions.push(gte(activitySessions.startedAt, opts.from));
+    if (opts.to) sessConditions.push(lte(activitySessions.startedAt, opts.to));
+    const sessRows = await db
+      .select({
+        userId: activitySessions.userId,
+        day: sql<string>`to_char(${activitySessions.startedAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`,
+        seconds: sql<number>`coalesce(sum(least(${activitySessions.activeSeconds}, 86400)), 0)::int`,
+      })
+      .from(activitySessions)
+      .where(and(...sessConditions))
+      .groupBy(activitySessions.userId, sql`to_char(${activitySessions.startedAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`);
+    for (const r of sessRows) {
+      out.set(`${r.userId}|${r.day}`, Math.min(r.seconds, 86400));
+    }
+  }
+
   return out;
 }
 
@@ -778,23 +834,21 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
       GROUP BY s.user_id, day
     `);
 
-    const ssAgg = await db.execute<{ userId: string; day: string; ssCount: number }>(sql`
-      SELECT
-        ss.user_id::text AS "userId",
-        to_char(ss.captured_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS "day",
-        COUNT(*)::int AS "ssCount"
-      FROM screenshots ss
-      WHERE ss.user_id IN (${userIdList})
-        AND ss.deleted_at IS NULL
-        AND ss.captured_at >= ${fromTs}::timestamptz
-        AND ss.captured_at <= ${toTs}::timestamptz
-      GROUP BY ss.user_id, day
-    `);
+    // Per-(user, day) active seconds. Uses the shared helper so the
+    // screenshot-disabled fallback (sessions.active_seconds when admin has
+    // turned off screen capture for the user) applies here too. Without
+    // that fallback, anyone with screenshots disabled would render as
+    // "Not Logged" across the entire grid even when they worked all day.
+    const perDayActive = await loadActiveSecondsByUserDay(db, {
+      userIds: visibleIds,
+      from: new Date(fromTs),
+      to: new Date(toTs),
+    });
 
     // Merge the two aggregates by (userId, day). The cell value in the grid
-    // (activeSeconds field, kept for response-shape compatibility) is
-    // ssCount * 300 = billable seconds. autoCount/manualCount survive from
-    // the sessions query to support the all-manual flag below.
+    // (activeSeconds field, kept for response-shape compatibility) is the
+    // per-day number from loadActiveSecondsByUserDay.  autoCount/manualCount
+    // survive from the sessions query to support the all-manual flag below.
     const byUser = new Map<string, Map<string, AggRow>>();
     const userTotals = new Map<string, { active: number; auto: number; manual: number }>();
 
@@ -814,13 +868,10 @@ export function activityRoutes(app: FastifyInstance, authService: AuthService, d
       row.autoCount = r.autoCount;
       row.manualCount = r.manualCount;
     }
-    for (const r of ssAgg as unknown as Array<{ userId: string; day: string; ssCount: number }>) {
-      const row = upsert(r.userId, r.day);
-      // Cap at 24h per day per user just in case the screenshot count is
-      // wildly off (e.g. someone uploaded a backlog of 1000 shots). Real
-      // legit days won't hit this — a user can only physically take 288
-      // shots in a 24h day at the 5min cadence (≈ 86400s).
-      row.activeSeconds = Math.min(r.ssCount * BILLABLE_SECONDS_PER_SCREENSHOT, 86400);
+    for (const [key, seconds] of perDayActive) {
+      const [userId, day] = key.split("|");
+      const row = upsert(userId, day);
+      row.activeSeconds = seconds;
     }
 
     // Compute per-user totals from the merged rows
